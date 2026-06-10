@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibeloop.dev/schemas/task.schema.json",
+  "title": "VibeLoop Task",
+  "type": "object",
+  "required": [
+    "id",
+    "title",
+    "objective",
+    "write_scope",
+    "required_evidence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "default": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{2,}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 3
+    },
+    "objective": {
+      "type": "string",
+      "minLength": 10
+    },
+    "base_branch": {
+      "type": "string",
+      "default": "main"
+    },
+    "risk_area": {
+      "description": "Hint only. The harness reclassifies risk areas from changed paths via eval.yaml risk_classification. 'none' means no specific risk domain.",
+      "type": "string",
+      "enum": [
+        "none",
+        "auth",
+        "permission",
+        "billing",
+        "database_schema",
+        "deployment",
+        "ci_cd",
+        "eval_system",
+        "secrets",
+        "admin",
+        "security_policy",
+        "performance",
+        "ui",
+        "api",
+        "unknown"
+      ]
+    },
+    "human_approval_required": {
+      "type": "boolean"
+    },
+    "write_scope": {
+      "type": "object",
+      "required": [
+        "allowed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "allowed": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "forbidden": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "required_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "limits": {
+      "description": "Numeric enforcement of the small-patch principle. Stricter of task-level and eval.yaml-level applies.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_changed_files": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_changed_lines": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "agent_timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "acceptance": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "required_tests": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required_behaviors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "must_not": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
