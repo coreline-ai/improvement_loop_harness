@@ -1,3 +1,7 @@
+export * from './baseline.js';
+export * from './evidence.js';
+export * from './test-on-base.js';
+export * from './detectors/index.js';
 export * from './builtin.js';
 export * from './errors.js';
 export * from './gate-executor.js';

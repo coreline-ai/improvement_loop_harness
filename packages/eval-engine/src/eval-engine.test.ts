@@ -7,12 +7,18 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { GuardChangedFile } from '@vibeloop/guards';
+import { extractDiff, type GuardChangedFile } from '@vibeloop/guards';
 import type { EvalConfig, TaskDefinition } from '@vibeloop/task-protocol';
 import { describe, expect, it } from 'vitest';
+import { createTempGitRepo } from '../../../tests/helpers/repo.js';
+import { captureBaseline, type BaselineReport } from './baseline.js';
+import { detectAddsRegressionTest } from './detectors/adds-regression-test.js';
+import { detectImprovesLatency } from './detectors/improves-latency.js';
+import { detectIncreasesCoverage } from './detectors/increases-coverage.js';
 import { EvalInterpolationError } from './errors.js';
 import { interpolate, interpolationValues } from './interpolate.js';
 import { runGates } from './orchestrator.js';
+import { verifyTestOnBase } from './test-on-base.js';
 import type { GateRunContext } from './types.js';
 
 async function tempDir(prefix: string): Promise<string> {
@@ -252,5 +258,171 @@ describe('runGates', () => {
       'utf8'
     );
     await expect(realpath(context.worktreeRoot)).resolves.toBe(cwd);
+  });
+});
+
+describe('baseline, test-on-base, and evidence detection', () => {
+  it('marks adds_regression_test present only when the new test fails on base and passes on candidate', async () => {
+    const repo = await createTempGitRepo();
+    const baseRepoPath = path.join(
+      await tempDir('vibeloop-test-on-base-'),
+      'base'
+    );
+
+    await repo.write('src/value.cjs', 'module.exports = 1;\n');
+    await repo.git(['add', 'src/value.cjs']);
+    await repo.git(['commit', '-m', 'add base source']);
+    const baseCommit = (await repo.git(['rev-parse', 'HEAD'])).trim();
+    await repo.git(['worktree', 'add', '--detach', baseRepoPath, baseCommit]);
+
+    await repo.write('src/value.cjs', 'module.exports = 2;\n');
+    await repo.write(
+      'tests/regression.test.js',
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+    );
+    const diff = await extractDiff({ repoPath: repo.repoPath, baseCommit });
+    const artifactRoot = await tempDir('vibeloop-test-on-base-artifacts-');
+
+    const report = await verifyTestOnBase({
+      baseRepoPath,
+      candidateRepoPath: repo.repoPath,
+      candidatePatch: diff.candidatePatch,
+      changedFiles: diff.changedFiles,
+      requiredTests: ['node tests/regression.test.js'],
+      artifactRoot,
+      env: { PATH: process.env.PATH ?? '' }
+    });
+    const evidence = detectAddsRegressionTest({
+      changedFiles: diff.changedFiles,
+      testOnBase: report
+    });
+
+    expect(report.base_failed_candidate_passed).toBe(true);
+    expect(evidence).toMatchObject({
+      type: 'adds_regression_test',
+      status: 'present',
+      artifact_ref: 'reports/test-on-base.json'
+    });
+  });
+
+  it('marks a new test missing when it also passes on base', () => {
+    const evidence = detectAddsRegressionTest({
+      changedFiles: [
+        {
+          path: 'tests/noop.test.ts',
+          status: 'added',
+          isSymlink: false,
+          addedLines: 1,
+          deletedLines: 0
+        }
+      ],
+      testOnBase: {
+        schema_version: '1.0',
+        artifact_ref: 'reports/test-on-base.json',
+        test_files: ['tests/noop.test.ts'],
+        cases: [
+          {
+            command: 'node tests/noop.test.ts',
+            base_status: 'pass',
+            candidate_status: 'pass',
+            base_exit_code: 0,
+            candidate_exit_code: 0
+          }
+        ],
+        base_failed_candidate_passed: false
+      }
+    });
+
+    expect(evidence.status).toBe('missing');
+  });
+
+  it('reuses baseline cache on second run and treats missing latency baseline as inconclusive', async () => {
+    const dataDir = await tempDir('vibeloop-baseline-cache-');
+    const worktreeRoot = await tempDir('vibeloop-baseline-worktree-');
+    const firstArtifactRoot = await tempDir('vibeloop-baseline-artifacts-1-');
+    const secondArtifactRoot = await tempDir('vibeloop-baseline-artifacts-2-');
+    const countFile = path.join(worktreeRoot, 'count.txt');
+    const evalConfig = baseConfig([
+      {
+        name: 'latency_benchmark',
+        type: 'performance',
+        command:
+          "node -e \"const fs=require('node:fs'); const p='${WORKTREE_ROOT}/count.txt'; const n=fs.existsSync(p)?Number(fs.readFileSync(p,'utf8')):0; fs.writeFileSync(p,String(n+1)); console.log('latency_ms=100')\"",
+        required: false
+      }
+    ]);
+
+    const first = await captureBaseline({
+      evalConfig,
+      projectId: 'proj-cache',
+      baseCommit: 'base-1',
+      worktreeRoot,
+      artifactRoot: firstArtifactRoot,
+      dataDir,
+      env: { PATH: process.env.PATH ?? '' }
+    });
+    const second = await captureBaseline({
+      evalConfig,
+      projectId: 'proj-cache',
+      baseCommit: 'base-1',
+      worktreeRoot,
+      artifactRoot: secondArtifactRoot,
+      dataDir,
+      env: { PATH: process.env.PATH ?? '' }
+    });
+
+    await expect(readFile(countFile, 'utf8')).resolves.toBe('1');
+    expect(first.cache_hit).toBe(false);
+    expect(second.cache_hit).toBe(true);
+    expect(second.metrics.latency_ms).toBe(100);
+    expect(
+      detectImprovesLatency({
+        changedFiles: [],
+        candidateMetrics: { latency_ms: 90 }
+      }).status
+    ).toBe('inconclusive');
+  });
+
+  it('marks increases_coverage present when candidate coverage is higher than baseline', () => {
+    const baseline: BaselineReport = {
+      schema_version: '1.0',
+      project: 'coverage-fixture',
+      project_id: 'proj-coverage',
+      base_commit: 'base-coverage',
+      eval_config_hash: 'hash',
+      cache_key: 'cache',
+      cache_hit: false,
+      generated_at: new Date('2026-06-10T00:00:00.000Z').toISOString(),
+      gate_runs: [],
+      base_red_tests: [],
+      metrics: { coverage_percent: 70 }
+    };
+
+    const evidence = detectIncreasesCoverage({
+      changedFiles: [],
+      baseline,
+      candidateMetrics: { coverage_percent: 72 },
+      gateRuns: [
+        {
+          name: 'test_integrity',
+          type: 'integrity',
+          required: true,
+          command: 'builtin:test-integrity',
+          status: 'pass',
+          exit_code: 0,
+          started_at: null,
+          finished_at: null,
+          duration_ms: null,
+          stdout_ref: null,
+          stderr_ref: null,
+          summary: null
+        }
+      ]
+    });
+
+    expect(evidence).toMatchObject({
+      type: 'increases_coverage',
+      status: 'present'
+    });
   });
 });
