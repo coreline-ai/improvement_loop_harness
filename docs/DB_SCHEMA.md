@@ -185,6 +185,24 @@ model PullRequest {
   loopRun     LoopRun  @relation(fields: [loopRunId], references: [id])
 }
 
+model ImprovementCandidate {
+  id           String   @id @default(cuid())
+  projectId    String
+  source       String   // test_failure | typecheck | lint | security_scan | manual
+  fingerprint  String
+  title        String
+  evidenceRefs Json?
+  riskAreaHint String?
+  priority     Int      @default(0)
+  status       String   @default("proposed") // proposed|approved|queued|running|processed|dismissed
+  dismissReason String?
+  taskId       String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([projectId, fingerprint])
+}
+
 model SkillVersion {
   id          String   @id @default(cuid())
   name        String
@@ -217,3 +235,4 @@ model Learning {
 - `WorkspaceRun`은 cleanup, retry, forensic debugging에 필요하다.
 - `PullRequest`는 approval 이후 PR lifecycle을 추적한다.
 - `Learning`은 learnings.md/SKILL.md에 바로 쓰기 전 검토 queue 역할을 한다.
+- `ImprovementCandidate`는 자율 루프(MVP-4)의 발견 큐다. `@@unique([projectId, fingerprint])`가 같은 문제의 중복 발견을 차단하고, `dismissed` 상태 행이 "다시 제안하지 말 것" 기억 역할을 한다 ([AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md) §3).

@@ -135,3 +135,25 @@ Event envelope:
 
 - event `id`는 loop 단위 단조 증가 `seq`다 (`LoopEvent.seq`, [DB_SCHEMA.md](./DB_SCHEMA.md)). cuid 같은 비순서 id는 재전송 기준으로 쓸 수 없다.
 - Client는 `Last-Event-ID`를 보내 재연결할 수 있다. 서버는 해당 `seq` 이후의 이벤트를 DB에서 읽어 재전송한다.
+
+## 10. Candidate & Orchestrator API (MVP-4)
+
+자율 루프 제어 ([AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md)).
+
+```http
+GET  /api/projects/:projectId/candidates
+POST /api/projects/:projectId/candidates            # manual 등록
+POST /api/candidates/:candidateId/approve
+POST /api/candidates/:candidateId/dismiss
+POST /api/projects/:projectId/discovery/run         # 발견 1회 수동 트리거
+
+GET  /api/projects/:projectId/orchestrator          # 모드·예산 사용량·큐 상태
+POST /api/projects/:projectId/orchestrator/start    # body: { "mode": "supervised | auto" }
+POST /api/projects/:projectId/orchestrator/stop     # kill switch — 즉시 정지
+```
+
+규칙:
+
+- `stop`은 어떤 상태에서든 허용되는 최우선 명령이다. 실행 중 루프는 graceful cancel.
+- `start`의 기본 mode는 `supervised`다. `auto`는 명시적으로만.
+- guardrail 발동(예산 초과·연속 실패 차단기)은 orchestrator 상태 조회와 이벤트로 노출한다.

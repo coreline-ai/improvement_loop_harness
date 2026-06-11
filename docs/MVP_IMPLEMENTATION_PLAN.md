@@ -87,7 +87,26 @@ needs_human_review -> 불가
 rejected/failed/cancelled -> 불가
 ```
 
-## 6. 테스트 Fixture
+## 6. MVP-4: Autonomous Improvement Loop
+
+### 산출물
+
+- Improvement Discovery (테스트/typecheck/lint/security scan 수집기 + fingerprint dedup)
+- candidate → task.yaml 자동 생성기 (deterministic, 최소 write_scope)
+- Loop Orchestrator (순차 1개, supervised/auto 모드, latest base 갱신)
+- Safety guardrails (kill switch, 일일 루프/토큰 예산, 재시도 한도, 연속 실패 차단기, PR 상한)
+- Candidate/Orchestrator API + 승인 화면
+
+### 완료 조건
+
+- 발견 → 승인 → 루프 → draft PR → 다음 candidate가 무인으로 반복
+- 동일 문제 중복 발견 0 (fingerprint), dismissed 재제안 0
+- kill switch가 실행 중 루프를 graceful cancel하고 즉시 정지
+- 가드레일 각각이 발동 조건에서 정지/차단 동작
+
+상세 명세: [AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md)
+
+## 7. 테스트 Fixture
 
 최소 fixture:
 
@@ -110,7 +129,7 @@ rejected/failed/cancelled -> 불가
 | limits 초과 (대량 변경) | reject |
 | 게이트 timeout | status=error + required면 reject |
 
-## 7. 구현 순서 체크리스트
+## 8. 구현 순서 체크리스트
 
 - [ ] `task.schema.json` 확정
 - [ ] `eval.schema.json` 확정
@@ -133,7 +152,7 @@ rejected/failed/cancelled -> 불가
 - [ ] static report generator 작성
 - [ ] 단일 agent adapter 연결 (LLM localhost proxy 경유)
 
-## 8. 개발 중 금지사항
+## 9. 개발 중 금지사항
 
 ```text
 - 웹 UI부터 구현 금지

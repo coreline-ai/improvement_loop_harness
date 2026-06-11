@@ -15,6 +15,7 @@
 8. [API_SPEC.md](./API_SPEC.md) — API, SSE event, idempotency 요구사항
 9. [DB_SCHEMA.md](./DB_SCHEMA.md) — Prisma 모델 확장안
 10. [MVP_IMPLEMENTATION_PLAN.md](./MVP_IMPLEMENTATION_PLAN.md) — CLI 검증 커널 우선 구현 계획
+11. [AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md) — MVP-4 자율 발견·연속 실행 바깥 루프, autonomy 모드, guardrails
 
 ## 실제 계약 파일
 
@@ -24,7 +25,7 @@
 
 ## 개발 계획
 
-- [../dev-plan/implement_20260610_223129.md](../dev-plan/implement_20260610_223129.md) — 전체 개발 계획 (Phase 1~15, MVP-0~3, dev-plan 형식)
+- [../dev-plan/implement_20260610_223129.md](../dev-plan/implement_20260610_223129.md) — 전체 개발 계획 (Phase 1~17, MVP-0~4, dev-plan 형식)
 
 ## 검토 이력
 

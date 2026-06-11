@@ -26,6 +26,7 @@ task.yaml
 8. [`API_SPEC.md`](./API_SPEC.md)
 9. [`DB_SCHEMA.md`](./DB_SCHEMA.md)
 10. [`MVP_IMPLEMENTATION_PLAN.md`](./MVP_IMPLEMENTATION_PLAN.md)
+11. [`AUTONOMOUS_LOOP_SPEC.md`](./AUTONOMOUS_LOOP_SPEC.md)
 
 ## Schema source of truth
 

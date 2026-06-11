@@ -49,6 +49,8 @@
 - 복잡한 웹 시각화
 - 클라우드 runner provider
 
+자율 문제 발견과 연속 반복 실행(바깥 루프)은 MVP 커널 범위 밖이지만 제품의 최종 목표로, MVP-4 단계에서 [AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md)를 따라 구현한다.
+
 ## 5. 성공 기준
 
 | 기준 | 수용 조건 |

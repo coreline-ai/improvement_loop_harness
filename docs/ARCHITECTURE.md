@@ -36,7 +36,9 @@ PR / Approval / Skill Layer
 | Decision Engine | gate 결과로 최종 판정 (first-match-wins 우선순위 표) | 필수 |
 | Web Dashboard | run/report/approval 표시 | MVP-2 |
 | GitHub PR Manager | branch/commit/draft PR (PullRequest 엔티티로 루프와 분리 추적) | MVP-3 |
-| Skill Manager | learnings/SKILL.md 반영 | MVP-4 |
+| Improvement Discovery | 테스트/lint/scan 결과에서 candidate 자동 발견, fingerprint dedup | MVP-4 |
+| Loop Orchestrator (연속 실행) | candidate 큐 순차 처리, autonomy 모드, guardrails ([AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md)) | MVP-4 |
+| Skill Manager | learnings/SKILL.md 반영 | MVP-5 |
 
 ## 3. 검증 커널 실행 흐름
 
