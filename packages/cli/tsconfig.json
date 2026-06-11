@@ -6,9 +6,7 @@
     "composite": true,
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "include": [
-    "src/**/*.ts"
-  ],
+  "include": ["src/**/*.ts"],
   "references": [
     {
       "path": "../shared"
@@ -30,9 +28,10 @@
     },
     {
       "path": "../agent-adapters"
+    },
+    {
+      "path": "../report-html"
     }
   ],
-  "exclude": [
-    "src/**/*.test.ts"
-  ]
+  "exclude": ["src/**/*.test.ts"]
 }

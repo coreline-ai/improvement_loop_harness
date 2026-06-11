@@ -23,6 +23,9 @@
       "path": "./packages/agent-adapters"
     },
     {
+      "path": "./packages/report-html"
+    },
+    {
       "path": "./packages/cli"
     }
   ]

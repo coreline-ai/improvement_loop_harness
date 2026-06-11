@@ -32,18 +32,78 @@ function emptyUsage(): ProxyUsage {
   };
 }
 
-function addUsage(target: ProxyUsage, usage: unknown): void {
+function addUsage(target: ProxyUsage, usage: unknown): boolean {
   if (!usage || typeof usage !== 'object') {
-    target.requests += 1;
-    return;
+    return false;
   }
   const record = usage as Record<string, unknown>;
   target.prompt_tokens +=
-    typeof record.prompt_tokens === 'number' ? record.prompt_tokens : 0;
+    typeof record.prompt_tokens === 'number'
+      ? record.prompt_tokens
+      : typeof record.input_tokens === 'number'
+        ? record.input_tokens
+        : 0;
   target.completion_tokens +=
-    typeof record.completion_tokens === 'number' ? record.completion_tokens : 0;
+    typeof record.completion_tokens === 'number'
+      ? record.completion_tokens
+      : typeof record.output_tokens === 'number'
+        ? record.output_tokens
+        : 0;
   target.total_tokens +=
     typeof record.total_tokens === 'number' ? record.total_tokens : 0;
+  return true;
+}
+
+function sseDataPayloads(body: string): string[] {
+  return body
+    .split(/\r?\n\r?\n/)
+    .map((event) =>
+      event
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice('data:'.length).trimStart())
+        .join('\n')
+    )
+    .filter((payload) => payload.length > 0 && payload !== '[DONE]');
+}
+
+function collectUsageFromResponse(
+  contentType: string | null,
+  body: Buffer
+): unknown[] {
+  const text = body.toString('utf8');
+  if (contentType?.includes('application/json')) {
+    const parsed = JSON.parse(text) as { usage?: unknown };
+    return parsed.usage ? [parsed.usage] : [];
+  }
+  if (contentType?.includes('text/event-stream')) {
+    return sseDataPayloads(text).flatMap((payload) => {
+      try {
+        const parsed = JSON.parse(payload) as {
+          usage?: unknown;
+          response?: { usage?: unknown };
+        };
+        return parsed.response?.usage
+          ? [parsed.response.usage]
+          : parsed.usage
+            ? [parsed.usage]
+            : [];
+      } catch {
+        return [];
+      }
+    });
+  }
+  return [];
+}
+
+function recordResponseUsage(
+  target: ProxyUsage,
+  contentType: string | null,
+  body: Buffer
+): void {
+  for (const usage of collectUsageFromResponse(contentType, body)) {
+    addUsage(target, usage);
+  }
   target.requests += 1;
 }
 
@@ -114,20 +174,9 @@ export async function startLlmProxy(
         response.setHeader('content-type', contentType);
       }
 
-      if (contentType?.includes('application/json')) {
-        const parsed = JSON.parse(upstreamBody.toString('utf8')) as {
-          usage?: unknown;
-        };
-        addUsage(usageByLoop.get(options.loopId) ?? emptyUsage(), parsed.usage);
-        usageByLoop.set(
-          options.loopId,
-          usageByLoop.get(options.loopId) ?? emptyUsage()
-        );
-      } else {
-        const usage = usageByLoop.get(options.loopId) ?? emptyUsage();
-        usage.requests += 1;
-        usageByLoop.set(options.loopId, usage);
-      }
+      const usage = usageByLoop.get(options.loopId) ?? emptyUsage();
+      recordResponseUsage(usage, contentType, upstreamBody);
+      usageByLoop.set(options.loopId, usage);
 
       logs.push(
         redact(

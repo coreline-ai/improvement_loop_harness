@@ -5,7 +5,13 @@ import path from 'node:path';
 import { extractDiff } from '@vibeloop/guards';
 import { describe, expect, it } from 'vitest';
 import { createTempGitRepo } from '../../../tests/helpers/repo.js';
-import { buildCodexEnv, CodexAgentAdapter } from './codex.js';
+import {
+  buildCodexCommand,
+  buildCodexDefaultArgs,
+  buildCodexEnv,
+  buildCodexProxyConfigArgs,
+  CodexAgentAdapter
+} from './codex.js';
 import { MockAgentAdapter } from './mock.js';
 import { startLlmProxy } from './proxy/server.js';
 
@@ -41,6 +47,62 @@ async function startMockUpstream(apiKey: string): Promise<{
         key_echo: apiKey
       })
     );
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('upstream failed to bind');
+  }
+
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    authorizations,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      })
+  };
+}
+
+async function startMockSseUpstream(): Promise<{
+  baseUrl: string;
+  close(): Promise<void>;
+  authorizations: string[];
+}> {
+  const authorizations: string[] = [];
+  const server = http.createServer(async (request, response) => {
+    authorizations.push(request.headers.authorization ?? '');
+    for await (const chunk of request) {
+      void chunk;
+    }
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    response.write(
+      [
+        'event: response.completed',
+        `data: ${JSON.stringify({
+          type: 'response.completed',
+          response: {
+            id: 'resp_mock',
+            status: 'completed',
+            usage: {
+              input_tokens: 5,
+              output_tokens: 6,
+              total_tokens: 11
+            }
+          }
+        })}`,
+        '',
+        ''
+      ].join('\n')
+    );
+    response.end();
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -102,6 +164,39 @@ describe('MockAgentAdapter', () => {
 });
 
 describe('CodexAgentAdapter', () => {
+  it('builds a command compatible with the current non-interactive Codex CLI', () => {
+    expect(
+      buildCodexCommand({
+        worktree: '/tmp/work tree',
+        taskFile: '/tmp/task file.yaml'
+      })
+    ).toBe("codex exec --cd '/tmp/work tree' - < '/tmp/task file.yaml'");
+  });
+
+  it('builds current Codex provider config args for the localhost proxy', () => {
+    expect(buildCodexProxyConfigArgs('http://127.0.0.1:4321')).toEqual([
+      '-c',
+      'model_provider="vibeloop-proxy"',
+      '-c',
+      'model_providers.vibeloop-proxy.name="VibeLoop Proxy"',
+      '-c',
+      'model_providers.vibeloop-proxy.base_url="http://127.0.0.1:4321/v1"',
+      '-c',
+      'model_providers.vibeloop-proxy.wire_api="responses"',
+      '-c',
+      'model_providers.vibeloop-proxy.experimental_bearer_token="vibeloop-proxy-placeholder"'
+    ]);
+  });
+
+  it('defaults Codex exec to non-interactive workspace-write mode', () => {
+    expect(buildCodexDefaultArgs('http://127.0.0.1:4321').slice(0, 4)).toEqual([
+      '-c',
+      'sandbox_mode="workspace-write"',
+      '-c',
+      'approval_policy="never"'
+    ]);
+  });
+
   it('scrubs real provider keys and exposes only the localhost proxy base URL', () => {
     const env = buildCodexEnv({
       sourceEnv: {
@@ -175,6 +270,36 @@ describe('LLM proxy', () => {
         prompt_tokens: 3,
         completion_tokens: 4,
         total_tokens: 7,
+        requests: 1
+      });
+      expect(proxy.logs.join('\n')).not.toContain(apiKey);
+    } finally {
+      await proxy.close();
+      await upstream.close();
+    }
+  });
+
+  it('tracks Responses API streaming usage from Codex-compatible SSE', async () => {
+    const apiKey = 'sk-test-sse-secret';
+    const upstream = await startMockSseUpstream();
+    const proxy = await startLlmProxy({
+      upstreamBaseUrl: upstream.baseUrl,
+      apiKey,
+      loopId: 'loop-proxy-sse'
+    });
+
+    try {
+      await fetch(`${proxy.baseUrl}/v1/responses`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'mock', input: 'hello', stream: true })
+      });
+
+      expect(upstream.authorizations).toEqual([`Bearer ${apiKey}`]);
+      expect(proxy.getUsage()).toEqual({
+        prompt_tokens: 5,
+        completion_tokens: 6,
+        total_tokens: 11,
         requests: 1
       });
       expect(proxy.logs.join('\n')).not.toContain(apiKey);

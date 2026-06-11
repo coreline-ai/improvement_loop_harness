@@ -3,6 +3,15 @@ import { defineWorkspace } from 'vitest/config';
 export default defineWorkspace([
   {
     test: {
+      name: 'report-html',
+      root: 'packages/report-html',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      exclude: ['dist/**', 'node_modules/**']
+    }
+  },
+  {
+    test: {
       name: 'agent-adapters',
       root: 'packages/agent-adapters',
       environment: 'node',

@@ -5,7 +5,7 @@ import {
   type AgentRunOptions,
   type AgentRunResult
 } from './adapter.js';
-import { joinShellCommand } from './shell.js';
+import { joinShellCommand, shellQuote } from './shell.js';
 
 export interface CodexEnvOptions {
   sourceEnv?: NodeJS.ProcessEnv | undefined;
@@ -54,13 +54,61 @@ export function buildCodexEnv(options: CodexEnvOptions): NodeJS.ProcessEnv {
   return env;
 }
 
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+export function buildCodexProxyBaseUrl(proxyBaseUrl: string): string {
+  const trimmed = proxyBaseUrl.replace(/\/+$/, '');
+  return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
+}
+
+export function buildCodexProxyConfigArgs(proxyBaseUrl: string): string[] {
+  const providerId = 'vibeloop-proxy';
+  return [
+    '-c',
+    `model_provider=${tomlString(providerId)}`,
+    '-c',
+    `model_providers.${providerId}.name=${tomlString('VibeLoop Proxy')}`,
+    '-c',
+    `model_providers.${providerId}.base_url=${tomlString(
+      buildCodexProxyBaseUrl(proxyBaseUrl)
+    )}`,
+    '-c',
+    `model_providers.${providerId}.wire_api=${tomlString('responses')}`,
+    '-c',
+    `model_providers.${providerId}.experimental_bearer_token=${tomlString(
+      'vibeloop-proxy-placeholder'
+    )}`
+  ];
+}
+
+export function buildCodexDefaultArgs(proxyBaseUrl: string): string[] {
+  return [
+    '-c',
+    `sandbox_mode=${tomlString('workspace-write')}`,
+    '-c',
+    `approval_policy=${tomlString('never')}`,
+    ...buildCodexProxyConfigArgs(proxyBaseUrl)
+  ];
+}
+
 export function buildCodexCommand(options: CodexCommandOptions): string {
   const binary = options.binary ?? 'codex';
   const appendDefaultArgs = options.appendDefaultArgs ?? true;
-  const defaultArgs = appendDefaultArgs
-    ? ['exec', '--cwd', options.worktree, '--task', options.taskFile]
-    : [];
-  return joinShellCommand([binary, ...defaultArgs, ...(options.args ?? [])]);
+  if (!appendDefaultArgs) {
+    return joinShellCommand([binary, ...(options.args ?? [])]);
+  }
+
+  const command = joinShellCommand([
+    binary,
+    'exec',
+    '--cd',
+    options.worktree,
+    ...(options.args ?? []),
+    '-'
+  ]);
+  return `${command} < ${shellQuote(options.taskFile)}`;
 }
 
 export class CodexAgentAdapter extends CommandAgentAdapter {
@@ -71,7 +119,13 @@ export class CodexAgentAdapter extends CommandAgentAdapter {
         worktree: runOptions.worktree,
         taskFile: runOptions.taskFile,
         appendDefaultArgs: options.appendDefaultArgs,
-        args: options.args
+        args:
+          options.appendDefaultArgs === false
+            ? options.args
+            : [
+                ...buildCodexDefaultArgs(options.proxyBaseUrl),
+                ...(options.args ?? [])
+              ]
       })
     );
   }

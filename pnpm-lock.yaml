@@ -64,6 +64,9 @@ importers:
       '@vibeloop/guards':
         specifier: workspace:*
         version: link:../guards
+      '@vibeloop/report-html':
+        specifier: workspace:*
+        version: link:../report-html
       '@vibeloop/shared':
         specifier: workspace:*
         version: link:../shared
@@ -97,6 +100,15 @@ importers:
       '@vibeloop/workspace-runner':
         specifier: workspace:*
         version: link:../workspace-runner
+
+  packages/report-html:
+    dependencies:
+      '@vibeloop/artifacts':
+        specifier: workspace:*
+        version: link:../artifacts
+      '@vibeloop/eval-engine':
+        specifier: workspace:*
+        version: link:../eval-engine
 
   packages/shared:
     dependencies:

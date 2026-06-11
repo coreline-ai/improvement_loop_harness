@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { createTempGitRepo } from '../../../tests/helpers/repo.js';
 import { EXIT_CODES } from './exit-codes.js';
 import { createProgram, VERSION } from './index.js';
+import { renderLoopHtmlReport } from './commands/report.js';
 import { retryLoop } from './commands/retry.js';
 import { runKernel } from './run.js';
 
@@ -176,6 +177,9 @@ describe('runKernel', () => {
     await expect(fileExists(path.join(result.layout.input, 'env-snapshot.json'))).resolves.toBe(true);
     await expect(fileExists(path.join(result.layout.workspace, 'workspace-ref.json'))).resolves.toBe(true);
     expect(report.artifact_refs).toContain('workspace/workspace-ref.json');
+    const html = await renderLoopHtmlReport({ dataDir, loopId: result.loopId });
+    expect(html.fileUrl).toMatch(/^file:\/\//);
+    expect(await readFile(html.path, 'utf8')).toContain('VibeLoop Eval Report');
   });
 
   it('rejects guard failures, still writes eval-report.json, and skips project gates', async () => {

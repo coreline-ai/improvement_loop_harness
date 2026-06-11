@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, stat, symlink } from 'node:fs/promises';
+import { access, mkdtemp, readFile, stat, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -11,7 +11,7 @@ import {
   readManifest,
   verifyArtifactChecksums
 } from './manifest.js';
-import { collectExpired } from './retention.js';
+import { collectExpired, deleteExpiredRuns } from './retention.js';
 import { createRedactor } from './redaction.js';
 import { readArtifactText, writeArtifact } from './writer.js';
 
@@ -143,6 +143,76 @@ describe('manifest finalization', () => {
 });
 
 describe('retention', () => {
+  it('deletes only expired runs while preserving manifest and deletion record outside the run root', async () => {
+    const dataDir = await tempDataDir();
+    const finalizedAt = new Date('2026-06-10T01:00:00.000Z');
+    const freshFinalizedAt = plusDays(finalizedAt, 10);
+    const expiredLayout = await createRunDir({
+      dataDir,
+      projectId: 'proj-gc',
+      loopId: 'loop-expired'
+    });
+    const freshLayout = await createRunDir({
+      dataDir,
+      projectId: 'proj-gc',
+      loopId: 'loop-fresh'
+    });
+
+    await initializeManifest(expiredLayout, { createdAt: finalizedAt });
+    await writeArtifact(expiredLayout.root, 'reports/eval-report.json', '{}\n');
+    await finalizeManifest(expiredLayout, {
+      status: 'rejected',
+      decision: 'rejected',
+      finalizedAt
+    });
+
+    await initializeManifest(freshLayout, { createdAt: freshFinalizedAt });
+    await writeArtifact(freshLayout.root, 'reports/eval-report.json', '{}\n');
+    await finalizeManifest(freshLayout, {
+      status: 'rejected',
+      decision: 'rejected',
+      finalizedAt: freshFinalizedAt
+    });
+
+    const records = await deleteExpiredRuns(dataDir, plusDays(finalizedAt, 31));
+
+    expect(records).toHaveLength(1);
+    expect(records[0]?.loop_id).toBe('loop-expired');
+    await expect(access(expiredLayout.root)).rejects.toThrow();
+    await expect(access(freshLayout.root)).resolves.toBeUndefined();
+    await expect(
+      readFile(
+        path.join(
+          dataDir,
+          'projects',
+          'proj-gc',
+          'gc',
+          'deleted-runs',
+          'loop-expired',
+          'preserved-manifest.json'
+        ),
+        'utf8'
+      )
+    ).resolves.toContain('loop-expired');
+    await expect(
+      readFile(
+        path.join(
+          dataDir,
+          'projects',
+          'proj-gc',
+          'gc',
+          'deleted-runs',
+          'loop-expired',
+          'deletion-record.json'
+        ),
+        'utf8'
+      )
+    ).resolves.toContain('preserved_manifest_path');
+    await expect(
+      collectExpired(dataDir, plusDays(finalizedAt, 31))
+    ).resolves.toHaveLength(0);
+  });
+
   it('sets rejected runs to expire thirty days after finalization and collects them when due', async () => {
     const dataDir = await tempDataDir();
     const finalizedAt = new Date('2026-06-10T01:00:00.000Z');
