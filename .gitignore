@@ -7,3 +7,9 @@ coverage/
 .env.*
 !.env.example
 .DS_Store
+
+# Next.js
+.next/
+apps/*/.next/
+playwright-report/
+test-results/

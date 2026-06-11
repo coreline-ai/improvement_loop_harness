@@ -6,6 +6,10 @@ export default [
   {
     ignores: [
       'node_modules/**',
+      '**/node_modules/**',
+      'apps/*/.next/**',
+      'apps/*/playwright-report/**',
+      'apps/*/test-results/**',
       'packages/*/dist/**',
       'coverage/**',
       '.vibeloop/**',
@@ -16,7 +20,7 @@ export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    files: ['**/*.ts', '**/*.js'],
+    files: ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.mjs'],
     languageOptions: {
       globals: globals.node
     },

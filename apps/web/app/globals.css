@@ -1,0 +1,68 @@
+:root {
+  color-scheme: light;
+  --bg: #f7f6f2;
+  --panel: #ffffff;
+  --panel-strong: #111827;
+  --ink: #151923;
+  --muted: #667085;
+  --line: #e4e1d8;
+  --accent: #315f58;
+  --accent-2: #9a5b32;
+  --good: #157347;
+  --bad: #b42318;
+  --warn: #b54708;
+  --radius: 18px;
+  --shadow: 0 24px 80px rgba(25, 30, 40, 0.08);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: radial-gradient(circle at top left, rgba(49,95,88,.14), transparent 34rem), var(--bg);
+  color: var(--ink);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+a { color: inherit; text-decoration: none; }
+button, input, textarea { font: inherit; }
+
+.shell { min-height: 100vh; display: grid; grid-template-columns: 260px 1fr; }
+.sidebar { padding: 28px; background: #111827; color: #f8fafc; }
+.brand { font-weight: 800; letter-spacing: -0.04em; font-size: 24px; }
+.sidebar p { color: #a6b0c1; line-height: 1.55; margin: 12px 0 28px; }
+.nav { display: grid; gap: 8px; }
+.nav a { padding: 11px 12px; border-radius: 12px; color: #dce3ee; }
+.nav a:hover { background: rgba(255,255,255,.08); }
+.main { padding: 34px; max-width: 1280px; width: 100%; }
+.topline { color: var(--muted); font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; }
+h1 { margin: 8px 0 10px; letter-spacing: -0.05em; font-size: clamp(34px, 5vw, 58px); line-height: .95; }
+h2 { margin: 0 0 14px; letter-spacing: -0.03em; }
+.lede { color: var(--muted); font-size: 17px; line-height: 1.6; max-width: 760px; }
+.grid { display: grid; gap: 18px; }
+.grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 22px; }
+.card.compact { padding: 16px; }
+.section { margin-top: 28px; }
+.meta { color: var(--muted); font-size: 13px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.stack { display: grid; gap: 12px; }
+.table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 14px; }
+.table th, .table td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.table th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; background: #edf2f7; color: #334155; }
+.badge.accept, .badge.accepted, .badge.approved, .badge.pass { background: #dcfce7; color: var(--good); }
+.badge.reject, .badge.rejected, .badge.failed, .badge.error, .badge.fail { background: #fee4e2; color: var(--bad); }
+.badge.needs_human_review, .badge.pending, .badge.queued, .badge.running { background: #fef3c7; color: var(--warn); }
+.badge.needs_more_tests, .badge.skipped { background: #e0f2fe; color: #0369a1; }
+.cta, .button { border: 0; cursor: pointer; background: var(--accent); color: white; border-radius: 12px; padding: 10px 13px; font-weight: 800; }
+.button.secondary { background: #e9e6dd; color: #28313f; }
+.button.danger { background: var(--bad); }
+.button.warn { background: var(--warn); }
+.input { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: #fff; }
+textarea.input { min-height: 86px; resize: vertical; }
+.code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 13px; background: #101828; color: #e6edf3; padding: 14px; border-radius: 14px; overflow: auto; }
+.log { max-height: 360px; overflow: auto; }
+.empty { color: var(--muted); padding: 18px; border: 1px dashed var(--line); border-radius: 14px; background: rgba(255,255,255,.5); }
+.pass-banner { display: inline-flex; align-items: center; gap: 10px; background: #dcfce7; color: var(--good); border: 1px solid #9ae6b4; border-radius: 16px; padding: 12px 14px; font-weight: 900; }
+.link { color: var(--accent); font-weight: 800; }
+@media (max-width: 860px) { .shell { grid-template-columns: 1fr; } .sidebar { position: static; } .grid.two, .grid.three { grid-template-columns: 1fr; } .main { padding: 22px; } }
