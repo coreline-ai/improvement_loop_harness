@@ -44,6 +44,21 @@ importers:
         specifier: ^14.0.2
         version: 14.0.3
 
+  packages/eval-engine:
+    dependencies:
+      '@vibeloop/guards':
+        specifier: workspace:*
+        version: link:../guards
+      '@vibeloop/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@vibeloop/task-protocol':
+        specifier: workspace:*
+        version: link:../task-protocol
+      '@vibeloop/workspace-runner':
+        specifier: workspace:*
+        version: link:../workspace-runner
+
   packages/guards:
     dependencies:
       '@vibeloop/workspace-runner':

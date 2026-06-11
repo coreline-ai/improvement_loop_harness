@@ -3,6 +3,15 @@ import { defineWorkspace } from 'vitest/config';
 export default defineWorkspace([
   {
     test: {
+      name: 'eval-engine',
+      root: 'packages/eval-engine',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      exclude: ['dist/**', 'node_modules/**']
+    }
+  },
+  {
+    test: {
       name: 'guards',
       root: 'packages/guards',
       environment: 'node',

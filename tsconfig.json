@@ -17,6 +17,9 @@
       "path": "./packages/guards"
     },
     {
+      "path": "./packages/eval-engine"
+    },
+    {
       "path": "./packages/cli"
     }
   ]
