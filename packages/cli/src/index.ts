@@ -1,5 +1,10 @@
 import { Command } from 'commander';
 import { getDataDir } from '@vibeloop/shared';
+import { registerGcCommand } from './commands/gc.js';
+import { registerReportCommand } from './commands/report.js';
+import { registerRetryCommand } from './commands/retry.js';
+import { registerRunCommand } from './commands/run.js';
+import { EXIT_CODES } from './exit-codes.js';
 
 export const VERSION = '0.1.0';
 
@@ -12,9 +17,23 @@ export function createProgram(): Command {
     .version(VERSION)
     .option('--data-dir <path>', 'VibeLoop data directory', getDataDir());
 
+  registerRunCommand(program);
+  registerRetryCommand(program);
+  registerReportCommand(program);
+  registerGcCommand(program);
+
   return program;
 }
 
 export function runCli(argv: string[] = process.argv): void {
-  createProgram().parse(argv);
+  createProgram()
+    .parseAsync(argv)
+    .catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = EXIT_CODES.failed;
+    });
 }
+
+export * from './exit-codes.js';
+export * from './run.js';
+export * from './commands/retry.js';

@@ -20,7 +20,13 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@vibeloop/agent-adapters": "workspace:*",
+    "@vibeloop/artifacts": "workspace:*",
+    "@vibeloop/eval-engine": "workspace:*",
+    "@vibeloop/guards": "workspace:*",
     "@vibeloop/shared": "workspace:*",
+    "@vibeloop/task-protocol": "workspace:*",
+    "@vibeloop/workspace-runner": "workspace:*",
     "commander": "^14.0.2"
   }
 }

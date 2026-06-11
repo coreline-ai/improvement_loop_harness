@@ -12,6 +12,24 @@
   "references": [
     {
       "path": "../shared"
+    },
+    {
+      "path": "../task-protocol"
+    },
+    {
+      "path": "../artifacts"
+    },
+    {
+      "path": "../workspace-runner"
+    },
+    {
+      "path": "../guards"
+    },
+    {
+      "path": "../eval-engine"
+    },
+    {
+      "path": "../agent-adapters"
     }
   ],
   "exclude": [
