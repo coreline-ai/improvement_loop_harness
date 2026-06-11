@@ -1,0 +1,31 @@
+id: auth-invalid-login-401
+title: Invalid login should return 401
+objective: Invalid password login must return 401 instead of 500.
+base_branch: main
+risk_area: auth
+human_approval_required: true
+write_scope:
+  allowed:
+    - src/features/auth/
+    - src/app/api/auth/
+    - tests/auth/
+  forbidden:
+    - .github/
+    - eval.yaml
+    - scripts/
+    - .env
+    - .env.local
+required_evidence:
+  - fixes_reproduced_failure
+  - adds_regression_test
+limits:
+  max_changed_files: 10
+  max_changed_lines: 300
+  agent_timeout_seconds: 1800
+acceptance:
+  required_tests:
+    - tests/auth/login-invalid-password.test.ts
+  required_behaviors:
+    - invalid_password_returns_401
+  must_not:
+    - expose_password_hash

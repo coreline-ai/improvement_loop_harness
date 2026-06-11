@@ -1,6 +1,16 @@
 import { defineWorkspace } from 'vitest/config';
 
 export default defineWorkspace([
+
+  {
+    test: {
+      name: 'task-protocol',
+      root: 'packages/task-protocol',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      exclude: ['dist/**', 'node_modules/**']
+    }
+  },
   {
     test: {
       name: 'shared',

@@ -1,7 +1,14 @@
 {
   "files": [],
   "references": [
-    { "path": "./packages/shared" },
-    { "path": "./packages/cli" }
+    {
+      "path": "./packages/shared"
+    },
+    {
+      "path": "./packages/task-protocol"
+    },
+    {
+      "path": "./packages/cli"
+    }
   ]
 }

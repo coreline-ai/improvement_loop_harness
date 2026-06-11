@@ -1,0 +1,69 @@
+schema_version: "1.0"
+project: vibeloop-web
+mode: autonomous-improvement-loop
+protected_paths:
+  - .env
+  - .env.*
+  - eval.yaml
+  - scripts/eval.sh
+human_approval_risk_areas:
+  - auth
+  - database_schema
+risk_classification:
+  auth:
+    - src/features/auth/
+    - src/app/api/auth/
+  database_schema:
+    - prisma/
+limits:
+  max_changed_files: 20
+  max_changed_lines: 500
+  agent_timeout_seconds: 1800
+test_integrity:
+  forbidden_patterns:
+    - test.skip
+    - describe.skip
+    - it.only
+  suspicious_patterns:
+    - expect(true).toBe(true)
+baseline:
+  mode: cached_per_base_commit
+improvement_evidence:
+  required_any:
+    - fixes_reproduced_failure
+    - adds_regression_test
+gates:
+  - name: git_meta_integrity
+    type: integrity
+    command: builtin:git-meta-integrity
+    required: true
+    timeout_seconds: 30
+  - name: protected_files
+    type: scope
+    command: builtin:protected-files
+    required: true
+    timeout_seconds: 30
+  - name: diff_scope
+    type: scope
+    command: builtin:diff-scope
+    required: true
+    timeout_seconds: 30
+  - name: limits
+    type: integrity
+    command: builtin:limits
+    required: true
+  - name: test_integrity
+    type: integrity
+    command: builtin:test-integrity
+    required: true
+    timeout_seconds: 60
+  - name: typecheck
+    type: hard
+    command: npm run typecheck -- --task ${TASK_FILE} --base ${BASE_COMMIT}
+    required: true
+    timeout_seconds: 300
+  - name: unit_tests
+    type: hard
+    command: npm test
+    required: true
+    timeout_seconds: 600

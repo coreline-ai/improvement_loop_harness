@@ -1,0 +1,11 @@
+schema_version: "1.0"
+project: vibeloop-web
+gates:
+  - name: typecheck
+    type: hard
+    command: npm run typecheck
+    required: true
+  - name: diff_scope
+    type: scope
+    command: builtin:diff-scope
+    required: true

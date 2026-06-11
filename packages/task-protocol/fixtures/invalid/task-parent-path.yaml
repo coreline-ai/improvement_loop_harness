@@ -1,0 +1,8 @@
+id: bad-parent-path
+title: Bad parent path
+objective: This fixture should fail due to a parent directory traversal path.
+write_scope:
+  allowed:
+    - ../outside/
+required_evidence:
+  - adds_regression_test

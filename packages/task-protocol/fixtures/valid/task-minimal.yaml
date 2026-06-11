@@ -1,0 +1,10 @@
+id: ui-a11y-focus
+schema_version: "1.0"
+title: Add visible focus state
+objective: Task board keyboard focus should be visible.
+write_scope:
+  allowed:
+    - src/app/board/
+    - tests/a11y/
+required_evidence:
+  - improves_accessibility_score
