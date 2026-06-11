@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, type Approval, type Artifact, type EvalReport, type LoopEvent, type LoopRun, type Project, type Task } from '@prisma/client';
+import { Prisma, PrismaClient, type Approval, type Artifact, type EvalReport, type LoopEvent, type LoopRun, type Project, type PullRequest, type Task } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   ACTIVE_LOOP_STATUSES,
@@ -7,12 +7,14 @@ import {
   type CreateApprovalInput,
   type CreateLoopInput,
   type CreateProjectInput,
+  type CreatePullRequestInput,
   type CreateTaskInput,
   type EvalReportRecord,
   type JsonValue,
   type LoopEventRecord,
   type LoopRunRecord,
   type ProjectRecord,
+  type PullRequestRecord,
   type Store,
   type TaskRecord
 } from './types.js';
@@ -56,6 +58,10 @@ function approval(record: Approval): ApprovalRecord {
 }
 
 function artifact(record: Artifact): ArtifactRecord {
+  return record;
+}
+
+function pullRequest(record: PullRequest): PullRequestRecord {
   return record;
 }
 
@@ -337,5 +343,45 @@ export class PrismaStore implements Store {
         }
       })
     );
+  }
+
+
+  async getPullRequest(loopRunId: string): Promise<PullRequestRecord | null> {
+    const record = await this.prisma.pullRequest.findFirst({ where: { loopRunId }, orderBy: { createdAt: 'asc' } });
+    return record ? pullRequest(record) : null;
+  }
+
+  async createPullRequest(input: CreatePullRequestInput): Promise<PullRequestRecord> {
+    return pullRequest(
+      await this.prisma.pullRequest.create({
+        data: {
+          loopRunId: input.loopRunId,
+          branchName: input.branchName,
+          provider: input.provider ?? 'github',
+          ...(input.prUrl !== undefined ? { prUrl: input.prUrl } : {}),
+          ...(input.prNumber !== undefined ? { prNumber: input.prNumber } : {}),
+          status: input.status ?? 'creating'
+        }
+      })
+    );
+  }
+
+  async updatePullRequest(id: string, patch: Partial<PullRequestRecord>): Promise<PullRequestRecord | null> {
+    try {
+      return pullRequest(
+        await this.prisma.pullRequest.update({
+          where: { id },
+          data: {
+            ...(patch.branchName !== undefined ? { branchName: patch.branchName } : {}),
+            ...(patch.provider !== undefined ? { provider: patch.provider } : {}),
+            ...(patch.prUrl !== undefined ? { prUrl: patch.prUrl } : {}),
+            ...(patch.prNumber !== undefined ? { prNumber: patch.prNumber } : {}),
+            ...(patch.status !== undefined ? { status: patch.status } : {})
+          }
+        })
+      );
+    } catch {
+      return null;
+    }
   }
 }

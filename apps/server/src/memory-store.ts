@@ -6,12 +6,14 @@ import {
   type CreateApprovalInput,
   type CreateLoopInput,
   type CreateProjectInput,
+  type CreatePullRequestInput,
   type CreateTaskInput,
   type EvalReportRecord,
   type JsonValue,
   type LoopEventRecord,
   type LoopRunRecord,
   type ProjectRecord,
+  type PullRequestRecord,
   type Store,
   type TaskRecord
 } from './types.js';
@@ -50,6 +52,7 @@ export class MemoryStore implements Store {
   private readonly approvals = new Map<string, ApprovalRecord>();
   private readonly artifacts = new Map<string, ArtifactRecord[]>();
   private readonly reports = new Map<string, EvalReportRecord>();
+  private readonly pullRequests = new Map<string, PullRequestRecord>();
 
   async createProject(input: CreateProjectInput): Promise<ProjectRecord> {
     const record: ProjectRecord = {
@@ -280,5 +283,34 @@ export class MemoryStore implements Store {
     const record: EvalReportRecord = { ...input, id: id(), createdAt: now() };
     this.reports.set(record.id, record);
     return copy(record);
+  }
+
+
+  async getPullRequest(loopRunId: string): Promise<PullRequestRecord | null> {
+    return copy([...this.pullRequests.values()].find((pullRequest) => pullRequest.loopRunId === loopRunId) ?? null);
+  }
+
+  async createPullRequest(input: CreatePullRequestInput): Promise<PullRequestRecord> {
+    const record: PullRequestRecord = {
+      id: id(),
+      loopRunId: input.loopRunId,
+      provider: input.provider ?? 'github',
+      branchName: input.branchName,
+      prUrl: input.prUrl ?? null,
+      prNumber: input.prNumber ?? null,
+      status: input.status ?? 'creating',
+      createdAt: now(),
+      updatedAt: now()
+    };
+    this.pullRequests.set(record.id, record);
+    return copy(record);
+  }
+
+  async updatePullRequest(id: string, patch: Partial<PullRequestRecord>): Promise<PullRequestRecord | null> {
+    const current = this.pullRequests.get(id);
+    if (!current) return null;
+    const updated: PullRequestRecord = { ...current, ...patch, id, updatedAt: now() };
+    this.pullRequests.set(id, updated);
+    return copy(updated);
   }
 }

@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createApp } from './app.js';
+import type { CreatedPullRequest, PullRequestCreationContext, PullRequestManager } from './routes/pull-requests.js';
 import { MemoryStore } from './memory-store.js';
 import type { LoopRunRecord, Store, TaskRecord } from './types.js';
 
@@ -47,6 +48,45 @@ async function seedLoop(
     ...(artifactRoot ? { artifactRoot } : {})
   });
   return { task, loop };
+}
+
+
+class FakePullRequestManager implements PullRequestManager {
+  calls = 0;
+  createdPrCount = 0;
+  failNext = false;
+
+  async create(context: PullRequestCreationContext): Promise<CreatedPullRequest> {
+    this.calls += 1;
+    if (this.failNext) {
+      this.failNext = false;
+      throw new Error('push failed');
+    }
+    this.createdPrCount += 1;
+    return {
+      branchName: context.branchName,
+      prUrl: `https://github.com/coreline-ai/improvement_loop_harness/pull/${this.createdPrCount}`,
+      prNumber: this.createdPrCount
+    };
+  }
+}
+
+async function seedAcceptedLoopWithReport(store: Store, status = 'accepted'): Promise<{ loop: LoopRunRecord }> {
+  const { loop } = await seedLoop(store, status);
+  await store.createReport({
+    loopRunId: loop.id,
+    type: 'eval',
+    status: 'complete',
+    reportJson: {
+      decision: status === 'approved' || status === 'accepted' ? 'accept' : 'reject',
+      decision_reasons: [{ code: 'ALL_PASS', message: 'All required gates passed.' }],
+      gate_runs: [{ name: 'unit_tests', type: 'test', required: true, status: 'pass', exit_code: 0 }],
+      changed_files: [{ path: 'src/value.ts', status: 'modified', allowed_by_write_scope: true, protected: false }],
+      improvement_evidence: [{ type: 'adds_regression_test', status: 'present' }],
+      artifact_refs: ['patches/candidate.patch']
+    }
+  });
+  return { loop };
 }
 
 function sseIds(body: string): string[] {
@@ -162,6 +202,94 @@ describe('Fastify API auth and loop orchestration', () => {
 
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({ error: { code: 'APPROVAL_NOT_ALLOWED' } });
+  });
+
+
+
+  it('creates a draft PR only for accepted loops and records the PR lifecycle', async () => {
+    const store = new MemoryStore();
+    const { loop } = await seedAcceptedLoopWithReport(store, 'accepted');
+    const manager = new FakePullRequestManager();
+    const app = await createApp({ token: TOKEN, store, sseReplayOnly: true, pullRequestManager: manager });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    const replay = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: 'draft_created', prNumber: 1 });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toMatchObject({ status: 'draft_created', prNumber: 1 });
+    expect(manager.calls).toBe(1);
+  });
+
+  it('rejects pull request creation for forbidden loop states', async () => {
+    const store = new MemoryStore();
+    const forbidden = ['rejected', 'cancelled', 'failed', 'needs_more_tests', 'needs_human_review'];
+    const loops = [] as LoopRunRecord[];
+    for (const status of forbidden) {
+      loops.push((await seedAcceptedLoopWithReport(store, status)).loop);
+    }
+    const app = await createApp({ token: TOKEN, store, sseReplayOnly: true, pullRequestManager: new FakePullRequestManager() });
+
+    for (const loop of loops) {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/loops/${loop.id}/pull-request`,
+        headers: authHeaders()
+      });
+      expect(response.statusCode, loop.status).toBe(403);
+      expect(response.json(), loop.status).toMatchObject({ error: { code: 'PR_FORBIDDEN_FOR_LOOP_STATUS' } });
+    }
+    await app.close();
+  });
+
+  it('marks create_failed on push failure and retries without creating duplicate PR records', async () => {
+    const store = new MemoryStore();
+    const { loop } = await seedAcceptedLoopWithReport(store, 'approved');
+    const manager = new FakePullRequestManager();
+    manager.failNext = true;
+    const app = await createApp({ token: TOKEN, store, sseReplayOnly: true, pullRequestManager: manager });
+
+    const failed = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    const afterFailure = await app.inject({
+      method: 'GET',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    const succeeded = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    const afterSuccess = await app.inject({
+      method: 'GET',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(failed.statusCode).toBe(502);
+    expect(failed.json()).toMatchObject({ error: { code: 'PULL_REQUEST_CREATE_FAILED' } });
+    expect(afterFailure.statusCode).toBe(200);
+    expect(afterFailure.json()).toMatchObject({ status: 'create_failed' });
+    expect(succeeded.statusCode).toBe(200);
+    expect(succeeded.json()).toMatchObject({ status: 'draft_created', prNumber: 1 });
+    expect(afterSuccess.json().id).toBe(afterFailure.json().id);
+    expect(manager.calls).toBe(2);
+    expect(manager.createdPrCount).toBe(1);
   });
 
   it('blocks artifact path traversal with a realpath 404', async () => {

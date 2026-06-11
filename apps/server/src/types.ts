@@ -78,6 +78,18 @@ export interface ArtifactRecord {
   createdAt: Date;
 }
 
+export interface PullRequestRecord {
+  id: string;
+  loopRunId: string;
+  provider: string;
+  branchName: string;
+  prUrl?: string | null;
+  prNumber?: number | null;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface EvalReportRecord {
   id: string;
   loopRunId: string;
@@ -125,6 +137,15 @@ export interface CreateApprovalInput {
   status?: string;
 }
 
+export interface CreatePullRequestInput {
+  loopRunId: string;
+  branchName: string;
+  provider?: string;
+  prUrl?: string | null;
+  prNumber?: number | null;
+  status?: string;
+}
+
 export interface Store {
   createProject(input: CreateProjectInput): Promise<ProjectRecord>;
   listProjects(): Promise<ProjectRecord[]>;
@@ -158,6 +179,10 @@ export interface Store {
   listReports(loopRunId: string): Promise<EvalReportRecord[]>;
   getReport(id: string): Promise<EvalReportRecord | null>;
   createReport(input: Omit<EvalReportRecord, 'id' | 'createdAt'>): Promise<EvalReportRecord>;
+
+  getPullRequest(loopRunId: string): Promise<PullRequestRecord | null>;
+  createPullRequest(input: CreatePullRequestInput): Promise<PullRequestRecord>;
+  updatePullRequest(id: string, patch: Partial<PullRequestRecord>): Promise<PullRequestRecord | null>;
 }
 
 export const ACTIVE_LOOP_STATUSES = new Set([

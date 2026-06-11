@@ -9,6 +9,7 @@ import { registerArtifactRoutes } from './routes/artifacts.js';
 import { registerEventRoutes } from './routes/events.js';
 import { registerLoopRoutes } from './routes/loops.js';
 import { registerProjectRoutes } from './routes/projects.js';
+import { registerPullRequestRoutes, type PullRequestManager } from './routes/pull-requests.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import type { Store } from './types.js';
 
@@ -18,6 +19,7 @@ export interface CreateAppOptions {
   runner?: LoopRunner | undefined;
   sseReplayOnly?: boolean | undefined;
   logger?: boolean | undefined;
+  pullRequestManager?: PullRequestManager | undefined;
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
@@ -37,6 +39,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await registerEventRoutes(app, store, options.sseReplayOnly === undefined ? {} : { replayOnly: options.sseReplayOnly });
   await registerApprovalRoutes(app, store);
   await registerArtifactRoutes(app, store);
+  await registerPullRequestRoutes(app, store, options.pullRequestManager);
 
   return app;
 }
