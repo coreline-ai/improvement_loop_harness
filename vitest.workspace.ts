@@ -1,6 +1,15 @@
 import { defineWorkspace } from 'vitest/config';
 
 export default defineWorkspace([
+  {
+    test: {
+      name: 'artifacts',
+      root: 'packages/artifacts',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      exclude: ['dist/**', 'node_modules/**']
+    }
+  },
 
   {
     test: {
