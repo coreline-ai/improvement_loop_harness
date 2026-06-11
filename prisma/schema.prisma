@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  name           String
+  repoUrl        String?
+  localPath      String?
+  defaultBranch  String   @default("main")
+  evalConfigPath String   @default("eval.yaml")
+  status         String   @default("active")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  tasks          Task[]
+  learnings      Learning[]
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  projectId   String
+  title       String
+  objective   String
+  status      String   @default("draft")
+  riskArea    String?
+  writeScope  Json
+  acceptance  Json?
+  taskYaml    Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project     Project  @relation(fields: [projectId], references: [id])
+  loops       LoopRun[]
+}
+
+model LoopRun {
+  id              String   @id @default(cuid())
+  taskId          String
+  iteration       Int
+  status          String   @default("queued")
+  decision        String?
+  decisionReasons Json?
+  baseCommit      String?
+  candidateCommit String?
+  artifactRoot    String?
+  idempotencyKey  String?
+  requestHash     String?
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  task            Task     @relation(fields: [taskId], references: [id])
+  events          LoopEvent[]
+  agentRuns       AgentRun[]
+  workspaces      WorkspaceRun[]
+  gateRuns        GateRun[]
+  reports         EvalReport[]
+  approvals       Approval[]
+  artifacts       Artifact[]
+  pullRequests    PullRequest[]
+
+  @@unique([taskId, idempotencyKey])
+}
+
+model LoopEvent {
+  id        String   @id @default(cuid())
+  loopRunId String
+  seq       Int
+  type      String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  loopRun   LoopRun  @relation(fields: [loopRunId], references: [id])
+
+  @@unique([loopRunId, seq])
+}
+
+model WorkspaceRun {
+  id          String   @id @default(cuid())
+  loopRunId   String
+  kind        String
+  path        String
+  baseCommit  String
+  status      String   @default("active")
+  createdAt   DateTime @default(now())
+  cleanedAt   DateTime?
+
+  loopRun     LoopRun  @relation(fields: [loopRunId], references: [id])
+}
+
+model AgentRun {
+  id          String   @id @default(cuid())
+  loopRunId   String
+  agentType   String
+  command     String
+  model       String?
+  status      String
+  exitCode    Int?
+  stdoutRef   String?
+  stderrRef   String?
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+
+  loopRun     LoopRun  @relation(fields: [loopRunId], references: [id])
+}
+
+model GateRun {
+  id          String   @id @default(cuid())
+  loopRunId   String
+  name        String
+  type        String
+  required    Boolean
+  command     String
+  status      String
+  exitCode    Int?
+  durationMs  Int?
+  stdoutRef   String?
+  stderrRef   String?
+  summary     String?
+  startedAt   DateTime @default(now())
+  finishedAt  DateTime?
+
+  loopRun     LoopRun  @relation(fields: [loopRunId], references: [id])
+}
+
+model EvalReport {
+  id          String   @id @default(cuid())
+  loopRunId   String
+  type        String
+  status      String
+  reportJson  Json
+  summary     String?
+  artifactRef String?
+  createdAt   DateTime @default(now())
+
+  loopRun     LoopRun  @relation(fields: [loopRunId], references: [id])
+}
+
+model Artifact {
+  id          String   @id @default(cuid())
+  loopRunId   String
+  kind        String
+  path        String
+  sha256      String?
+  sizeBytes   Int?
+  redacted    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  loopRun     LoopRun  @relation(fields: [loopRunId], references: [id])
+}
+
+model Approval {
+  id               String   @id @default(cuid())
+  loopRunId        String
+  reason           String
+  status           String   @default("pending")
+  reviewerId       String?
+  decisionReason   String?
+  requestedChanges Json?
+  approvedAt       DateTime?
+  rejectedAt       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  loopRun          LoopRun  @relation(fields: [loopRunId], references: [id])
+}
+
+model PullRequest {
+  id          String   @id @default(cuid())
+  loopRunId   String
+  provider    String   @default("github")
+  branchName  String
+  prUrl       String?
+  prNumber    Int?
+  status      String   @default("draft")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  loopRun     LoopRun  @relation(fields: [loopRunId], references: [id])
+}
+
+model SkillVersion {
+  id          String   @id @default(cuid())
+  name        String
+  version     String
+  path        String
+  contentHash String
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Learning {
+  id           String   @id @default(cuid())
+  projectId    String?
+  sourceLoopId String?
+  status       String   @default("proposed")
+  title        String
+  body         String
+  evidenceRefs Json?
+  createdAt    DateTime @default(now())
+  reviewedAt   DateTime?
+
+  project      Project? @relation(fields: [projectId], references: [id])
+}

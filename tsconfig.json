@@ -26,6 +26,9 @@
       "path": "./packages/report-html"
     },
     {
+      "path": "./apps/server"
+    },
+    {
       "path": "./packages/cli"
     }
   ]
