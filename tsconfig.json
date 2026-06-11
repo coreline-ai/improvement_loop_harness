@@ -11,6 +11,9 @@
       "path": "./packages/artifacts"
     },
     {
+      "path": "./packages/workspace-runner"
+    },
+    {
       "path": "./packages/cli"
     }
   ]

@@ -3,6 +3,15 @@ import { defineWorkspace } from 'vitest/config';
 export default defineWorkspace([
   {
     test: {
+      name: 'workspace-runner',
+      root: 'packages/workspace-runner',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      exclude: ['dist/**', 'node_modules/**']
+    }
+  },
+  {
+    test: {
       name: 'artifacts',
       root: 'packages/artifacts',
       environment: 'node',

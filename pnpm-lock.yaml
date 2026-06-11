@@ -33,6 +33,8 @@ importers:
         specifier: ^4.0.15
         version: 4.1.8(@types/node@24.13.2)(vite@8.0.16(@types/node@24.13.2)(yaml@2.9.0))
 
+  packages/artifacts: {}
+
   packages/cli:
     dependencies:
       '@vibeloop/shared':
@@ -56,6 +58,8 @@ importers:
       yaml:
         specifier: ^2.8.2
         version: 2.9.0
+
+  packages/workspace-runner: {}
 
 packages:
 
