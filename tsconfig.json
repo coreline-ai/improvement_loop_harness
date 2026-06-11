@@ -20,6 +20,9 @@
       "path": "./packages/eval-engine"
     },
     {
+      "path": "./packages/agent-adapters"
+    },
+    {
       "path": "./packages/cli"
     }
   ]

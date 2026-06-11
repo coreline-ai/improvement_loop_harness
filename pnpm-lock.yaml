@@ -33,6 +33,21 @@ importers:
         specifier: ^4.0.15
         version: 4.1.8(@types/node@24.13.2)(vite@8.0.16(@types/node@24.13.2)(yaml@2.9.0))
 
+  packages/agent-adapters:
+    dependencies:
+      '@vibeloop/guards':
+        specifier: workspace:*
+        version: link:../guards
+      '@vibeloop/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@vibeloop/task-protocol':
+        specifier: workspace:*
+        version: link:../task-protocol
+      '@vibeloop/workspace-runner':
+        specifier: workspace:*
+        version: link:../workspace-runner
+
   packages/artifacts: {}
 
   packages/cli:
