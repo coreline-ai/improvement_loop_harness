@@ -1,0 +1,12 @@
+{
+  "name": "vibeloop-target-fixture",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "private": true,
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.15"
+  }
+}

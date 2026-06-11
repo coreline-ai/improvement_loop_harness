@@ -9,6 +9,7 @@ export default [
       'packages/*/dist/**',
       'coverage/**',
       '.vibeloop/**',
+      'tests/e2e/fixtures/**',
       '*.tsbuildinfo'
     ]
   },

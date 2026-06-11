@@ -1,4 +1,11 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  symlink,
+  writeFile
+} from 'node:fs/promises';
 import path from 'node:path';
 import { safeGit } from '@vibeloop/workspace-runner';
 import type {
@@ -10,6 +17,8 @@ import type {
 export type MockAction =
   | { type: 'create' | 'modify'; path: string; content: string }
   | { type: 'delete'; path: string }
+  | { type: 'rename'; from: string; to: string }
+  | { type: 'symlink'; path: string; target: string }
   | { type: 'commit'; message?: string | undefined }
   | { type: 'git_tamper'; path: string; content: string }
   | { type: 'sleep'; ms: number };
@@ -57,6 +66,18 @@ export async function applyMockScenario(
           force: true
         });
         break;
+      case 'rename': {
+        const target = path.join(worktree, action.to);
+        await mkdir(path.dirname(target), { recursive: true });
+        await rename(path.join(worktree, action.from), target);
+        break;
+      }
+      case 'symlink': {
+        const target = path.join(worktree, action.path);
+        await mkdir(path.dirname(target), { recursive: true });
+        await symlink(action.target, target);
+        break;
+      }
       case 'commit':
         await safeGit(worktree, ['add', '-A']);
         await safeGit(worktree, [

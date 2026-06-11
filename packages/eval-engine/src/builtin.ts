@@ -73,7 +73,8 @@ async function runBuiltinCheck(
       return checkTestIntegrity(
         context.worktreeRoot,
         context.changedFiles,
-        context.evalConfig.test_integrity ?? {}
+        context.evalConfig.test_integrity ?? {},
+        { baseCommit: context.baseCommit }
       );
     default:
       throw new BuiltinGateError(

@@ -70,7 +70,8 @@ async function walkFiles(root: string): Promise<string[]> {
 
 async function snapshotTarget(
   label: string,
-  targetPath: string
+  targetPath: string,
+  includeRelativePath: (relativePath: string) => boolean = () => true
 ): Promise<GitMetadataSnapshotEntry[]> {
   if (!(await exists(targetPath))) {
     return [];
@@ -79,18 +80,29 @@ async function snapshotTarget(
   const entries = await Promise.all(
     files.map(async (filePath) => {
       const fileStat = await stat(filePath);
-      const relativePath =
+      const nestedRelativePath =
         filePath === targetPath
+          ? ''
+          : path.relative(targetPath, filePath).split(path.sep).join('/');
+      const relativePath =
+        nestedRelativePath.length === 0
           ? label
-          : path.join(label, path.relative(targetPath, filePath));
+          : `${label}/${nestedRelativePath}`;
+      if (
+        !includeRelativePath(nestedRelativePath || path.basename(targetPath))
+      ) {
+        return undefined;
+      }
       return {
-        path: relativePath.split(path.sep).join('/'),
+        path: relativePath,
         sha256: await sha256(filePath),
         sizeBytes: fileStat.size
       };
     })
   );
-  return entries;
+  return entries.filter(
+    (entry): entry is GitMetadataSnapshotEntry => entry !== undefined
+  );
 }
 
 export async function snapshotGitMetadata(
@@ -105,18 +117,34 @@ export async function snapshotGitMetadata(
   const gitCommonDir = resolveGitPath(repoPath, commonDirOutput);
   const gitDir = resolveGitPath(repoPath, gitDirOutput);
 
-  const targets = [
+  const stableWorktreeMetadata = new Set([
+    'gitdir',
+    'commondir',
+    'config.worktree'
+  ]);
+  const targets: Array<{
+    label: string;
+    path: string;
+    includeRelativePath?: (relativePath: string) => boolean;
+  }> = [
     { label: 'config', path: path.join(gitCommonDir, 'config') },
     { label: 'hooks', path: path.join(gitCommonDir, 'hooks') }
   ];
 
   if (path.dirname(gitDir) === path.join(gitCommonDir, 'worktrees')) {
-    targets.push({ label: `worktrees/${path.basename(gitDir)}`, path: gitDir });
+    targets.push({
+      label: `worktrees/${path.basename(gitDir)}`,
+      path: gitDir,
+      includeRelativePath: (relativePath: string) =>
+        stableWorktreeMetadata.has(relativePath)
+    });
   }
 
   const entries = (
     await Promise.all(
-      targets.map((target) => snapshotTarget(target.label, target.path))
+      targets.map((target) =>
+        snapshotTarget(target.label, target.path, target.includeRelativePath)
+      )
     )
   )
     .flat()
