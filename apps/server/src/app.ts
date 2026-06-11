@@ -5,6 +5,7 @@ import { MemoryStore } from './memory-store.js';
 import { PrismaStore } from './prisma-store.js';
 import { InProcessLoopQueue, type LoopRunner } from './queue.js';
 import { registerApprovalRoutes } from './routes/approvals.js';
+import { registerCandidateRoutes } from './routes/candidates.js';
 import { registerArtifactRoutes } from './routes/artifacts.js';
 import { registerEventRoutes } from './routes/events.js';
 import { registerLoopRoutes } from './routes/loops.js';
@@ -38,6 +39,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await registerLoopRoutes(app, store, queue);
   await registerEventRoutes(app, store, options.sseReplayOnly === undefined ? {} : { replayOnly: options.sseReplayOnly });
   await registerApprovalRoutes(app, store);
+  await registerCandidateRoutes(app, store);
   await registerArtifactRoutes(app, store);
   await registerPullRequestRoutes(app, store, options.pullRequestManager);
 

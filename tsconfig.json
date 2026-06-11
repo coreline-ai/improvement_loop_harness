@@ -20,6 +20,9 @@
       "path": "./packages/github-integration"
     },
     {
+      "path": "./packages/discovery"
+    },
+    {
       "path": "./packages/eval-engine"
     },
     {

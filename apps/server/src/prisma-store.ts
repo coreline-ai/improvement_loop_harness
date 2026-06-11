@@ -1,15 +1,17 @@
-import { Prisma, PrismaClient, type Approval, type Artifact, type EvalReport, type LoopEvent, type LoopRun, type Project, type PullRequest, type Task } from '@prisma/client';
+import { Prisma, PrismaClient, type Approval, type Artifact, type EvalReport, type ImprovementCandidate, type LoopEvent, type LoopRun, type Project, type PullRequest, type Task } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   ACTIVE_LOOP_STATUSES,
   type ApprovalRecord,
   type ArtifactRecord,
   type CreateApprovalInput,
+  type CreateCandidateInput,
   type CreateLoopInput,
   type CreateProjectInput,
   type CreatePullRequestInput,
   type CreateTaskInput,
   type EvalReportRecord,
+  type ImprovementCandidateRecord,
   type JsonValue,
   type LoopEventRecord,
   type LoopRunRecord,
@@ -59,6 +61,13 @@ function approval(record: Approval): ApprovalRecord {
 
 function artifact(record: Artifact): ArtifactRecord {
   return record;
+}
+
+function improvementCandidate(record: ImprovementCandidate): ImprovementCandidateRecord {
+  return {
+    ...record,
+    evidenceRefs: record.evidenceRefs
+  };
 }
 
 function pullRequest(record: PullRequest): PullRequestRecord {
@@ -118,6 +127,67 @@ export class PrismaStore implements Store {
             ...(patch.defaultBranch !== undefined ? { defaultBranch: patch.defaultBranch } : {}),
             ...(patch.evalConfigPath !== undefined ? { evalConfigPath: patch.evalConfigPath } : {}),
             ...(patch.status !== undefined ? { status: patch.status } : {})
+          }
+        })
+      );
+    } catch {
+      return null;
+    }
+  }
+
+
+  async listCandidates(projectId: string): Promise<ImprovementCandidateRecord[]> {
+    return (
+      await this.prisma.improvementCandidate.findMany({
+        where: { projectId },
+        orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }]
+      })
+    ).map(improvementCandidate);
+  }
+
+  async getCandidate(id: string): Promise<ImprovementCandidateRecord | null> {
+    const record = await this.prisma.improvementCandidate.findUnique({ where: { id } });
+    return record ? improvementCandidate(record) : null;
+  }
+
+  async findCandidateByFingerprint(projectId: string, fingerprint: string): Promise<ImprovementCandidateRecord | null> {
+    const record = await this.prisma.improvementCandidate.findUnique({
+      where: { projectId_fingerprint: { projectId, fingerprint } }
+    });
+    return record ? improvementCandidate(record) : null;
+  }
+
+  async createCandidate(input: CreateCandidateInput): Promise<ImprovementCandidateRecord> {
+    return improvementCandidate(
+      await this.prisma.improvementCandidate.create({
+        data: {
+          projectId: input.projectId,
+          source: input.source,
+          fingerprint: input.fingerprint,
+          title: input.title,
+          ...(input.evidenceRefs !== undefined ? { evidenceRefs: json(input.evidenceRefs) } : {}),
+          ...(input.riskAreaHint !== undefined ? { riskAreaHint: input.riskAreaHint } : {}),
+          priority: input.priority ?? 0,
+          status: input.status ?? 'proposed'
+        }
+      })
+    );
+  }
+
+  async updateCandidate(id: string, patch: Partial<ImprovementCandidateRecord>): Promise<ImprovementCandidateRecord | null> {
+    try {
+      return improvementCandidate(
+        await this.prisma.improvementCandidate.update({
+          where: { id },
+          data: {
+            ...(patch.source !== undefined ? { source: patch.source } : {}),
+            ...(patch.title !== undefined ? { title: patch.title } : {}),
+            ...(patch.evidenceRefs !== undefined ? { evidenceRefs: json(patch.evidenceRefs) } : {}),
+            ...(patch.riskAreaHint !== undefined ? { riskAreaHint: patch.riskAreaHint } : {}),
+            ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
+            ...(patch.status !== undefined ? { status: patch.status } : {}),
+            ...(patch.dismissReason !== undefined ? { dismissReason: patch.dismissReason } : {}),
+            ...(patch.taskId !== undefined ? { taskId: patch.taskId } : {})
           }
         })
       );

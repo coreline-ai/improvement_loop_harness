@@ -4,11 +4,13 @@ import {
   type ApprovalRecord,
   type ArtifactRecord,
   type CreateApprovalInput,
+  type CreateCandidateInput,
   type CreateLoopInput,
   type CreateProjectInput,
   type CreatePullRequestInput,
   type CreateTaskInput,
   type EvalReportRecord,
+  type ImprovementCandidateRecord,
   type JsonValue,
   type LoopEventRecord,
   type LoopRunRecord,
@@ -45,6 +47,7 @@ function copy<T>(value: T): T {
 }
 
 export class MemoryStore implements Store {
+  private readonly candidates = new Map<string, ImprovementCandidateRecord>();
   private readonly projects = new Map<string, ProjectRecord>();
   private readonly tasks = new Map<string, TaskRecord>();
   private readonly loops = new Map<string, LoopRunRecord>();
@@ -89,6 +92,54 @@ export class MemoryStore implements Store {
     if (patch.evalConfigPath !== undefined) updated.evalConfigPath = patch.evalConfigPath;
     if (patch.status !== undefined) updated.status = patch.status;
     this.projects.set(id, updated);
+    return copy(updated);
+  }
+
+
+  async listCandidates(projectId: string): Promise<ImprovementCandidateRecord[]> {
+    return [...this.candidates.values()]
+      .filter((candidate) => candidate.projectId === projectId)
+      .sort((a, b) => b.priority - a.priority || a.createdAt.getTime() - b.createdAt.getTime())
+      .map(copy);
+  }
+
+  async getCandidate(id: string): Promise<ImprovementCandidateRecord | null> {
+    return copy(this.candidates.get(id) ?? null);
+  }
+
+  async findCandidateByFingerprint(projectId: string, fingerprint: string): Promise<ImprovementCandidateRecord | null> {
+    return copy(
+      [...this.candidates.values()].find(
+        (candidate) => candidate.projectId === projectId && candidate.fingerprint === fingerprint
+      ) ?? null
+    );
+  }
+
+  async createCandidate(input: CreateCandidateInput): Promise<ImprovementCandidateRecord> {
+    const record: ImprovementCandidateRecord = {
+      id: id(),
+      projectId: input.projectId,
+      source: input.source,
+      fingerprint: input.fingerprint,
+      title: input.title,
+      evidenceRefs: input.evidenceRefs === undefined ? null : copy(input.evidenceRefs),
+      riskAreaHint: input.riskAreaHint ?? null,
+      priority: input.priority ?? 0,
+      status: input.status ?? 'proposed',
+      dismissReason: null,
+      taskId: null,
+      createdAt: now(),
+      updatedAt: now()
+    };
+    this.candidates.set(record.id, record);
+    return copy(record);
+  }
+
+  async updateCandidate(id: string, patch: Partial<ImprovementCandidateRecord>): Promise<ImprovementCandidateRecord | null> {
+    const current = this.candidates.get(id);
+    if (!current) return null;
+    const updated: ImprovementCandidateRecord = { ...current, ...patch, id, updatedAt: now() };
+    this.candidates.set(id, updated);
     return copy(updated);
   }
 

@@ -1,13 +1,10 @@
 {
-  "name": "@vibeloop/cli",
+  "name": "@vibeloop/discovery",
   "version": "0.1.0",
   "type": "module",
   "private": true,
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "vibeloop": "./bin/vibeloop"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -20,15 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vibeloop/agent-adapters": "workspace:*",
-    "@vibeloop/artifacts": "workspace:*",
     "@vibeloop/eval-engine": "workspace:*",
-    "@vibeloop/guards": "workspace:*",
-    "@vibeloop/shared": "workspace:*",
-    "@vibeloop/task-protocol": "workspace:*",
-    "@vibeloop/workspace-runner": "workspace:*",
-    "commander": "^14.0.2",
-    "@vibeloop/report-html": "workspace:*",
-    "@vibeloop/discovery": "workspace:*"
+    "@vibeloop/task-protocol": "workspace:*"
   }
 }

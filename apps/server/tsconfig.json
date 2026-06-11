@@ -18,6 +18,9 @@
     },
     {
       "path": "../../packages/github-integration"
+    },
+    {
+      "path": "../../packages/discovery"
     }
   ],
   "include": [

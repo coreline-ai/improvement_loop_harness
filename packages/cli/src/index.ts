@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { getDataDir } from '@vibeloop/shared';
+import { registerDiscoverCommand } from './commands/discover.js';
 import { registerGcCommand } from './commands/gc.js';
 import { registerReportCommand } from './commands/report.js';
 import { registerRetryCommand } from './commands/retry.js';
@@ -17,6 +18,7 @@ export function createProgram(): Command {
     .version(VERSION)
     .option('--data-dir <path>', 'VibeLoop data directory', getDataDir());
 
+  registerDiscoverCommand(program);
   registerRunCommand(program);
   registerRetryCommand(program);
   registerReportCommand(program);
@@ -37,3 +39,4 @@ export function runCli(argv: string[] = process.argv): void {
 export * from './exit-codes.js';
 export * from './run.js';
 export * from './commands/retry.js';
+export * from './commands/discover.js';

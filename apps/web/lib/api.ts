@@ -38,6 +38,22 @@ export interface LoopRecord {
   updatedAt: string;
 }
 
+export interface CandidateRecord {
+  id: string;
+  projectId: string;
+  source: string;
+  fingerprint: string;
+  title: string;
+  evidenceRefs?: unknown;
+  riskAreaHint?: string | null;
+  priority: number;
+  status: string;
+  dismissReason?: string | null;
+  taskId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ApprovalRecord {
   id: string;
   loopRunId: string;
@@ -174,6 +190,10 @@ export async function listReports(loopId: string): Promise<EvalReportRecord[]> {
 
 export async function listApprovals(): Promise<ApprovalRecord[]> {
   return apiFetch<ApprovalRecord[]>('/api/approvals');
+}
+
+export async function listCandidates(projectId: string): Promise<CandidateRecord[]> {
+  return apiFetch<CandidateRecord[]>(`/api/projects/${projectId}/candidates`);
 }
 
 export function latestEvalReport(reports: EvalReportRecord[]): EvalReportRecord | undefined {

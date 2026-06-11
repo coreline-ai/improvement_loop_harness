@@ -185,6 +185,24 @@ model PullRequest {
   loopRun     LoopRun  @relation(fields: [loopRunId], references: [id])
 }
 
+model ImprovementCandidate {
+  id            String   @id @default(cuid())
+  projectId     String
+  source        String
+  fingerprint   String
+  title         String
+  evidenceRefs  Json?
+  riskAreaHint  String?
+  priority      Int      @default(0)
+  status        String   @default("proposed")
+  dismissReason String?
+  taskId        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([projectId, fingerprint])
+}
+
 model SkillVersion {
   id          String   @id @default(cuid())
   name        String

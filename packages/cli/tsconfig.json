@@ -6,7 +6,9 @@
     "composite": true,
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts"
+  ],
   "references": [
     {
       "path": "../shared"
@@ -31,7 +33,12 @@
     },
     {
       "path": "../report-html"
+    },
+    {
+      "path": "../discovery"
     }
   ],
-  "exclude": ["src/**/*.test.ts"]
+  "exclude": [
+    "src/**/*.test.ts"
+  ]
 }

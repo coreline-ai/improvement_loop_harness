@@ -1,7 +1,7 @@
 import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createTempGitRepo } from '../../../tests/helpers/repo.js';
 import { EXIT_CODES } from './exit-codes.js';
 import { createProgram, VERSION } from './index.js';
@@ -129,6 +129,7 @@ describe('createProgram', () => {
     expect(program.name()).toBe('vibeloop');
     expect(program.version()).toBe(VERSION);
     expect(program.commands.map((command) => command.name()).sort()).toEqual([
+      'discover',
       'gc',
       'report',
       'retry',
@@ -136,6 +137,33 @@ describe('createProgram', () => {
     ]);
   });
 });
+
+
+  it('runs discover dry-run and prints structured candidates without saving them', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write('tests/failing.test.js', "console.error('tests/failing.test.js'); process.exit(1);\n");
+    await repo.git(['add', 'tests/failing.test.js']);
+    await repo.git(['commit', '-m', 'add failing test']);
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        'discover',
+        '--repo',
+        repo.repoPath,
+        '--test-command',
+        'node tests/failing.test.js'
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+    const output = JSON.parse(logs.join('\n')) as { candidates: Array<{ source: string; location: { filePath: string } }> };
+
+    expect(output.candidates).toHaveLength(1);
+    expect(output.candidates[0]).toMatchObject({ source: 'test_failure', location: { filePath: 'tests/failing.test.js' } });
+  });
 
 describe('runKernel', () => {
   it('runs the mock happy path, writes fixed inputs/workspace ref, and exits 0 with eval-report.json', async () => {

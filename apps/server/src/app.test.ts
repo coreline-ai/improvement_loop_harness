@@ -186,6 +186,55 @@ describe('Fastify API auth and loop orchestration', () => {
     expect(response.body).not.toContain('"n":1');
   });
 
+
+
+  it('registers, dedupes, approves, and dismisses improvement candidates', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    const app = await createApp({ token: TOKEN, store, sseReplayOnly: true });
+
+    const projectId = task.projectId;
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${projectId}/candidates`,
+      headers: authHeaders(),
+      payload: { filePath: 'tests/failing.test.js', title: 'tests/failing.test.js: manual failure' }
+    });
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${projectId}/candidates`,
+      headers: authHeaders(),
+      payload: { filePath: 'tests/failing.test.js', title: 'duplicate ignored' }
+    });
+    const candidate = created.json() as { id: string; fingerprint: string };
+    const approved = await app.inject({
+      method: 'POST',
+      url: `/api/candidates/${candidate.id}/approve`,
+      headers: authHeaders()
+    });
+    const dismissed = await app.inject({
+      method: 'POST',
+      url: `/api/candidates/${candidate.id}/dismiss`,
+      headers: authHeaders(),
+      payload: { reason: 'not now' }
+    });
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${projectId}/candidates`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(created.statusCode).toBe(200);
+    expect(duplicate.json()).toMatchObject({ id: candidate.id, fingerprint: candidate.fingerprint });
+    expect(approved.statusCode).toBe(200);
+    expect(approved.json()).toMatchObject({ status: 'approved' });
+    expect(approved.json().taskId).toBeTruthy();
+    expect(dismissed.statusCode).toBe(200);
+    expect(dismissed.json()).toMatchObject({ status: 'dismissed', dismissReason: 'not now' });
+    expect(listed.json()).toHaveLength(1);
+  });
+
   it('rejects approvals for loops that are not in needs_human_review', async () => {
     const store = new MemoryStore();
     const { loop } = await seedLoop(store, 'rejected');

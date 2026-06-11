@@ -78,6 +78,22 @@ export interface ArtifactRecord {
   createdAt: Date;
 }
 
+export interface ImprovementCandidateRecord {
+  id: string;
+  projectId: string;
+  source: string;
+  fingerprint: string;
+  title: string;
+  evidenceRefs?: JsonValue | null;
+  riskAreaHint?: string | null;
+  priority: number;
+  status: string;
+  dismissReason?: string | null;
+  taskId?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface PullRequestRecord {
   id: string;
   loopRunId: string;
@@ -137,6 +153,17 @@ export interface CreateApprovalInput {
   status?: string;
 }
 
+export interface CreateCandidateInput {
+  projectId: string;
+  source: string;
+  fingerprint: string;
+  title: string;
+  evidenceRefs?: JsonValue | null;
+  riskAreaHint?: string | null;
+  priority?: number;
+  status?: string;
+}
+
 export interface CreatePullRequestInput {
   loopRunId: string;
   branchName: string;
@@ -151,6 +178,12 @@ export interface Store {
   listProjects(): Promise<ProjectRecord[]>;
   getProject(id: string): Promise<ProjectRecord | null>;
   updateProject(id: string, patch: Partial<CreateProjectInput>): Promise<ProjectRecord | null>;
+
+  listCandidates(projectId: string): Promise<ImprovementCandidateRecord[]>;
+  getCandidate(id: string): Promise<ImprovementCandidateRecord | null>;
+  findCandidateByFingerprint(projectId: string, fingerprint: string): Promise<ImprovementCandidateRecord | null>;
+  createCandidate(input: CreateCandidateInput): Promise<ImprovementCandidateRecord>;
+  updateCandidate(id: string, patch: Partial<ImprovementCandidateRecord>): Promise<ImprovementCandidateRecord | null>;
 
   createTask(input: CreateTaskInput): Promise<TaskRecord>;
   listTasks(projectId: string): Promise<TaskRecord[]>;
