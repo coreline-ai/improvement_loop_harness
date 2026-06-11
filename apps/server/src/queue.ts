@@ -3,12 +3,14 @@ import type { LoopRunRecord, Store, TaskRecord } from './types.js';
 export interface LoopRunnerInput {
   loop: LoopRunRecord;
   task: TaskRecord;
+  signal?: AbortSignal | undefined;
 }
 
 export interface LoopRunnerResult {
   status: string;
   decision?: string | undefined;
   artifactRoot?: string | undefined;
+  tokenUsageTotal?: number | undefined;
 }
 
 export type LoopRunner = (input: LoopRunnerInput) => Promise<LoopRunnerResult>;

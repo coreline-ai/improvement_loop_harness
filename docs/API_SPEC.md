@@ -148,12 +148,12 @@ POST /api/candidates/:candidateId/dismiss
 POST /api/projects/:projectId/discovery/run         # 발견 1회 수동 트리거
 
 GET  /api/projects/:projectId/orchestrator          # 모드·예산 사용량·큐 상태
-POST /api/projects/:projectId/orchestrator/start    # body: { "mode": "supervised | auto" }
+POST /api/projects/:projectId/orchestrator/start    # body: { "mode": "supervised | auto", "tokenBudgetDaily": 100000 }
 POST /api/projects/:projectId/orchestrator/stop     # kill switch — 즉시 정지
 ```
 
 규칙:
 
 - `stop`은 어떤 상태에서든 허용되는 최우선 명령이다. 실행 중 루프는 graceful cancel.
-- `start`의 기본 mode는 `supervised`다. `auto`는 명시적으로만.
+- `start`의 기본 mode는 `supervised`다. `auto`는 명시적으로만. 최초 시작 시 `tokenBudgetDaily` 설정은 필수이며, 이후에는 저장된 예산을 재사용할 수 있다.
 - guardrail 발동(예산 초과·연속 실패 차단기)은 orchestrator 상태 조회와 이벤트로 노출한다.

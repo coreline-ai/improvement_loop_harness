@@ -63,6 +63,9 @@ importers:
       '@vibeloop/task-protocol':
         specifier: workspace:*
         version: link:../../packages/task-protocol
+      '@vibeloop/workspace-runner':
+        specifier: workspace:*
+        version: link:../../packages/workspace-runner
       fastify:
         specifier: ^5.8.5
         version: 5.8.5

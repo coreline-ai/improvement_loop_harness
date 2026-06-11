@@ -19,6 +19,8 @@ model Project {
 
   tasks          Task[]
   learnings      Learning[]
+  orchestratorState OrchestratorState?
+  orchestratorEvents OrchestratorEvent[]
 }
 
 model Task {
@@ -201,6 +203,44 @@ model ImprovementCandidate {
   updatedAt     DateTime @updatedAt
 
   @@unique([projectId, fingerprint])
+}
+
+model OrchestratorState {
+  id                       String   @id @default(cuid())
+  projectId                String   @unique
+  mode                     String   @default("supervised")
+  status                   String   @default("stopped")
+  dailyLoopBudget          Int      @default(20)
+  loopsStartedToday        Int      @default(0)
+  budgetDay                String
+  tokenBudgetDaily         Int?
+  tokenUsedToday           Int      @default(0)
+  openDraftPrLimit         Int      @default(5)
+  discoveryIntervalMinutes Int      @default(30)
+  consecutiveFailures      Int      @default(0)
+  currentCandidateId       String?
+  currentLoopId            String?
+  nextDiscoveryAt          DateTime?
+  pausedReason             String?
+  lastStartedAt            DateTime?
+  stoppedAt                DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  project                  Project  @relation(fields: [projectId], references: [id])
+}
+
+model OrchestratorEvent {
+  id        String   @id @default(cuid())
+  projectId String
+  seq       Int
+  type      String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, seq])
 }
 
 model SkillVersion {

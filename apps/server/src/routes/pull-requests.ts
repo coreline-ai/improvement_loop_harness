@@ -9,7 +9,7 @@ import {
 } from '@vibeloop/github-integration';
 import type { FastifyInstance } from 'fastify';
 import { ApiError, requireRecord } from '../errors.js';
-import type { EvalReportRecord, LoopRunRecord, ProjectRecord, Store, TaskRecord } from '../types.js';
+import type { EvalReportRecord, LoopRunRecord, ProjectRecord, PullRequestRecord, Store, TaskRecord } from '../types.js';
 
 export interface PullRequestCreationContext {
   loop: LoopRunRecord;
@@ -115,6 +115,64 @@ async function loadContext(store: Store, loopId: string): Promise<PullRequestCre
   };
 }
 
+export async function createPullRequestForLoop(
+  store: Store,
+  manager: PullRequestManager,
+  loopId: string
+): Promise<PullRequestRecord> {
+  const context = await loadContext(store, loopId);
+  const existing = await store.getPullRequest(context.loop.id);
+  if (existing?.status === 'draft_created') {
+    return existing;
+  }
+  if (existing?.status === 'creating') {
+    throw new ApiError(409, 'PULL_REQUEST_CREATING', 'pull request creation is already in progress');
+  }
+
+  const record = existing
+    ? requireRecord(
+        await store.updatePullRequest(existing.id, { status: 'creating', branchName: context.branchName }),
+        'PULL_REQUEST_NOT_FOUND',
+        'pull request not found'
+      )
+    : await store.createPullRequest({
+        loopRunId: context.loop.id,
+        branchName: context.branchName,
+        status: 'creating'
+      });
+
+  try {
+    const created = await manager.create(context);
+    const updated = requireRecord(
+      await store.updatePullRequest(record.id, {
+        branchName: created.branchName,
+        prUrl: created.prUrl,
+        prNumber: created.prNumber,
+        status: 'draft_created'
+      }),
+      'PULL_REQUEST_NOT_FOUND',
+      'pull request not found'
+    );
+    await store.addLoopEvent(context.loop.id, 'pr.created', {
+      pull_request_id: updated.id,
+      pr_number: updated.prNumber,
+      pr_url: updated.prUrl
+    });
+    return updated;
+  } catch (error) {
+    const failed = requireRecord(
+      await store.updatePullRequest(record.id, { status: 'create_failed' }),
+      'PULL_REQUEST_NOT_FOUND',
+      'pull request not found'
+    );
+    await store.addLoopEvent(context.loop.id, 'pr.create_failed', {
+      pull_request_id: failed.id,
+      reason: error instanceof Error ? error.message : String(error)
+    });
+    throw new ApiError(502, 'PULL_REQUEST_CREATE_FAILED', error instanceof Error ? error.message : String(error));
+  }
+}
+
 export async function registerPullRequestRoutes(
   app: FastifyInstance,
   store: Store,
@@ -128,56 +186,6 @@ export async function registerPullRequestRoutes(
 
   app.post('/api/loops/:loopId/pull-request', async (request) => {
     const params = request.params as { loopId: string };
-    const context = await loadContext(store, params.loopId);
-    const existing = await store.getPullRequest(context.loop.id);
-    if (existing?.status === 'draft_created') {
-      return existing;
-    }
-    if (existing?.status === 'creating') {
-      throw new ApiError(409, 'PULL_REQUEST_CREATING', 'pull request creation is already in progress');
-    }
-
-    const record = existing
-      ? requireRecord(
-          await store.updatePullRequest(existing.id, { status: 'creating', branchName: context.branchName }),
-          'PULL_REQUEST_NOT_FOUND',
-          'pull request not found'
-        )
-      : await store.createPullRequest({
-          loopRunId: context.loop.id,
-          branchName: context.branchName,
-          status: 'creating'
-        });
-
-    try {
-      const created = await manager.create(context);
-      const updated = requireRecord(
-        await store.updatePullRequest(record.id, {
-          branchName: created.branchName,
-          prUrl: created.prUrl,
-          prNumber: created.prNumber,
-          status: 'draft_created'
-        }),
-        'PULL_REQUEST_NOT_FOUND',
-        'pull request not found'
-      );
-      await store.addLoopEvent(context.loop.id, 'pr.created', {
-        pull_request_id: updated.id,
-        pr_number: updated.prNumber,
-        pr_url: updated.prUrl
-      });
-      return updated;
-    } catch (error) {
-      const failed = requireRecord(
-        await store.updatePullRequest(record.id, { status: 'create_failed' }),
-        'PULL_REQUEST_NOT_FOUND',
-        'pull request not found'
-      );
-      await store.addLoopEvent(context.loop.id, 'pr.create_failed', {
-        pull_request_id: failed.id,
-        reason: error instanceof Error ? error.message : String(error)
-      });
-      throw new ApiError(502, 'PULL_REQUEST_CREATE_FAILED', error instanceof Error ? error.message : String(error));
-    }
+    return createPullRequestForLoop(store, manager, params.loopId);
   });
 }

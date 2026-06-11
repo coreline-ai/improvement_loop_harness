@@ -4,12 +4,14 @@ import { registerAuth } from './auth.js';
 import { MemoryStore } from './memory-store.js';
 import { PrismaStore } from './prisma-store.js';
 import { InProcessLoopQueue, type LoopRunner } from './queue.js';
+import { LoopOrchestratorScheduler, type FetchLatestBase } from './orchestrator/scheduler.js';
 import { registerApprovalRoutes } from './routes/approvals.js';
 import { registerCandidateRoutes } from './routes/candidates.js';
 import { registerArtifactRoutes } from './routes/artifacts.js';
 import { registerEventRoutes } from './routes/events.js';
 import { registerLoopRoutes } from './routes/loops.js';
 import { registerProjectRoutes } from './routes/projects.js';
+import { registerOrchestratorRoutes } from './routes/orchestrator.js';
 import { registerPullRequestRoutes, type PullRequestManager } from './routes/pull-requests.js';
 import { registerTaskRoutes } from './routes/tasks.js';
 import type { Store } from './types.js';
@@ -21,12 +23,19 @@ export interface CreateAppOptions {
   sseReplayOnly?: boolean | undefined;
   logger?: boolean | undefined;
   pullRequestManager?: PullRequestManager | undefined;
+  fetchLatestBase?: FetchLatestBase | undefined;
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
   const app = fastify({ logger: options.logger ?? false });
   const store = options.store ?? (process.env.DATABASE_URL ? new PrismaStore() : new MemoryStore());
   const queue = new InProcessLoopQueue(store, options.runner);
+  const orchestrator = new LoopOrchestratorScheduler(store, {
+    runner: options.runner,
+    pullRequestManager: options.pullRequestManager,
+    fetchLatestBase: options.fetchLatestBase
+  });
+  await orchestrator.recoverAll();
 
   app.setErrorHandler((error, _request, reply) => sendError(reply, error));
   app.setNotFoundHandler((_request, reply) => {
@@ -40,6 +49,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await registerEventRoutes(app, store, options.sseReplayOnly === undefined ? {} : { replayOnly: options.sseReplayOnly });
   await registerApprovalRoutes(app, store);
   await registerCandidateRoutes(app, store);
+  await registerOrchestratorRoutes(app, store, orchestrator);
   await registerArtifactRoutes(app, store);
   await registerPullRequestRoutes(app, store, options.pullRequestManager);
 

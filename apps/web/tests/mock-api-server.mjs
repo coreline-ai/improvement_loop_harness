@@ -62,6 +62,28 @@ const report = {
   }
 };
 
+let orchestratorStatus = 'stopped';
+const orchestratorState = () => ({
+  id: 'orch-1',
+  projectId: project.id,
+  mode: 'supervised',
+  status: orchestratorStatus,
+  dailyLoopBudget: 20,
+  loopsStartedToday: 2,
+  budgetDay: '2026-06-12',
+  tokenBudgetDaily: 100000,
+  tokenUsedToday: 25,
+  openDraftPrLimit: 5,
+  discoveryIntervalMinutes: 30,
+  consecutiveFailures: 0,
+  currentCandidateId: null,
+  currentLoopId: null,
+  nextDiscoveryAt: new Date().toISOString(),
+  pausedReason: null,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+});
+
 function sendJson(response, status, body) {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(JSON.stringify(body));
@@ -93,6 +115,26 @@ const server = http.createServer(async (request, response) => {
     response.end('unit tests passed');
     return;
   }
+  if (request.method === 'GET' && path === '/api/projects/project-1/orchestrator') {
+    return sendJson(response, 200, {
+      state: orchestratorState(),
+      queue: { proposed: 1, approved: 1, queued: 0, running: 0, processed: 2, dismissed: 0 },
+      openDraftPrCount: 2,
+      recentEvents: [
+        { id: 'oe-1', projectId: project.id, seq: 1, type: 'orchestrator.started', payload: {}, createdAt: new Date().toISOString() },
+        { id: 'oe-2', projectId: project.id, seq: 2, type: 'candidate.picked', payload: {}, createdAt: new Date().toISOString() }
+      ]
+    });
+  }
+  if (request.method === 'POST' && path === '/api/projects/project-1/orchestrator/start') {
+    orchestratorStatus = 'running';
+    return sendJson(response, 200, { state: orchestratorState() });
+  }
+  if (request.method === 'POST' && path === '/api/projects/project-1/orchestrator/stop') {
+    orchestratorStatus = 'stopped';
+    return sendJson(response, 200, { state: orchestratorState() });
+  }
+
   if (request.method === 'GET' && path === '/api/approvals') {
     return sendJson(response, 200, [{
       id: 'approval-1',

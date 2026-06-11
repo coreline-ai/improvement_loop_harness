@@ -19,6 +19,8 @@ model Project {
   updatedAt      DateTime @updatedAt
 
   tasks          Task[]
+  orchestratorState  OrchestratorState?
+  orchestratorEvents OrchestratorEvent[]
 }
 
 model Task {
@@ -203,6 +205,44 @@ model ImprovementCandidate {
   @@unique([projectId, fingerprint])
 }
 
+model OrchestratorState {
+  id                       String   @id @default(cuid())
+  projectId                String   @unique
+  mode                     String   @default("supervised") // supervised|auto
+  status                   String   @default("stopped") // stopped|running|paused|stopping
+  dailyLoopBudget          Int      @default(20)
+  loopsStartedToday        Int      @default(0)
+  budgetDay                String
+  tokenBudgetDaily         Int?
+  tokenUsedToday           Int      @default(0)
+  openDraftPrLimit         Int      @default(5)
+  discoveryIntervalMinutes Int      @default(30)
+  consecutiveFailures      Int      @default(0)
+  currentCandidateId       String?
+  currentLoopId            String?
+  nextDiscoveryAt          DateTime?
+  pausedReason             String?
+  lastStartedAt            DateTime?
+  stoppedAt                DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  project                  Project  @relation(fields: [projectId], references: [id])
+}
+
+model OrchestratorEvent {
+  id        String   @id @default(cuid())
+  projectId String
+  seq       Int
+  type      String
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  @@unique([projectId, seq])
+}
+
 model SkillVersion {
   id          String   @id @default(cuid())
   name        String
@@ -236,3 +276,5 @@ model Learning {
 - `PullRequest`는 approval 이후 PR lifecycle을 추적한다.
 - `Learning`은 learnings.md/SKILL.md에 바로 쓰기 전 검토 queue 역할을 한다.
 - `ImprovementCandidate`는 자율 루프(MVP-4)의 발견 큐다. `@@unique([projectId, fingerprint])`가 같은 문제의 중복 발견을 차단하고, `dismissed` 상태 행이 "다시 제안하지 말 것" 기억 역할을 한다 ([AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md) §3).
+- `OrchestratorState`는 프로젝트당 1개 자율 루프 실행 상태, 일일 loop/token 예산, 현재 candidate/loop, pause 사유와 discovery 대기 시각을 영속화한다. 재시작 시 `current*`와 `running` candidate를 복구하는 기준이다.
+- `OrchestratorEvent`는 loop가 아직 없거나 guardrail이 loop 외부에서 발동된 경우에도 `orchestrator.started/paused/stopped`, `candidate.picked/dismissed` 같은 프로젝트 단위 이벤트를 단조 증가 `seq`로 기록한다.

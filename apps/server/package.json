@@ -25,6 +25,7 @@
     "fastify": "^5.8.5",
     "pg": "^8.21.0",
     "@vibeloop/github-integration": "workspace:*",
-    "@vibeloop/discovery": "workspace:*"
+    "@vibeloop/discovery": "workspace:*",
+    "@vibeloop/workspace-runner": "workspace:*"
   }
 }

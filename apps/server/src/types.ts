@@ -117,6 +117,41 @@ export interface EvalReportRecord {
   createdAt: Date;
 }
 
+export type OrchestratorMode = 'supervised' | 'auto';
+export type OrchestratorStatus = 'stopped' | 'running' | 'paused' | 'stopping';
+
+export interface OrchestratorStateRecord {
+  id: string;
+  projectId: string;
+  mode: OrchestratorMode;
+  status: OrchestratorStatus;
+  dailyLoopBudget: number;
+  loopsStartedToday: number;
+  budgetDay: string;
+  tokenBudgetDaily?: number | null;
+  tokenUsedToday: number;
+  openDraftPrLimit: number;
+  discoveryIntervalMinutes: number;
+  consecutiveFailures: number;
+  currentCandidateId?: string | null;
+  currentLoopId?: string | null;
+  nextDiscoveryAt?: Date | null;
+  pausedReason?: string | null;
+  lastStartedAt?: Date | null;
+  stoppedAt?: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface OrchestratorEventRecord {
+  id: string;
+  projectId: string;
+  seq: number;
+  type: string;
+  payload?: JsonValue | null;
+  createdAt: Date;
+}
+
 export interface CreateProjectInput {
   name: string;
   repoUrl?: string | null;
@@ -173,6 +208,25 @@ export interface CreatePullRequestInput {
   status?: string;
 }
 
+export interface UpsertOrchestratorStateInput {
+  mode?: OrchestratorMode;
+  status?: OrchestratorStatus;
+  dailyLoopBudget?: number;
+  loopsStartedToday?: number;
+  budgetDay?: string;
+  tokenBudgetDaily?: number | null;
+  tokenUsedToday?: number;
+  openDraftPrLimit?: number;
+  discoveryIntervalMinutes?: number;
+  consecutiveFailures?: number;
+  currentCandidateId?: string | null;
+  currentLoopId?: string | null;
+  nextDiscoveryAt?: Date | null;
+  pausedReason?: string | null;
+  lastStartedAt?: Date | null;
+  stoppedAt?: Date | null;
+}
+
 export interface Store {
   createProject(input: CreateProjectInput): Promise<ProjectRecord>;
   listProjects(): Promise<ProjectRecord[]>;
@@ -214,8 +268,15 @@ export interface Store {
   createReport(input: Omit<EvalReportRecord, 'id' | 'createdAt'>): Promise<EvalReportRecord>;
 
   getPullRequest(loopRunId: string): Promise<PullRequestRecord | null>;
+  countOpenDraftPullRequests(projectId: string): Promise<number>;
   createPullRequest(input: CreatePullRequestInput): Promise<PullRequestRecord>;
   updatePullRequest(id: string, patch: Partial<PullRequestRecord>): Promise<PullRequestRecord | null>;
+
+  getOrchestratorState(projectId: string): Promise<OrchestratorStateRecord | null>;
+  listOrchestratorStates(): Promise<OrchestratorStateRecord[]>;
+  upsertOrchestratorState(projectId: string, patch: UpsertOrchestratorStateInput): Promise<OrchestratorStateRecord>;
+  addOrchestratorEvent(projectId: string, type: string, payload?: JsonValue): Promise<OrchestratorEventRecord>;
+  listOrchestratorEvents(projectId: string, limit?: number): Promise<OrchestratorEventRecord[]>;
 }
 
 export const ACTIVE_LOOP_STATUSES = new Set([

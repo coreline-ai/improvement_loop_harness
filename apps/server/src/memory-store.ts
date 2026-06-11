@@ -14,9 +14,12 @@ import {
   type JsonValue,
   type LoopEventRecord,
   type LoopRunRecord,
+  type OrchestratorEventRecord,
+  type OrchestratorStateRecord,
   type ProjectRecord,
   type PullRequestRecord,
   type Store,
+  type UpsertOrchestratorStateInput,
   type TaskRecord
 } from './types.js';
 
@@ -56,6 +59,8 @@ export class MemoryStore implements Store {
   private readonly artifacts = new Map<string, ArtifactRecord[]>();
   private readonly reports = new Map<string, EvalReportRecord>();
   private readonly pullRequests = new Map<string, PullRequestRecord>();
+  private readonly orchestratorStates = new Map<string, OrchestratorStateRecord>();
+  private readonly orchestratorEvents = new Map<string, OrchestratorEventRecord[]>();
 
   async createProject(input: CreateProjectInput): Promise<ProjectRecord> {
     const record: ProjectRecord = {
@@ -341,6 +346,17 @@ export class MemoryStore implements Store {
     return copy([...this.pullRequests.values()].find((pullRequest) => pullRequest.loopRunId === loopRunId) ?? null);
   }
 
+  async countOpenDraftPullRequests(projectId: string): Promise<number> {
+    let count = 0;
+    for (const pullRequest of this.pullRequests.values()) {
+      if (pullRequest.status !== 'draft_created') continue;
+      const loop = this.loops.get(pullRequest.loopRunId);
+      const task = loop ? this.tasks.get(loop.taskId) : undefined;
+      if (task?.projectId === projectId) count += 1;
+    }
+    return count;
+  }
+
   async createPullRequest(input: CreatePullRequestInput): Promise<PullRequestRecord> {
     const record: PullRequestRecord = {
       id: id(),
@@ -364,4 +380,62 @@ export class MemoryStore implements Store {
     this.pullRequests.set(id, updated);
     return copy(updated);
   }
+
+  async getOrchestratorState(projectId: string): Promise<OrchestratorStateRecord | null> {
+    return copy(this.orchestratorStates.get(projectId) ?? null);
+  }
+
+  async listOrchestratorStates(): Promise<OrchestratorStateRecord[]> {
+    return [...this.orchestratorStates.values()].map(copy);
+  }
+
+  async upsertOrchestratorState(projectId: string, patch: UpsertOrchestratorStateInput): Promise<OrchestratorStateRecord> {
+    const current = this.orchestratorStates.get(projectId);
+    const updated: OrchestratorStateRecord = {
+      id: current?.id ?? id(),
+      projectId,
+      mode: patch.mode ?? current?.mode ?? 'supervised',
+      status: patch.status ?? current?.status ?? 'stopped',
+      dailyLoopBudget: patch.dailyLoopBudget ?? current?.dailyLoopBudget ?? 20,
+      loopsStartedToday: patch.loopsStartedToday ?? current?.loopsStartedToday ?? 0,
+      budgetDay: patch.budgetDay ?? current?.budgetDay ?? new Date().toISOString().slice(0, 10),
+      tokenBudgetDaily: patch.tokenBudgetDaily !== undefined ? patch.tokenBudgetDaily : current?.tokenBudgetDaily ?? null,
+      tokenUsedToday: patch.tokenUsedToday ?? current?.tokenUsedToday ?? 0,
+      openDraftPrLimit: patch.openDraftPrLimit ?? current?.openDraftPrLimit ?? 5,
+      discoveryIntervalMinutes: patch.discoveryIntervalMinutes ?? current?.discoveryIntervalMinutes ?? 30,
+      consecutiveFailures: patch.consecutiveFailures ?? current?.consecutiveFailures ?? 0,
+      currentCandidateId: patch.currentCandidateId !== undefined ? patch.currentCandidateId : current?.currentCandidateId ?? null,
+      currentLoopId: patch.currentLoopId !== undefined ? patch.currentLoopId : current?.currentLoopId ?? null,
+      nextDiscoveryAt: patch.nextDiscoveryAt !== undefined ? patch.nextDiscoveryAt : current?.nextDiscoveryAt ?? null,
+      pausedReason: patch.pausedReason !== undefined ? patch.pausedReason : current?.pausedReason ?? null,
+      lastStartedAt: patch.lastStartedAt !== undefined ? patch.lastStartedAt : current?.lastStartedAt ?? null,
+      stoppedAt: patch.stoppedAt !== undefined ? patch.stoppedAt : current?.stoppedAt ?? null,
+      createdAt: current?.createdAt ?? now(),
+      updatedAt: now()
+    };
+    this.orchestratorStates.set(projectId, updated);
+    return copy(updated);
+  }
+
+  async addOrchestratorEvent(projectId: string, type: string, payload?: JsonValue): Promise<OrchestratorEventRecord> {
+    const list = this.orchestratorEvents.get(projectId) ?? [];
+    const record: OrchestratorEventRecord = {
+      id: id(),
+      projectId,
+      seq: list.length + 1,
+      type,
+      payload: payload === undefined ? null : copy(payload),
+      createdAt: now()
+    };
+    list.push(record);
+    this.orchestratorEvents.set(projectId, list);
+    return copy(record);
+  }
+
+  async listOrchestratorEvents(projectId: string, limit = 50): Promise<OrchestratorEventRecord[]> {
+    return (this.orchestratorEvents.get(projectId) ?? [])
+      .slice(-limit)
+      .map(copy);
+  }
+
 }

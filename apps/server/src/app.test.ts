@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from './app.js';
 import type { CreatedPullRequest, PullRequestCreationContext, PullRequestManager } from './routes/pull-requests.js';
 import { MemoryStore } from './memory-store.js';
+import type { LoopRunnerInput, LoopRunnerResult } from './queue.js';
 import type { LoopRunRecord, Store, TaskRecord } from './types.js';
 
 const TOKEN = 'test-token';
@@ -87,6 +88,72 @@ async function seedAcceptedLoopWithReport(store: Store, status = 'accepted'): Pr
     }
   });
   return { loop };
+}
+
+async function seedCandidate(
+  store: Store,
+  projectId: string,
+  options: { title: string; status?: string; priority?: number; riskAreaHint?: string | null }
+) {
+  return store.createCandidate({
+    projectId,
+    source: 'manual',
+    fingerprint: `fp-${options.title}`,
+    title: options.title,
+    evidenceRefs: [],
+    riskAreaHint: options.riskAreaHint ?? 'none',
+    priority: options.priority ?? 80,
+    status: options.status ?? 'approved'
+  });
+}
+
+async function waitFor(assertion: () => Promise<boolean>, timeoutMs = 1_000): Promise<void> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    if (await assertion()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('timed out waiting for condition');
+}
+
+class SequencedRunner {
+  active = 0;
+  maxActive = 0;
+  calls: string[] = [];
+
+  constructor(private readonly results: LoopRunnerResult[]) {}
+
+  run = async (input: LoopRunnerInput): Promise<LoopRunnerResult> => {
+    this.active += 1;
+    this.maxActive = Math.max(this.maxActive, this.active);
+    this.calls.push(input.task.id);
+    await new Promise((resolve) => setTimeout(resolve, 1));
+    this.active -= 1;
+    return this.results.shift() ?? { status: 'accepted', decision: 'accept' };
+  };
+}
+
+class BlockingRunner {
+  aborted = false;
+  started = false;
+
+  run = async (input: LoopRunnerInput): Promise<LoopRunnerResult> => {
+    this.started = true;
+    if (input.signal?.aborted) {
+      this.aborted = true;
+      return { status: 'cancelled', decision: 'cancelled' };
+    }
+    return new Promise((resolve) => {
+      input.signal?.addEventListener(
+        'abort',
+        () => {
+          this.aborted = true;
+          resolve({ status: 'cancelled', decision: 'cancelled' });
+        },
+        { once: true }
+      );
+    });
+  };
 }
 
 function sseIds(body: string): string[] {
@@ -233,6 +300,241 @@ describe('Fastify API auth and loop orchestration', () => {
     expect(dismissed.statusCode).toBe(200);
     expect(dismissed.json()).toMatchObject({ status: 'dismissed', dismissReason: 'not now' });
     expect(listed.json()).toHaveLength(1);
+  });
+
+
+  it('orchestrates approved candidates sequentially and creates draft PRs for accepted loops', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    await seedCandidate(store, task.projectId, { title: 'tests/one.test.js: first failure', priority: 90 });
+    await seedCandidate(store, task.projectId, { title: 'tests/two.test.js: second failure', priority: 80 });
+    const runner = new SequencedRunner([
+      { status: 'accepted', decision: 'accept', artifactRoot: '/tmp/run-1', tokenUsageTotal: 10 },
+      { status: 'accepted', decision: 'accept', artifactRoot: '/tmp/run-2', tokenUsageTotal: 15 }
+    ]);
+    const manager = new FakePullRequestManager();
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      runner: runner.run,
+      pullRequestManager: manager,
+      fetchLatestBase: async () => 'base-latest'
+    });
+
+    const started = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${task.projectId}/orchestrator/start`,
+      headers: authHeaders(),
+      payload: { mode: 'supervised', tokenBudgetDaily: 1_000 }
+    });
+    await waitFor(async () => manager.createdPrCount === 2);
+    const status = await app.inject({
+      method: 'GET',
+      url: `/api/projects/${task.projectId}/orchestrator`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(started.statusCode).toBe(200);
+    expect(runner.maxActive).toBe(1);
+    expect(manager.calls).toBe(2);
+    expect(status.json()).toMatchObject({
+      state: { status: 'running', loopsStartedToday: 2, tokenUsedToday: 25 },
+      queue: { processed: 2 },
+      openDraftPrCount: 2
+    });
+    expect(status.json().state.nextDiscoveryAt).toBeTruthy();
+  });
+
+  it('honors kill switch by aborting the active loop and clearing running state', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    await seedCandidate(store, task.projectId, { title: 'tests/kill.test.js: hanging failure' });
+    const runner = new BlockingRunner();
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      runner: runner.run,
+      pullRequestManager: new FakePullRequestManager(),
+      fetchLatestBase: async () => 'base-latest'
+    });
+
+    const started = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${task.projectId}/orchestrator/start`,
+      headers: authHeaders(),
+      payload: { tokenBudgetDaily: 1_000 }
+    });
+    await waitFor(async () => Boolean((await store.getOrchestratorState(task.projectId))?.currentLoopId));
+    const loopId = (await store.getOrchestratorState(task.projectId))?.currentLoopId;
+    const stopped = await app.inject({
+      method: 'POST',
+      url: `/api/projects/${task.projectId}/orchestrator/stop`,
+      headers: authHeaders()
+    });
+    await waitFor(async () => runner.aborted);
+    const loop = loopId ? await store.getLoop(loopId) : null;
+    const [candidate] = await store.listCandidates(task.projectId);
+    await app.close();
+
+    expect(started.statusCode).toBe(200);
+    expect(stopped.statusCode).toBe(200);
+    expect(runner.started).toBe(true);
+    expect(loop).toMatchObject({ status: 'cancelled' });
+    expect(candidate).toMatchObject({ status: 'queued' });
+    expect(stopped.json()).toMatchObject({ state: { status: 'stopped', currentLoopId: null, currentCandidateId: null } });
+  });
+
+  it('dismisses the same candidate after two rejects and records retry-limit events', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    await seedCandidate(store, task.projectId, { title: 'tests/retry.test.js: persistent failure' });
+    const runner = new SequencedRunner([
+      { status: 'rejected', decision: 'reject' },
+      { status: 'rejected', decision: 'reject' }
+    ]);
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      runner: runner.run,
+      pullRequestManager: new FakePullRequestManager(),
+      fetchLatestBase: async () => 'base-latest'
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/projects/${task.projectId}/orchestrator/start`,
+      headers: authHeaders(),
+      payload: { tokenBudgetDaily: 1_000 }
+    });
+    await waitFor(async () => (await store.listCandidates(task.projectId))[0]?.status === 'dismissed');
+    const [candidate] = await store.listCandidates(task.projectId);
+    const events = await store.listOrchestratorEvents(task.projectId);
+    await app.close();
+
+    expect(candidate).toMatchObject({ status: 'dismissed', dismissReason: 'retry_limit' });
+    expect(runner.calls).toHaveLength(2);
+    expect(events.map((event) => event.type)).toContain('candidate.dismissed.retry_limit');
+  });
+
+  it('pauses on consecutive failures and on daily loop budget exhaustion', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    await seedCandidate(store, task.projectId, { title: 'tests/flaky-1.test.js: system failure', priority: 90 });
+    await seedCandidate(store, task.projectId, { title: 'tests/flaky-2.test.js: system failure', priority: 80 });
+    await seedCandidate(store, task.projectId, { title: 'tests/flaky-3.test.js: system failure', priority: 70 });
+    const runner = new SequencedRunner([
+      { status: 'failed', decision: 'failed' },
+      { status: 'failed', decision: 'failed' },
+      { status: 'failed', decision: 'failed' },
+      { status: 'failed', decision: 'failed' },
+      { status: 'failed', decision: 'failed' }
+    ]);
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      runner: runner.run,
+      pullRequestManager: new FakePullRequestManager(),
+      fetchLatestBase: async () => 'base-latest'
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/projects/${task.projectId}/orchestrator/start`,
+      headers: authHeaders(),
+      payload: { tokenBudgetDaily: 1_000 }
+    });
+    await waitFor(async () => (await store.getOrchestratorState(task.projectId))?.status === 'paused');
+    const failedState = await store.getOrchestratorState(task.projectId);
+
+    const secondProject = await store.createProject({ name: 'budget fixture', localPath: '/tmp/repo-budget' });
+    await seedCandidate(store, secondProject.id, { title: 'tests/budget-1.test.js: first' });
+    await seedCandidate(store, secondProject.id, { title: 'tests/budget-2.test.js: second' });
+    await app.inject({
+      method: 'POST',
+      url: `/api/projects/${secondProject.id}/orchestrator/start`,
+      headers: authHeaders(),
+      payload: { tokenBudgetDaily: 1_000, dailyLoopBudget: 1 }
+    });
+    await waitFor(async () => (await store.getOrchestratorState(secondProject.id))?.pausedReason === 'daily_loop_budget_exceeded');
+    const budgetState = await store.getOrchestratorState(secondProject.id);
+    await app.close();
+
+    expect(failedState).toMatchObject({ status: 'paused', pausedReason: 'consecutive_failure_limit_reached', consecutiveFailures: 5 });
+    expect(budgetState).toMatchObject({ status: 'paused', pausedReason: 'daily_loop_budget_exceeded', loopsStartedToday: 1 });
+  });
+
+  it('pauses before starting a new loop when open draft PR cap is reached', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    for (let index = 0; index < 5; index += 1) {
+      const seededTask = await store.createTask({
+        projectId: task.projectId,
+        title: `accepted ${index}`,
+        objective: 'seed open draft PR',
+        writeScope: { allowed: ['src/'] },
+        taskYaml: { schema_version: '1.0', id: `seed-${index}`, title: `accepted ${index}`, objective: 'seed' }
+      });
+      const loop = await store.createLoop({ taskId: seededTask.id, iteration: 1, status: 'accepted' });
+      await store.createPullRequest({ loopRunId: loop.id, branchName: `vibeloop/${loop.id}`, status: 'draft_created' });
+    }
+    await seedCandidate(store, task.projectId, { title: 'tests/pr-cap.test.js: blocked by PR cap' });
+    const runner = new SequencedRunner([{ status: 'accepted', decision: 'accept' }]);
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      runner: runner.run,
+      pullRequestManager: new FakePullRequestManager(),
+      fetchLatestBase: async () => 'base-latest'
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/projects/${task.projectId}/orchestrator/start`,
+      headers: authHeaders(),
+      payload: { tokenBudgetDaily: 1_000, openDraftPrLimit: 5 }
+    });
+    await waitFor(async () => (await store.getOrchestratorState(task.projectId))?.pausedReason === 'open_draft_pr_limit_reached');
+    await app.close();
+
+    expect(runner.calls).toHaveLength(0);
+    expect(await store.countOpenDraftPullRequests(task.projectId)).toBe(5);
+  });
+
+  it('recovers running zombie state on app restart by failing the stale loop and requeueing the candidate', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    const candidate = await seedCandidate(store, task.projectId, { title: 'tests/zombie.test.js: interrupted', status: 'running' });
+    const taskForCandidate = await store.createTask({
+      projectId: task.projectId,
+      title: 'zombie task',
+      objective: 'recover this task',
+      writeScope: { allowed: ['src/'] },
+      taskYaml: { schema_version: '1.0', id: 'zombie', title: 'zombie task', objective: 'recover' }
+    });
+    await store.updateCandidate(candidate.id, { taskId: taskForCandidate.id });
+    const loop = await store.createLoop({ taskId: taskForCandidate.id, iteration: 1, status: 'workspace_preparing' });
+    await store.upsertOrchestratorState(task.projectId, {
+      status: 'running',
+      tokenBudgetDaily: 1_000,
+      currentCandidateId: candidate.id,
+      currentLoopId: loop.id
+    });
+
+    const app = await createApp({ token: TOKEN, store, sseReplayOnly: true });
+    const recoveredLoop = await store.getLoop(loop.id);
+    const [recoveredCandidate] = await store.listCandidates(task.projectId);
+    const state = await store.getOrchestratorState(task.projectId);
+    await app.close();
+
+    expect(recoveredLoop).toMatchObject({ status: 'failed', decision: 'failed' });
+    expect(recoveredCandidate).toMatchObject({ status: 'queued' });
+    expect(state).toMatchObject({ status: 'stopped', pausedReason: 'recovered_running_zombie' });
   });
 
   it('rejects approvals for loops that are not in needs_human_review', async () => {

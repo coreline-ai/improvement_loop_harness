@@ -33,3 +33,12 @@ test('missing loop renders 404', async ({ page }) => {
   await page.goto('/loops/missing/report');
   await expect(page.getByRole('heading', { name: 'Not found' })).toBeVisible();
 });
+
+
+test('orchestrator page shows queue, budget, and recent events', async ({ page }) => {
+  await page.goto('/orchestrator');
+  await expect(page.getByRole('heading', { name: 'Loop Orchestrator' })).toBeVisible();
+  await expect(page.getByText('loops 2/20')).toBeVisible();
+  await expect(page.getByText('open draft PR 2/5')).toBeVisible();
+  await expect(page.getByText('#2 candidate.picked')).toBeVisible();
+});

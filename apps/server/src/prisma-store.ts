@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient, type Approval, type Artifact, type EvalReport, type ImprovementCandidate, type LoopEvent, type LoopRun, type Project, type PullRequest, type Task } from '@prisma/client';
+import { Prisma, PrismaClient, type Approval, type Artifact, type EvalReport, type ImprovementCandidate, type LoopEvent, type LoopRun, type OrchestratorEvent, type OrchestratorState, type Project, type PullRequest, type Task } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   ACTIVE_LOOP_STATUSES,
@@ -15,9 +15,12 @@ import {
   type JsonValue,
   type LoopEventRecord,
   type LoopRunRecord,
+  type OrchestratorEventRecord,
+  type OrchestratorStateRecord,
   type ProjectRecord,
   type PullRequestRecord,
   type Store,
+  type UpsertOrchestratorStateInput,
   type TaskRecord
 } from './types.js';
 
@@ -78,6 +81,23 @@ function evalReport(record: EvalReport): EvalReportRecord {
   return {
     ...record,
     reportJson: record.reportJson
+  };
+}
+
+function orchestratorState(record: OrchestratorState): OrchestratorStateRecord {
+  return {
+    ...record,
+    mode: record.mode === 'auto' ? 'auto' : 'supervised',
+    status: ['stopped', 'running', 'paused', 'stopping'].includes(record.status)
+      ? (record.status as OrchestratorStateRecord['status'])
+      : 'stopped'
+  };
+}
+
+function orchestratorEvent(record: OrchestratorEvent): OrchestratorEventRecord {
+  return {
+    ...record,
+    payload: record.payload
   };
 }
 
@@ -421,6 +441,15 @@ export class PrismaStore implements Store {
     return record ? pullRequest(record) : null;
   }
 
+  async countOpenDraftPullRequests(projectId: string): Promise<number> {
+    return this.prisma.pullRequest.count({
+      where: {
+        status: 'draft_created',
+        loopRun: { task: { projectId } }
+      }
+    });
+  }
+
   async createPullRequest(input: CreatePullRequestInput): Promise<PullRequestRecord> {
     return pullRequest(
       await this.prisma.pullRequest.create({
@@ -454,4 +483,83 @@ export class PrismaStore implements Store {
       return null;
     }
   }
+
+  async getOrchestratorState(projectId: string): Promise<OrchestratorStateRecord | null> {
+    const record = await this.prisma.orchestratorState.findUnique({ where: { projectId } });
+    return record ? orchestratorState(record) : null;
+  }
+
+  async listOrchestratorStates(): Promise<OrchestratorStateRecord[]> {
+    return (await this.prisma.orchestratorState.findMany({ orderBy: { createdAt: 'asc' } })).map(orchestratorState);
+  }
+
+  async upsertOrchestratorState(projectId: string, patch: UpsertOrchestratorStateInput): Promise<OrchestratorStateRecord> {
+    return orchestratorState(
+      await this.prisma.orchestratorState.upsert({
+        where: { projectId },
+        update: {
+          ...(patch.mode !== undefined ? { mode: patch.mode } : {}),
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.dailyLoopBudget !== undefined ? { dailyLoopBudget: patch.dailyLoopBudget } : {}),
+          ...(patch.loopsStartedToday !== undefined ? { loopsStartedToday: patch.loopsStartedToday } : {}),
+          ...(patch.budgetDay !== undefined ? { budgetDay: patch.budgetDay } : {}),
+          ...(patch.tokenBudgetDaily !== undefined ? { tokenBudgetDaily: patch.tokenBudgetDaily } : {}),
+          ...(patch.tokenUsedToday !== undefined ? { tokenUsedToday: patch.tokenUsedToday } : {}),
+          ...(patch.openDraftPrLimit !== undefined ? { openDraftPrLimit: patch.openDraftPrLimit } : {}),
+          ...(patch.discoveryIntervalMinutes !== undefined ? { discoveryIntervalMinutes: patch.discoveryIntervalMinutes } : {}),
+          ...(patch.consecutiveFailures !== undefined ? { consecutiveFailures: patch.consecutiveFailures } : {}),
+          ...(patch.currentCandidateId !== undefined ? { currentCandidateId: patch.currentCandidateId } : {}),
+          ...(patch.currentLoopId !== undefined ? { currentLoopId: patch.currentLoopId } : {}),
+          ...(patch.nextDiscoveryAt !== undefined ? { nextDiscoveryAt: patch.nextDiscoveryAt } : {}),
+          ...(patch.pausedReason !== undefined ? { pausedReason: patch.pausedReason } : {}),
+          ...(patch.lastStartedAt !== undefined ? { lastStartedAt: patch.lastStartedAt } : {}),
+          ...(patch.stoppedAt !== undefined ? { stoppedAt: patch.stoppedAt } : {})
+        },
+        create: {
+          projectId,
+          mode: patch.mode ?? 'supervised',
+          status: patch.status ?? 'stopped',
+          dailyLoopBudget: patch.dailyLoopBudget ?? 20,
+          loopsStartedToday: patch.loopsStartedToday ?? 0,
+          budgetDay: patch.budgetDay ?? new Date().toISOString().slice(0, 10),
+          tokenBudgetDaily: patch.tokenBudgetDaily ?? null,
+          tokenUsedToday: patch.tokenUsedToday ?? 0,
+          openDraftPrLimit: patch.openDraftPrLimit ?? 5,
+          discoveryIntervalMinutes: patch.discoveryIntervalMinutes ?? 30,
+          consecutiveFailures: patch.consecutiveFailures ?? 0,
+          currentCandidateId: patch.currentCandidateId ?? null,
+          currentLoopId: patch.currentLoopId ?? null,
+          nextDiscoveryAt: patch.nextDiscoveryAt ?? null,
+          pausedReason: patch.pausedReason ?? null,
+          lastStartedAt: patch.lastStartedAt ?? null,
+          stoppedAt: patch.stoppedAt ?? null
+        }
+      })
+    );
+  }
+
+  async addOrchestratorEvent(projectId: string, type: string, payload?: JsonValue): Promise<OrchestratorEventRecord> {
+    const count = await this.prisma.orchestratorEvent.count({ where: { projectId } });
+    return orchestratorEvent(
+      await this.prisma.orchestratorEvent.create({
+        data: {
+          projectId,
+          seq: count + 1,
+          type,
+          ...(payload !== undefined ? { payload: json(payload) } : {})
+        }
+      })
+    );
+  }
+
+  async listOrchestratorEvents(projectId: string, limit = 50): Promise<OrchestratorEventRecord[]> {
+    return (
+      await this.prisma.orchestratorEvent.findMany({
+        where: { projectId },
+        orderBy: { seq: 'desc' },
+        take: limit
+      })
+    ).reverse().map(orchestratorEvent);
+  }
+
 }

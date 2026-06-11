@@ -21,6 +21,9 @@
     },
     {
       "path": "../../packages/discovery"
+    },
+    {
+      "path": "../../packages/workspace-runner"
     }
   ],
   "include": [

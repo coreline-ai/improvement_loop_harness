@@ -54,6 +54,45 @@ export interface CandidateRecord {
   updatedAt: string;
 }
 
+export interface OrchestratorStateRecord {
+  id: string;
+  projectId: string;
+  mode: string;
+  status: string;
+  dailyLoopBudget: number;
+  loopsStartedToday: number;
+  budgetDay: string;
+  tokenBudgetDaily?: number | null;
+  tokenUsedToday: number;
+  openDraftPrLimit: number;
+  discoveryIntervalMinutes: number;
+  consecutiveFailures: number;
+  currentCandidateId?: string | null;
+  currentLoopId?: string | null;
+  nextDiscoveryAt?: string | null;
+  pausedReason?: string | null;
+  lastStartedAt?: string | null;
+  stoppedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrchestratorEventRecord {
+  id: string;
+  projectId: string;
+  seq: number;
+  type: string;
+  payload?: unknown;
+  createdAt: string;
+}
+
+export interface OrchestratorSummary {
+  state: OrchestratorStateRecord;
+  queue: Record<string, number>;
+  openDraftPrCount: number;
+  recentEvents: OrchestratorEventRecord[];
+}
+
 export interface ApprovalRecord {
   id: string;
   loopRunId: string;
@@ -194,6 +233,10 @@ export async function listApprovals(): Promise<ApprovalRecord[]> {
 
 export async function listCandidates(projectId: string): Promise<CandidateRecord[]> {
   return apiFetch<CandidateRecord[]>(`/api/projects/${projectId}/candidates`);
+}
+
+export async function getOrchestrator(projectId: string): Promise<OrchestratorSummary> {
+  return apiFetch<OrchestratorSummary>(`/api/projects/${projectId}/orchestrator`);
 }
 
 export function latestEvalReport(reports: EvalReportRecord[]): EvalReportRecord | undefined {
