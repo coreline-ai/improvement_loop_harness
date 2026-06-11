@@ -1,3 +1,5 @@
+export * from './decision/index.js';
+export * from './report/index.js';
 export * from './baseline.js';
 export * from './evidence.js';
 export * from './test-on-base.js';
