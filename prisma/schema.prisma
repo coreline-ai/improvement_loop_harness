@@ -50,6 +50,7 @@ model LoopRun {
   baseCommit      String?
   candidateCommit String?
   artifactRoot    String?
+  agentSpec       String?
   idempotencyKey  String?
   requestHash     String?
   startedAt       DateTime?

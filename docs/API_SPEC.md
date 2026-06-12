@@ -8,7 +8,7 @@ API는 long-running job orchestration을 전제로 설계한다. 단순 CRUD가 
 
 - 모든 API 요청은 `Authorization: Bearer <token>`을 요구한다. MVP는 환경 설정으로 발급한 단일 사용자 토큰으로 시작한다 (multi-user RBAC은 MVP 이후).
 - Approval API는 승인 행위자의 `reviewer_id`를 기록한다. MVP에서 토큰은 하나지만 감사 추적은 남긴다.
-- `POST /api/loops/:loopId/evaluate`는 내부 worker 전용이다. 외부 네트워크에 노출하지 않거나 별도 internal token으로 분리한다.
+- MVP는 in-process runner가 loop 생성 후 평가를 실행한다. 외부 `POST /api/loops/:loopId/evaluate` 라우트는 제공하지 않는다.
 - `GET /api/loops/:loopId/artifacts/*path`는 artifact root 기준 **realpath 검증**으로 traversal을 차단한다. root 밖으로 해석되는 경로는 404.
 
 ## 3. Project API
@@ -50,7 +50,16 @@ POST /api/loops/:loopId/retry
 Idempotency-Key: <uuid>
 ```
 
-서버는 요청 본문의 정규화 hash(`requestHash`)를 loop와 함께 저장한다. 동일 key + 동일 hash는 기존 loop 반환(replay), 동일 key + 다른 hash는 `409 Conflict`다. key 유일성만으로는 둘을 구분할 수 없다 ([LOOP_STATE_MACHINE.md](./LOOP_STATE_MACHINE.md) §7).
+서버는 요청 본문의 정규화 hash(`requestHash`)를 loop와 함께 저장한다. 동일 key + 동일 hash는 기존 loop 반환(replay), 동일 key + 다른 hash는 `409 Conflict`다. key 유일성만으로는 둘을 구분할 수 없다 ([LOOP_STATE_MACHINE.md](./LOOP_STATE_MACHINE.md) §7). 선택적으로 `agent_spec`을 지정할 수 있으며, 이 값은 loop에 저장되고 `requestHash`에도 포함된다.
+
+Loop create body 예시:
+
+```json
+{
+  "baseCommit": "abc123",
+  "agent_spec": "codex"
+}
+```
 
 Retry body:
 
@@ -64,14 +73,13 @@ Retry body:
 ## 6. Evaluation API
 
 ```http
-POST /api/loops/:loopId/evaluate
 GET /api/loops/:loopId/reports
 GET /api/reports/:reportId
 GET /api/loops/:loopId/artifacts
 GET /api/loops/:loopId/artifacts/*path
 ```
 
-MVP에서는 `evaluate`를 내부 worker만 호출하게 제한한다.
+MVP에서는 `POST /api/loops/:loopId/evaluate`를 만들지 않는다. 평가는 `POST /api/tasks/:taskId/loops`가 생성한 loop를 in-process queue/runner가 수행한다. 이 선택은 외부 네트워크에서 평가 트리거를 직접 호출하는 공격면을 줄이기 위한 것이다.
 
 ## 7. Approval API
 

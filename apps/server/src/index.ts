@@ -4,4 +4,5 @@ export * from './errors.js';
 export * from './memory-store.js';
 export * from './prisma-store.js';
 export * from './queue.js';
+export * from './runner.js';
 export * from './types.js';

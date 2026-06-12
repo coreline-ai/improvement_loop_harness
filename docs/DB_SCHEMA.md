@@ -50,6 +50,7 @@ model LoopRun {
   baseCommit      String?
   candidateCommit String?
   artifactRoot    String?
+  agentSpec       String?
   idempotencyKey  String?
   requestHash     String?
   startedAt       DateTime?
@@ -161,7 +162,7 @@ model Approval {
   id              String   @id @default(cuid())
   loopRunId       String
   reason          String
-  status          String   @default("pending")
+  status          String   @default("pending") // pending|approved|rejected|requested_more_tests
   reviewerId      String?
   decisionReason  String?
   requestedChanges Json?
@@ -269,7 +270,8 @@ model Learning {
 ## 3. 설계 이유
 
 - `LoopEvent`는 SSE `Last-Event-ID` 재전송의 source of truth다. `seq`는 loop 단위 단조 증가 값이며, cuid는 정렬 순서를 보장하지 않으므로 event id로 쓰지 않는다.
-- `LoopRun.requestHash`는 idempotency replay(동일 key+동일 hash)와 conflict(동일 key+다른 hash, 409)를 구분하는 근거다. key unique 제약만으로는 구분할 수 없다.
+- `LoopRun.requestHash`는 idempotency replay(동일 key+동일 hash)와 conflict(동일 key+다른 hash, 409)를 구분하는 근거다. key unique 제약만으로는 구분할 수 없다. `agentSpec`은 해당 loop를 실행한 agent 선택값을 재현하기 위한 필드다.
+- server runner가 커널 산출물(`eval-report.json`, `gate-report.json`, `manifest.json`, `workspace-ref.json`)을 읽어 `EvalReport`·`GateRun`·`Artifact`·`AgentRun`·`WorkspaceRun` row를 영속한다.
 - `GateRun`을 분리해야 UI에서 gate별 상태와 logs를 빠르게 조회할 수 있다.
 - `Artifact`를 분리해야 report JSON에 대용량 로그를 넣지 않는다.
 - `WorkspaceRun`은 cleanup, retry, forensic debugging에 필요하다.
@@ -278,3 +280,7 @@ model Learning {
 - `ImprovementCandidate`는 자율 루프(MVP-4)의 발견 큐다. `@@unique([projectId, fingerprint])`가 같은 문제의 중복 발견을 차단하고, `dismissed` 상태 행이 "다시 제안하지 말 것" 기억 역할을 한다 ([AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md) §3).
 - `OrchestratorState`는 프로젝트당 1개 자율 루프 실행 상태, 일일 loop/token 예산, 현재 candidate/loop, pause 사유와 discovery 대기 시각을 영속화한다. 재시작 시 `current*`와 `running` candidate를 복구하는 기준이다.
 - `OrchestratorEvent`는 loop가 아직 없거나 guardrail이 loop 외부에서 발동된 경우에도 `orchestrator.started/paused/stopped`, `candidate.picked/dismissed` 같은 프로젝트 단위 이벤트를 단조 증가 `seq`로 기록한다.
+
+## 4. 상태 값
+
+- Approval.status 값: `pending | approved | rejected | requested_more_tests`

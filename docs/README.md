@@ -26,14 +26,15 @@
 ## 개발 계획
 
 - [../dev-plan/implement_20260610_223129.md](../dev-plan/implement_20260610_223129.md) — 전체 개발 계획 (Phase 1~17, MVP-0~4) — **완료**
-- [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) — 3차 검토 반영 계획 (Phase 1~5: 서버 조립·Store 계약 테스트·스펙 개정·CI) — 진행 예정
-- [../dev-plan/implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md) — LLM self-review 희석 방지 보강 계획 (Phase 1~7: 신뢰 경계·provenance·hidden tests·독립 verifier) — 진행 예정
+- [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) — 3차 검토 반영 계획 (Phase 1~5: 서버 조립·Store 계약 테스트·스펙 개정·CI) — 코드·문서 반영 완료, 원격 CI 확인 예정
+- [../dev-plan/implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md) — 신뢰 경계 보강 계획 (Phase 1~7: provenance·hidden test·verifier lane) — 4차 검토 반영 완료, **전제: 061653 완료 후 착수**
 
 ## 검토 이력
 
 - [EXPERT_REVIEW_1_20260610.md](./EXPERT_REVIEW_1_20260610.md) — 1차 전문가 검토: 설계 명세 (2026-06-10, 전 항목 반영 완료)
 - [EXPERT_REVIEW_2_20260610.md](./EXPERT_REVIEW_2_20260610.md) — 2차 전문가 검토: 개발 계획 (2026-06-10, 전 항목 반영 완료)
-- [EXPERT_REVIEW_3_20260612.md](./EXPERT_REVIEW_3_20260612.md) — 3차 전문가 검토: 구현 완료 검증 (2026-06-12, **미반영** — 높음 1·중간 5·낮음 5)
+- [EXPERT_REVIEW_3_20260612.md](./EXPERT_REVIEW_3_20260612.md) — 3차 전문가 검토: 구현 완료 검증 (2026-06-12, 코드·문서 반영 완료, 원격 CI 확인 예정)
+- [EXPERT_REVIEW_4_20260612.md](./EXPERT_REVIEW_4_20260612.md) — 4차 전문가 검토: 신뢰 경계 보강 계획(implement_20260612_061855) (2026-06-12, 전 항목 반영 완료)
 
 ## 현재 결론
 

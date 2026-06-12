@@ -36,6 +36,13 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     fetchLatestBase: options.fetchLatestBase
   });
   await orchestrator.recoverAll();
+  app.addHook('onClose', async () => {
+    for (const state of await store.listOrchestratorStates()) {
+      if (state.status === 'running' || state.status === 'stopping') {
+        await orchestrator.stop(state.projectId, 'app_shutdown');
+      }
+    }
+  });
 
   app.setErrorHandler((error, _request, reply) => sendError(reply, error));
   app.setNotFoundHandler((_request, reply) => {

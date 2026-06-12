@@ -56,6 +56,7 @@ export async function registerLoopRoutes(
       status: 'queued',
       baseCommit: typeof body.baseCommit === 'string' ? body.baseCommit : null,
       artifactRoot: typeof body.artifactRoot === 'string' ? body.artifactRoot : null,
+      agentSpec: typeof body.agent_spec === 'string' ? body.agent_spec : null,
       idempotencyKey: key,
       requestHash: hash
     });
@@ -107,7 +108,8 @@ export async function registerLoopRoutes(
       iteration: await store.nextLoopIteration(previous.taskId),
       status: 'queued',
       baseCommit: mode === 'retry_latest_base' ? null : previous.baseCommit ?? null,
-      artifactRoot: previous.artifactRoot ?? null
+      artifactRoot: previous.artifactRoot ?? null,
+      agentSpec: previous.agentSpec ?? null
     });
     await store.addLoopEvent(loop.id, 'loop.retry_created', {
       retry_of: previous.id,

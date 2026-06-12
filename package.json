@@ -14,7 +14,10 @@
     "test": "vitest run --exclude \"tests/e2e/**\"",
     "test:e2e": "pnpm build && vitest run --passWithNoTests tests/e2e",
     "format": "prettier --check .",
-    "clean": "rm -rf packages/*/dist coverage .vibeloop"
+    "clean": "rm -rf packages/*/dist coverage .vibeloop",
+    "start:server": "pnpm --filter @vibeloop/server start",
+    "test:smoke": "pnpm --filter web test:smoke",
+    "build:web": "pnpm --filter web build"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

@@ -24,6 +24,9 @@
     },
     {
       "path": "../../packages/workspace-runner"
+    },
+    {
+      "path": "../../packages/cli"
     }
   ],
   "include": [

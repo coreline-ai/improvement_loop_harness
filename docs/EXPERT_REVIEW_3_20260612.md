@@ -3,7 +3,7 @@
 검토 대상: Phase 1~17 구현 코드 전체 (커밋 `aa998ca`~`78298e4`, 소스 145파일 / 15,610 LOC).
 검토 방법: (1) 자체 테스트 전 스위트 재현 실행, (2) 명세 11종 대비 4영역 정합성 점검(가드·워크스페이스 / eval-engine / 서버 API·DB / 자율 루프·웹), (3) 핵심 경로 직접 추적(e2e 커버리지, CLI 배선, 영속 계층, 서버 부트스트랩).
 
-> 반영 상태: **미반영** — 반영 계획 수립됨: [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) (Phase 1~5). 반영 완료 시 이 배너를 갱신한다.
+> 반영 상태: **코드·문서 반영 완료 / 원격 CI 확인 예정** — [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) Phase 1~5 구현과 로컬 게이트(`typecheck`, `lint`, `test`, `test:e2e`, `build`, `build:web`, `test:smoke`, `git diff --check`) 통과를 확인했다. PrismaStore 실제 DB 계약은 GitHub Actions `prisma-store` job에서 Postgres service로 검증하도록 연결했다.
 
 ---
 

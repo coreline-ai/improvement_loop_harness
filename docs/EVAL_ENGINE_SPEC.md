@@ -111,8 +111,8 @@ status 의미: `pass`(exit 0), `fail`(exit != 0), `error`(timeout/실행 불가)
 ### 7.1 Baseline Capture
 
 - 시점: `workspace_preparing` 단계, agent 실행 전의 clean worktree.
-- 대상: 비교형 게이트(coverage, performance, security scan)만 실행한다. hard gate는 base가 green이라는 전제로 생략 가능하되, base가 red인 경우 그 사실을 baseline에 기록한다 (base에서 실패하던 테스트는 `fixes_reproduced_failure` 판정의 입력이 된다).
-- 캐시: 동일 `(project, base_commit, eval.yaml content hash)` 조합의 baseline은 재사용한다 (`baseline.mode: cached_per_base_commit` 기본).
+- 대상: 비교형 타입 게이트(`performance`, `security`)와 coverage 산출 게이트만 실행한다. 일반 `hard`/`task_acceptance` 테스트 게이트는 baseline에서 제외한다. hard gate는 base가 green이라는 전제로 생략 가능하되, base가 red인 경우 그 사실은 별도 재현/acceptance 경로에서 기록한다.
+- 캐시: 동일 `(project, base_commit, eval.yaml content hash)` 조합의 baseline은 재사용한다 (`baseline.mode: cached_per_base_commit` 기본). 캐시 hit 시 `generated_at`은 명령 재실행 시각이 아니라 해당 loop가 캐시된 baseline을 검증·재사용한 시각이다.
 - 산출: `metrics/baseline.json` (artifact).
 
 ### 7.2 Test-on-Base 검증
@@ -141,6 +141,8 @@ evidence 판정은 LLM이 아니라 detector가 수행한다. 각 detector는 ar
 | `removes_duplicate_code` | 중복 측정 도구 결과 + 동작 보존 테스트 | 중복 감소 ∧ regression gate pass |
 
 baseline이 없거나 샘플이 부족하면 `inconclusive`로 기록한다. 모든 evidence 항목은 `artifact_ref`로 근거 artifact를 참조해야 한다 ([ARTIFACT_SCHEMA.md](./ARTIFACT_SCHEMA.md) §7).
+
+`test_integrity.forbidden_patterns`와 `suspicious_patterns`는 diff/테스트 파일 내용에 대한 보수적 substring 매칭이다. 정규식 해석이 아니므로 오탐은 가능하지만, 명시된 약화 패턴 누락을 줄이는 쪽을 우선한다.
 
 ## 8. Decision 규칙
 

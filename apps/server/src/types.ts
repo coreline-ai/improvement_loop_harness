@@ -36,6 +36,7 @@ export interface LoopRunRecord {
   baseCommit?: string | null;
   candidateCommit?: string | null;
   artifactRoot?: string | null;
+  agentSpec?: string | null;
   idempotencyKey?: string | null;
   requestHash?: string | null;
   startedAt?: Date | null;
@@ -76,6 +77,48 @@ export interface ArtifactRecord {
   sizeBytes?: number | null;
   redacted: boolean;
   createdAt: Date;
+}
+
+export interface WorkspaceRunRecord {
+  id: string;
+  loopRunId: string;
+  kind: string;
+  path: string;
+  baseCommit: string;
+  status: string;
+  createdAt: Date;
+  cleanedAt?: Date | null;
+}
+
+export interface AgentRunRecord {
+  id: string;
+  loopRunId: string;
+  agentType: string;
+  command: string;
+  model?: string | null;
+  status: string;
+  exitCode?: number | null;
+  stdoutRef?: string | null;
+  stderrRef?: string | null;
+  startedAt: Date;
+  finishedAt?: Date | null;
+}
+
+export interface GateRunRecord {
+  id: string;
+  loopRunId: string;
+  name: string;
+  type: string;
+  required: boolean;
+  command: string;
+  status: string;
+  exitCode?: number | null;
+  durationMs?: number | null;
+  stdoutRef?: string | null;
+  stderrRef?: string | null;
+  summary?: string | null;
+  startedAt: Date;
+  finishedAt?: Date | null;
 }
 
 export interface ImprovementCandidateRecord {
@@ -177,6 +220,7 @@ export interface CreateLoopInput {
   iteration: number;
   status: string;
   baseCommit?: string | null;
+  agentSpec?: string | null;
   artifactRoot?: string | null;
   idempotencyKey?: string | null;
   requestHash?: string | null;
@@ -207,6 +251,10 @@ export interface CreatePullRequestInput {
   prNumber?: number | null;
   status?: string;
 }
+
+export type CreateWorkspaceRunInput = Omit<WorkspaceRunRecord, 'id' | 'createdAt'>;
+export type CreateAgentRunInput = Omit<AgentRunRecord, 'id'>;
+export type CreateGateRunInput = Omit<GateRunRecord, 'id'>;
 
 export interface UpsertOrchestratorStateInput {
   mode?: OrchestratorMode;
@@ -262,6 +310,15 @@ export interface Store {
 
   listArtifacts(loopRunId: string): Promise<ArtifactRecord[]>;
   createArtifact(input: Omit<ArtifactRecord, 'id' | 'createdAt'>): Promise<ArtifactRecord>;
+
+  listWorkspaceRuns(loopRunId: string): Promise<WorkspaceRunRecord[]>;
+  createWorkspaceRun(input: CreateWorkspaceRunInput): Promise<WorkspaceRunRecord>;
+
+  listAgentRuns(loopRunId: string): Promise<AgentRunRecord[]>;
+  createAgentRun(input: CreateAgentRunInput): Promise<AgentRunRecord>;
+
+  listGateRuns(loopRunId: string): Promise<GateRunRecord[]>;
+  createGateRun(input: CreateGateRunInput): Promise<GateRunRecord>;
 
   listReports(loopRunId: string): Promise<EvalReportRecord[]>;
   getReport(id: string): Promise<EvalReportRecord | null>;

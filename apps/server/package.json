@@ -14,7 +14,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json --pretty false",
     "typecheck": "tsc -p tsconfig.json --pretty false",
-    "test": "vitest run"
+    "test": "vitest run",
+    "start": "node dist/main.js"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",
@@ -26,6 +27,7 @@
     "pg": "^8.21.0",
     "@vibeloop/github-integration": "workspace:*",
     "@vibeloop/discovery": "workspace:*",
-    "@vibeloop/workspace-runner": "workspace:*"
+    "@vibeloop/workspace-runner": "workspace:*",
+    "@vibeloop/cli": "workspace:*"
   }
 }

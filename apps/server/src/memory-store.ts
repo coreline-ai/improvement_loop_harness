@@ -3,13 +3,18 @@ import {
   ACTIVE_LOOP_STATUSES,
   type ApprovalRecord,
   type ArtifactRecord,
+  type AgentRunRecord,
   type CreateApprovalInput,
+  type CreateAgentRunInput,
   type CreateCandidateInput,
+  type CreateGateRunInput,
   type CreateLoopInput,
   type CreateProjectInput,
   type CreatePullRequestInput,
   type CreateTaskInput,
+  type CreateWorkspaceRunInput,
   type EvalReportRecord,
+  type GateRunRecord,
   type ImprovementCandidateRecord,
   type JsonValue,
   type LoopEventRecord,
@@ -20,6 +25,7 @@ import {
   type PullRequestRecord,
   type Store,
   type UpsertOrchestratorStateInput,
+  type WorkspaceRunRecord,
   type TaskRecord
 } from './types.js';
 
@@ -57,6 +63,9 @@ export class MemoryStore implements Store {
   private readonly events = new Map<string, LoopEventRecord[]>();
   private readonly approvals = new Map<string, ApprovalRecord>();
   private readonly artifacts = new Map<string, ArtifactRecord[]>();
+  private readonly workspaceRuns = new Map<string, WorkspaceRunRecord[]>();
+  private readonly agentRuns = new Map<string, AgentRunRecord[]>();
+  private readonly gateRuns = new Map<string, GateRunRecord[]>();
   private readonly reports = new Map<string, EvalReportRecord>();
   private readonly pullRequests = new Map<string, PullRequestRecord>();
   private readonly orchestratorStates = new Map<string, OrchestratorStateRecord>();
@@ -121,6 +130,13 @@ export class MemoryStore implements Store {
   }
 
   async createCandidate(input: CreateCandidateInput): Promise<ImprovementCandidateRecord> {
+    if (
+      [...this.candidates.values()].some(
+        (candidate) => candidate.projectId === input.projectId && candidate.fingerprint === input.fingerprint
+      )
+    ) {
+      throw new Error(`candidate fingerprint already exists for project ${input.projectId}: ${input.fingerprint}`);
+    }
     const record: ImprovementCandidateRecord = {
       id: id(),
       projectId: input.projectId,
@@ -202,6 +218,7 @@ export class MemoryStore implements Store {
       baseCommit: input.baseCommit ?? null,
       candidateCommit: null,
       artifactRoot: input.artifactRoot ?? null,
+      agentSpec: input.agentSpec ?? null,
       idempotencyKey: input.idempotencyKey ?? null,
       requestHash: input.requestHash ?? null,
       startedAt: null,
@@ -322,6 +339,42 @@ export class MemoryStore implements Store {
     const list = this.artifacts.get(input.loopRunId) ?? [];
     list.push(record);
     this.artifacts.set(input.loopRunId, list);
+    return copy(record);
+  }
+
+  async listWorkspaceRuns(loopRunId: string): Promise<WorkspaceRunRecord[]> {
+    return (this.workspaceRuns.get(loopRunId) ?? []).map(copy);
+  }
+
+  async createWorkspaceRun(input: CreateWorkspaceRunInput): Promise<WorkspaceRunRecord> {
+    const record: WorkspaceRunRecord = { ...input, id: id(), createdAt: now() };
+    const list = this.workspaceRuns.get(input.loopRunId) ?? [];
+    list.push(record);
+    this.workspaceRuns.set(input.loopRunId, list);
+    return copy(record);
+  }
+
+  async listAgentRuns(loopRunId: string): Promise<AgentRunRecord[]> {
+    return (this.agentRuns.get(loopRunId) ?? []).map(copy);
+  }
+
+  async createAgentRun(input: CreateAgentRunInput): Promise<AgentRunRecord> {
+    const record: AgentRunRecord = { ...input, id: id() };
+    const list = this.agentRuns.get(input.loopRunId) ?? [];
+    list.push(record);
+    this.agentRuns.set(input.loopRunId, list);
+    return copy(record);
+  }
+
+  async listGateRuns(loopRunId: string): Promise<GateRunRecord[]> {
+    return (this.gateRuns.get(loopRunId) ?? []).map(copy);
+  }
+
+  async createGateRun(input: CreateGateRunInput): Promise<GateRunRecord> {
+    const record: GateRunRecord = { ...input, id: id() };
+    const list = this.gateRuns.get(input.loopRunId) ?? [];
+    list.push(record);
+    this.gateRuns.set(input.loopRunId, list);
     return copy(record);
   }
 

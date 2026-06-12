@@ -94,9 +94,7 @@ function isBaselineGate(gate: EvalGate): boolean {
   return (
     COMPARATIVE_GATE_TYPES.has(gate.type) ||
     lower.includes('coverage') ||
-    lower.includes('benchmark') ||
-    lower.includes('latency') ||
-    lower.includes('test')
+    lower.includes('coverage_percent')
   );
 }
 
@@ -180,6 +178,8 @@ export async function captureBaseline(
     const report: BaselineReport = {
       ...cachedReport,
       cache_hit: true,
+      // On a cache hit, generated_at means "this loop verified/reused the cached baseline at",
+      // not "the baseline commands were re-executed at".
       generated_at: new Date().toISOString()
     };
     await writeBaselineArtifact(options.artifactRoot, report);

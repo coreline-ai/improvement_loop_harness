@@ -1,16 +1,21 @@
-import { Prisma, PrismaClient, type Approval, type Artifact, type EvalReport, type ImprovementCandidate, type LoopEvent, type LoopRun, type OrchestratorEvent, type OrchestratorState, type Project, type PullRequest, type Task } from '@prisma/client';
+import { Prisma, PrismaClient, type AgentRun, type Approval, type Artifact, type EvalReport, type GateRun, type ImprovementCandidate, type LoopEvent, type LoopRun, type OrchestratorEvent, type OrchestratorState, type Project, type PullRequest, type Task, type WorkspaceRun } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   ACTIVE_LOOP_STATUSES,
+  type AgentRunRecord,
   type ApprovalRecord,
   type ArtifactRecord,
   type CreateApprovalInput,
+  type CreateAgentRunInput,
   type CreateCandidateInput,
+  type CreateGateRunInput,
   type CreateLoopInput,
   type CreateProjectInput,
   type CreatePullRequestInput,
   type CreateTaskInput,
+  type CreateWorkspaceRunInput,
   type EvalReportRecord,
+  type GateRunRecord,
   type ImprovementCandidateRecord,
   type JsonValue,
   type LoopEventRecord,
@@ -21,6 +26,7 @@ import {
   type PullRequestRecord,
   type Store,
   type UpsertOrchestratorStateInput,
+  type WorkspaceRunRecord,
   type TaskRecord
 } from './types.js';
 
@@ -66,6 +72,18 @@ function artifact(record: Artifact): ArtifactRecord {
   return record;
 }
 
+function workspaceRun(record: WorkspaceRun): WorkspaceRunRecord {
+  return record;
+}
+
+function agentRun(record: AgentRun): AgentRunRecord {
+  return record;
+}
+
+function gateRun(record: GateRun): GateRunRecord {
+  return record;
+}
+
 function improvementCandidate(record: ImprovementCandidate): ImprovementCandidateRecord {
   return {
     ...record,
@@ -101,6 +119,10 @@ function orchestratorEvent(record: OrchestratorEvent): OrchestratorEventRecord {
   };
 }
 
+function isUniqueConstraintError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+}
+
 export function createPrismaClient(databaseUrl = process.env.DATABASE_URL): PrismaClient {
   if (!databaseUrl) {
     throw new Error('DATABASE_URL is required for PrismaStore');
@@ -110,6 +132,10 @@ export function createPrismaClient(databaseUrl = process.env.DATABASE_URL): Pris
 
 export class PrismaStore implements Store {
   constructor(private readonly prisma: PrismaClient = createPrismaClient()) {}
+
+  async disconnect(): Promise<void> {
+    await this.prisma.$disconnect();
+  }
 
   async createProject(input: CreateProjectInput): Promise<ProjectRecord> {
     return project(
@@ -272,6 +298,7 @@ export class PrismaStore implements Store {
           status: input.status,
           ...(input.baseCommit !== undefined ? { baseCommit: input.baseCommit } : {}),
           ...(input.artifactRoot !== undefined ? { artifactRoot: input.artifactRoot } : {}),
+          ...(input.agentSpec !== undefined ? { agentSpec: input.agentSpec } : {}),
           ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
           ...(input.requestHash !== undefined ? { requestHash: input.requestHash } : {})
         }
@@ -300,6 +327,7 @@ export class PrismaStore implements Store {
             ...(patch.baseCommit !== undefined ? { baseCommit: patch.baseCommit } : {}),
             ...(patch.candidateCommit !== undefined ? { candidateCommit: patch.candidateCommit } : {}),
             ...(patch.artifactRoot !== undefined ? { artifactRoot: patch.artifactRoot } : {}),
+            ...(patch.agentSpec !== undefined ? { agentSpec: patch.agentSpec } : {}),
             ...(patch.startedAt !== undefined ? { startedAt: patch.startedAt } : {}),
             ...(patch.finishedAt !== undefined ? { finishedAt: patch.finishedAt } : {})
           }
@@ -329,17 +357,28 @@ export class PrismaStore implements Store {
   }
 
   async addLoopEvent(loopRunId: string, type: string, payload?: JsonValue): Promise<LoopEventRecord> {
-    const count = await this.prisma.loopEvent.count({ where: { loopRunId } });
-    return loopEvent(
-      await this.prisma.loopEvent.create({
-        data: {
-          loopRunId,
-          seq: count + 1,
-          type,
-          ...(payload !== undefined ? { payload: json(payload) } : {})
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const record = await this.prisma.$transaction(async (tx) => {
+          const aggregate = await tx.loopEvent.aggregate({ where: { loopRunId }, _max: { seq: true } });
+          return tx.loopEvent.create({
+            data: {
+              loopRunId,
+              seq: (aggregate._max.seq ?? 0) + 1,
+              type,
+              ...(payload !== undefined ? { payload: json(payload) } : {})
+            }
+          });
+        });
+        return loopEvent(record);
+      } catch (error) {
+        if (isUniqueConstraintError(error) && attempt < 2) {
+          continue;
         }
-      })
-    );
+        throw error;
+      }
+    }
+    throw new Error('failed to create loop event after retries');
   }
 
   async listLoopEventsAfter(loopRunId: string, afterSeq: number): Promise<LoopEventRecord[]> {
@@ -406,6 +445,74 @@ export class PrismaStore implements Store {
           ...(input.sha256 !== undefined ? { sha256: input.sha256 } : {}),
           ...(input.sizeBytes !== undefined ? { sizeBytes: input.sizeBytes } : {}),
           redacted: input.redacted
+        }
+      })
+    );
+  }
+
+  async listWorkspaceRuns(loopRunId: string): Promise<WorkspaceRunRecord[]> {
+    return (await this.prisma.workspaceRun.findMany({ where: { loopRunId }, orderBy: { createdAt: 'asc' } })).map(workspaceRun);
+  }
+
+  async createWorkspaceRun(input: CreateWorkspaceRunInput): Promise<WorkspaceRunRecord> {
+    return workspaceRun(
+      await this.prisma.workspaceRun.create({
+        data: {
+          loopRunId: input.loopRunId,
+          kind: input.kind,
+          path: input.path,
+          baseCommit: input.baseCommit,
+          status: input.status,
+          ...(input.cleanedAt !== undefined ? { cleanedAt: input.cleanedAt } : {})
+        }
+      })
+    );
+  }
+
+  async listAgentRuns(loopRunId: string): Promise<AgentRunRecord[]> {
+    return (await this.prisma.agentRun.findMany({ where: { loopRunId }, orderBy: { startedAt: 'asc' } })).map(agentRun);
+  }
+
+  async createAgentRun(input: CreateAgentRunInput): Promise<AgentRunRecord> {
+    return agentRun(
+      await this.prisma.agentRun.create({
+        data: {
+          loopRunId: input.loopRunId,
+          agentType: input.agentType,
+          command: input.command,
+          ...(input.model !== undefined ? { model: input.model } : {}),
+          status: input.status,
+          ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
+          ...(input.stdoutRef !== undefined ? { stdoutRef: input.stdoutRef } : {}),
+          ...(input.stderrRef !== undefined ? { stderrRef: input.stderrRef } : {}),
+          startedAt: input.startedAt,
+          ...(input.finishedAt !== undefined ? { finishedAt: input.finishedAt } : {})
+        }
+      })
+    );
+  }
+
+  async listGateRuns(loopRunId: string): Promise<GateRunRecord[]> {
+    return (await this.prisma.gateRun.findMany({ where: { loopRunId }, orderBy: { startedAt: 'asc' } })).map(gateRun);
+  }
+
+  async createGateRun(input: CreateGateRunInput): Promise<GateRunRecord> {
+    return gateRun(
+      await this.prisma.gateRun.create({
+        data: {
+          loopRunId: input.loopRunId,
+          name: input.name,
+          type: input.type,
+          required: input.required,
+          command: input.command,
+          status: input.status,
+          ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
+          ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
+          ...(input.stdoutRef !== undefined ? { stdoutRef: input.stdoutRef } : {}),
+          ...(input.stderrRef !== undefined ? { stderrRef: input.stderrRef } : {}),
+          ...(input.summary !== undefined ? { summary: input.summary } : {}),
+          startedAt: input.startedAt,
+          ...(input.finishedAt !== undefined ? { finishedAt: input.finishedAt } : {})
         }
       })
     );
@@ -539,17 +646,28 @@ export class PrismaStore implements Store {
   }
 
   async addOrchestratorEvent(projectId: string, type: string, payload?: JsonValue): Promise<OrchestratorEventRecord> {
-    const count = await this.prisma.orchestratorEvent.count({ where: { projectId } });
-    return orchestratorEvent(
-      await this.prisma.orchestratorEvent.create({
-        data: {
-          projectId,
-          seq: count + 1,
-          type,
-          ...(payload !== undefined ? { payload: json(payload) } : {})
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const record = await this.prisma.$transaction(async (tx) => {
+          const aggregate = await tx.orchestratorEvent.aggregate({ where: { projectId }, _max: { seq: true } });
+          return tx.orchestratorEvent.create({
+            data: {
+              projectId,
+              seq: (aggregate._max.seq ?? 0) + 1,
+              type,
+              ...(payload !== undefined ? { payload: json(payload) } : {})
+            }
+          });
+        });
+        return orchestratorEvent(record);
+      } catch (error) {
+        if (isUniqueConstraintError(error) && attempt < 2) {
+          continue;
         }
-      })
-    );
+        throw error;
+      }
+    }
+    throw new Error('failed to create orchestrator event after retries');
   }
 
   async listOrchestratorEvents(projectId: string, limit = 50): Promise<OrchestratorEventRecord[]> {
