@@ -64,6 +64,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec prisma generate
       - run: pnpm exec prisma migrate deploy
+      - run: pnpm build
       - run: pnpm --filter @vibeloop/server test
 
   smoke:

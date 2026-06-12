@@ -120,7 +120,10 @@ function orchestratorEvent(record: OrchestratorEvent): OrchestratorEventRecord {
 }
 
 function isUniqueConstraintError(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError ||
+    (typeof error === 'object' && error !== null && 'code' in error)
+  ) && (error as { code?: unknown }).code === 'P2002';
 }
 
 export function createPrismaClient(databaseUrl = process.env.DATABASE_URL): PrismaClient {
@@ -357,9 +360,10 @@ export class PrismaStore implements Store {
   }
 
   async addLoopEvent(loopRunId: string, type: string, payload?: JsonValue): Promise<LoopEventRecord> {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
       try {
         const record = await this.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "LoopRun" WHERE id = ${loopRunId} FOR UPDATE`;
           const aggregate = await tx.loopEvent.aggregate({ where: { loopRunId }, _max: { seq: true } });
           return tx.loopEvent.create({
             data: {
@@ -372,7 +376,8 @@ export class PrismaStore implements Store {
         });
         return loopEvent(record);
       } catch (error) {
-        if (isUniqueConstraintError(error) && attempt < 2) {
+        if (isUniqueConstraintError(error) && attempt < 19) {
+          await new Promise((resolve) => setTimeout(resolve, attempt + 1));
           continue;
         }
         throw error;
@@ -646,9 +651,10 @@ export class PrismaStore implements Store {
   }
 
   async addOrchestratorEvent(projectId: string, type: string, payload?: JsonValue): Promise<OrchestratorEventRecord> {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
       try {
         const record = await this.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw`SELECT id FROM "Project" WHERE id = ${projectId} FOR UPDATE`;
           const aggregate = await tx.orchestratorEvent.aggregate({ where: { projectId }, _max: { seq: true } });
           return tx.orchestratorEvent.create({
             data: {
@@ -661,7 +667,8 @@ export class PrismaStore implements Store {
         });
         return orchestratorEvent(record);
       } catch (error) {
-        if (isUniqueConstraintError(error) && attempt < 2) {
+        if (isUniqueConstraintError(error) && attempt < 19) {
+          await new Promise((resolve) => setTimeout(resolve, attempt + 1));
           continue;
         }
         throw error;
