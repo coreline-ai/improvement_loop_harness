@@ -133,6 +133,8 @@ interface WorkspaceRefArtifact {
   retry_mode?: RetryMode | undefined;
 }
 
+const CODEX_AGENT_SPEC = 'codex';
+
 class CancelledError extends Error {
   constructor() {
     super('loop cancelled');
@@ -228,7 +230,7 @@ function parseAgentSpec(
     }
     return new MockAgentAdapter(scenarioPath);
   }
-  if (spec === 'codex') {
+  if (spec === CODEX_AGENT_SPEC) {
     return new CodexAgentAdapter({
       loopId: options.loopId,
       proxyBaseUrl: options.proxyBaseUrl ?? 'http://127.0.0.1:1',
@@ -345,11 +347,30 @@ async function injectHiddenAcceptanceTests(options: {
   return cleanups;
 }
 
+export function resolveSameModelReview(
+  agentSpec: string,
+  criticConfig: EvalConfig['critic'] | undefined
+): boolean {
+  if (criticConfig?.require_different_provider === true) {
+    return false;
+  }
+
+  const normalizedSpec = agentSpec.trim();
+  if (normalizedSpec.startsWith('mock:')) {
+    return false;
+  }
+
+  // The current advisory runner contract does not prove provider independence.
+  // Treat any LLM-backed or unknown adapter spec as not independently reviewed.
+  return true;
+}
+
 function advisoryFindingsFor(options: {
   gateRuns: readonly GateReportEntry[];
   agentSpec: string;
   evalConfig: EvalConfig;
 }): Array<Record<string, unknown>> {
+  const sameModelReview = resolveSameModelReview(options.agentSpec, options.evalConfig.critic);
   return options.gateRuns
     .filter((gate) => gate.type === 'advisory')
     .map((gate) => ({
@@ -357,7 +378,7 @@ function advisoryFindingsFor(options: {
       gate: gate.name,
       status: gate.status,
       authority: 'advisory',
-      same_model_review: options.agentSpec === 'codex' && options.evalConfig.critic?.require_different_provider !== true
+      same_model_review: sameModelReview
     }));
 }
 

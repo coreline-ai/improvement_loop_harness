@@ -64,7 +64,9 @@ interface EvalReportJson {
     group?: string;
   }>;
   improvement_evidence: Array<{ type: string; status: string }>;
+  advisory_findings?: Array<{ same_model_review?: boolean }>;
 }
+
 
 const TEMPLATE_DIR = path.resolve('tests/e2e/fixtures/target-repo');
 const PROJECT_GATE_TYPES = new Set([
@@ -395,6 +397,9 @@ async function runFixtureOnce(
       fixture.expectedReason
     );
     assertSkippedConsistency(report);
+    if (report.advisory_findings?.length) {
+      expect(report.advisory_findings.every((finding) => finding.same_model_review === false), fixture.id).toBe(true);
+    }
     fixture.assertReport?.(report);
     if (fixture.hiddenAcceptance) {
       expect(await readAllFiles(result.layout.root), fixture.id).not.toContain('SECRET_HIDDEN_EXPECTATION');

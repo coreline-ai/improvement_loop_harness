@@ -7,7 +7,7 @@ import { EXIT_CODES } from './exit-codes.js';
 import { createProgram, VERSION } from './index.js';
 import { renderLoopHtmlReport } from './commands/report.js';
 import { retryLoop } from './commands/retry.js';
-import { runKernel } from './run.js';
+import { resolveSameModelReview, runKernel } from './run.js';
 
 async function tempDir(prefix: string): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), prefix));
@@ -164,6 +164,19 @@ describe('createProgram', () => {
     expect(output.candidates).toHaveLength(1);
     expect(output.candidates[0]).toMatchObject({ source: 'test_failure', location: { filePath: 'tests/failing.test.js' } });
   });
+
+
+describe('resolveSameModelReview', () => {
+  it.each([
+    ['mock:scenario.json', undefined, false],
+    ['codex', undefined, true],
+    ['codex exec --cd /tmp/worktree -', undefined, true],
+    ['unknown-agent --flag', undefined, true],
+    ['codex', { require_different_provider: true }, false]
+  ] as const)('maps %s with critic config %j to %s', (agentSpec, criticConfig, expected) => {
+    expect(resolveSameModelReview(agentSpec, criticConfig)).toBe(expected);
+  });
+});
 
 describe('runKernel', () => {
   it('runs the mock happy path, writes fixed inputs/workspace ref, and exits 0 with eval-report.json', async () => {

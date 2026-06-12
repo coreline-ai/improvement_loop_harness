@@ -6,6 +6,8 @@ import type { RunKernelResult } from '@vibeloop/cli';
 import type { LoopRunner, LoopRunnerInput, LoopRunnerResult } from './queue.js';
 import type { JsonValue, Store } from './types.js';
 
+const CODEX_AGENT_SPEC = 'codex';
+
 interface ArtifactManifestEntry {
   path: string;
   sha256: string;
@@ -84,7 +86,7 @@ function artifactKind(artifactPath: string): string {
 
 function agentType(agentSpec: string): string {
   if (agentSpec.startsWith('mock:')) return 'mock';
-  if (agentSpec === 'codex' || agentSpec.startsWith('codex:')) return 'codex';
+  if (agentSpec === CODEX_AGENT_SPEC || agentSpec.startsWith(`${CODEX_AGENT_SPEC}:`)) return CODEX_AGENT_SPEC;
   return agentSpec.split(':')[0] || 'unknown';
 }
 
@@ -158,7 +160,7 @@ async function persistKernelArtifacts(
     loopRunId: input.loop.id,
     agentType: agentType(agentSpec),
     command: agentSpec,
-    model: agentSpec === 'codex' ? 'codex-default' : null,
+    model: agentSpec === CODEX_AGENT_SPEC ? 'codex-default' : null,
     status: result.status,
     exitCode: result.exitCode,
     stdoutRef: 'logs/agent.stdout.log',

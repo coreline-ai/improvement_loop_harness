@@ -12,6 +12,7 @@ Observe(발견) → Candidate 큐 → Task 자동 생성 → (승인) →
 → accept면 PR → 다음 candidate로 반복
 
 Draft PR 생성 전 필수 accept 조건은 [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §8.1의 고정 통과 의미를 따른다. LLM/advisory 결과만으로 PR을 만들 수 없고, deterministic decision engine의 `ALL_PASS` 또는 human-approved 후보만 draft PR 대상이다.
+Advisory report의 `same_model_review`는 모델 동일성 확증이 아니라 reviewer provider 독립성 미보장 표시이며, 정확한 의미는 [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §8.1을 따른다.
 ```
 
 전제: 바깥 루프는 **검증 커널(MVP-0~3)이 완성된 뒤에만** 가동한다. 채점기 없이 자율 루프를 돌리면 테스트 약화·결과지 우회를 막을 수 없다 — 커널이 신뢰 경계다.
