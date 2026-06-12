@@ -28,6 +28,29 @@ describe('runCommand', () => {
     expect(result.timedOut).toBe(true);
     expect(Date.now() - start).toBeLessThan(2500);
   });
+
+
+  it('caps stdout and stderr buffers while preserving exit-code status', async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'vibeloop-exec-buffer-'));
+    const stdoutFile = path.join(tempDir, 'stdout.log');
+    const stderrFile = path.join(tempDir, 'stderr.log');
+    const command = `node -e "process.stdout.write('a'.repeat(1024)); process.stderr.write('b'.repeat(1024)); process.exit(7)"`;
+
+    const result = await runCommand(command, {
+      maxBufferBytes: 64,
+      stdoutFile,
+      stderrFile
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.exitCode).toBe(7);
+    expect(result.stdout).toContain('…[output truncated at 64B]');
+    expect(result.stderr).toContain('…[output truncated at 64B]');
+    expect(result.stdout.length).toBeLessThan(128);
+    expect(result.stderr.length).toBeLessThan(128);
+    await expect(readFile(stdoutFile, 'utf8')).resolves.toBe(result.stdout);
+    await expect(readFile(stderrFile, 'utf8')).resolves.toBe(result.stderr);
+  });
 });
 
 describe('getDataDir', () => {

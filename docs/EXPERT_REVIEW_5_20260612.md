@@ -3,7 +3,7 @@
 검토 대상: 두 워크스트림의 구현 — [implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md)(3차 검토 반영, G1~G6)와 [implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md)(신뢰 경계 보강, Phase 1~7). 커밋 `5849ec6..02c99d4`, 66파일 +3,521/−316.
 검토 방법: (1) 로컬 게이트 전 스위트 재현, (2) 원격 CI 실결과 대조, (3) 두 워크스트림 정합성 병렬 점검, (4) 보안·정확성 핵심 경로 직접 추적(exec 재작성, decision 14규칙, provenance, repro_command, same_model_review).
 
-> 반영 상태: **미반영** — 반영 계획 수립됨: [../dev-plan/implement_20260612_183255.md](../dev-plan/implement_20260612_183255.md) (Phase 1~4, M3 시한 2026-06-16). 반영 완료 시 이 배너를 갱신한다.
+> 반영 상태: **전 항목 반영 완료** — [../dev-plan/implement_20260612_183255.md](../dev-plan/implement_20260612_183255.md) Phase 1~4 완료. M1·M2·M3·L1·L2·L3·L5 반영, L4는 본 워크스트림 커밋 규칙으로 적용. 최신 원격 CI run은 Phase 4 완료 후 기록한다.
 
 ---
 

@@ -120,3 +120,5 @@ tasks/<task-id>/
 ## 8. Agent write boundary
 
 LLM/agent가 수정할 수 있는 범위는 `task.write_scope.allowed` 안의 target repo 파일뿐이다. 하네스 산출물은 agent write_scope가 아니다: `eval-report.json`, `gate-report.json`, `manifest.json`, `workspace-ref.json`, `candidate.patch`, baseline/evidence/provenance artifact는 harness가 생성·검증한다. Agent가 worktree 안에 같은 이름의 가짜 report를 만들더라도 판정 경로에는 사용되지 않는다.
+
+Candidate의 `repro_command`는 [AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md) §3.3의 표시 전용 메타데이터이며, task 생성·agent 실행·gate 실행 경로에서 실행하지 않는다. 실행 지원이 필요하면 eval.yaml의 사전 정의 명령 템플릿과 인자 allowlist를 별도 설계해야 한다.

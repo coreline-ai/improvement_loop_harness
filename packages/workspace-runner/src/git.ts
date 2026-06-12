@@ -55,6 +55,15 @@ export async function safeGit(
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timeout: NodeJS.Timeout | undefined;
+    let forceKillTimer: NodeJS.Timeout | undefined;
+    let safetyResolveTimer: NodeJS.Timeout | undefined;
+
+    const clearTimers = (): void => {
+      if (timeout) clearTimeout(timeout);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (safetyResolveTimer) clearTimeout(safetyResolveTimer);
+    };
 
     const subprocess = spawn('git', safeArgs, {
       cwd,
@@ -62,13 +71,23 @@ export async function safeGit(
       stdio: ['ignore', 'pipe', 'pipe']
     });
 
-    const timeout =
-      options.timeoutMs && options.timeoutMs > 0
-        ? setTimeout(() => {
-            subprocess.kill('SIGTERM');
-            setTimeout(() => subprocess.kill('SIGKILL'), 250).unref();
-          }, options.timeoutMs)
-        : undefined;
+    if (options.timeoutMs && options.timeoutMs > 0) {
+      timeout = setTimeout(() => {
+        subprocess.kill('SIGTERM');
+        forceKillTimer = setTimeout(() => subprocess.kill('SIGKILL'), 250);
+        forceKillTimer.unref();
+        safetyResolveTimer = setTimeout(() => {
+          subprocess.stdout?.destroy();
+          subprocess.stderr?.destroy();
+          subprocess.unref();
+          if (settled) return;
+          settled = true;
+          reject(new Error(`git command timed out: git ${safeArgs.join(' ')}`));
+        }, 5_000);
+        safetyResolveTimer.unref();
+      }, options.timeoutMs);
+      timeout.unref();
+    }
 
     subprocess.stdout.setEncoding('utf8');
     subprocess.stderr.setEncoding('utf8');
@@ -80,9 +99,7 @@ export async function safeGit(
     });
 
     subprocess.on('error', (error) => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      clearTimers();
       if (settled) {
         return;
       }
@@ -91,9 +108,7 @@ export async function safeGit(
     });
 
     subprocess.on('close', (exitCode) => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
+      clearTimers();
       if (settled) {
         return;
       }

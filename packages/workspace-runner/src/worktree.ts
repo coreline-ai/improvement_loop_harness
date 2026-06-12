@@ -174,12 +174,16 @@ export async function removeWorktree(
   ref: Pick<WorktreeRef, 'repoPath' | 'path' | 'lockPath'>
 ): Promise<void> {
   await withRepoLock(ref.lockPath, async () => {
-    await safeGit(ref.repoPath, [
-      'worktree',
-      'remove',
-      '--force',
-      ref.path
-    ]).catch(async () => {
+    await safeGit(
+      ref.repoPath,
+      [
+        'worktree',
+        'remove',
+        '--force',
+        ref.path
+      ],
+      { timeoutMs: 10_000 }
+    ).catch(async () => {
       await rm(ref.path, { recursive: true, force: true });
     });
   });

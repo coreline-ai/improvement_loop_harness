@@ -8,6 +8,7 @@ export interface RunCommandOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  maxBufferBytes?: number;
   stdoutFile?: string | undefined;
   stderrFile?: string | undefined;
 }
@@ -22,6 +23,58 @@ export interface RunCommandResult {
   stderr: string;
   stdoutFile?: string | undefined;
   stderrFile?: string | undefined;
+}
+
+const DEFAULT_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
+
+interface BoundedOutputBuffer {
+  chunks: string[];
+  bytes: number;
+  truncated: boolean;
+}
+
+function formatBufferLimit(bytes: number): string {
+  if (bytes > 0 && bytes % (1024 * 1024) === 0) {
+    return `${bytes / (1024 * 1024)}MB`;
+  }
+  return `${bytes}B`;
+}
+
+function truncationMarker(maxBufferBytes: number): string {
+  return `\n…[output truncated at ${formatBufferLimit(maxBufferBytes)}]`;
+}
+
+function createBoundedOutputBuffer(): BoundedOutputBuffer {
+  return { chunks: [], bytes: 0, truncated: false };
+}
+
+function appendBoundedOutput(
+  target: BoundedOutputBuffer,
+  chunk: Buffer | string,
+  maxBufferBytes: number
+): void {
+  if (target.truncated) {
+    return;
+  }
+
+  const raw = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+  const remaining = Math.max(0, maxBufferBytes - target.bytes);
+  if (raw.length <= remaining) {
+    target.chunks.push(raw.toString());
+    target.bytes += raw.length;
+    return;
+  }
+
+  if (remaining > 0) {
+    target.chunks.push(raw.subarray(0, remaining).toString());
+  }
+  target.chunks.push(truncationMarker(maxBufferBytes));
+  target.bytes = maxBufferBytes;
+  target.truncated = true;
+}
+
+function readBoundedOutput(target: BoundedOutputBuffer): string {
+  return target.chunks.join('');
 }
 
 async function writeOutput(file: string | undefined, content: string): Promise<void> {
@@ -72,8 +125,9 @@ function forceKillProcessGroup(pid: number | undefined): void {
 export async function runCommand(command: string, options: RunCommandOptions = {}): Promise<RunCommandResult> {
   const startedAt = Date.now();
   let timedOut = false;
-  let stdout = '';
-  let stderr = '';
+  const stdout = createBoundedOutputBuffer();
+  const stderr = createBoundedOutputBuffer();
+  const maxBufferBytes = options.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
 
   return new Promise<RunCommandResult>((resolve) => {
     let settled = false;
@@ -90,10 +144,10 @@ export async function runCommand(command: string, options: RunCommandOptions = {
     });
 
     subprocess.stdout?.on('data', (chunk: Buffer | string) => {
-      stdout += chunk.toString();
+      appendBoundedOutput(stdout, chunk, maxBufferBytes);
     });
     subprocess.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += chunk.toString();
+      appendBoundedOutput(stderr, chunk, maxBufferBytes);
     });
 
     const finish = (exitCode: number | null, forceStatus?: RunCommandStatus) => {
@@ -114,8 +168,8 @@ export async function runCommand(command: string, options: RunCommandOptions = {
 
       const status =
         forceStatus ?? (timedOut ? 'error' : exitCode === 0 ? 'pass' : 'fail');
-      const finalStdout = stripFinalNewline(stdout);
-      const finalStderr = stripFinalNewline(stderr);
+      const finalStdout = stripFinalNewline(readBoundedOutput(stdout));
+      const finalStderr = stripFinalNewline(readBoundedOutput(stderr));
       void Promise.all([
         writeOutput(options.stdoutFile, finalStdout),
         writeOutput(options.stderrFile, finalStderr)
@@ -135,7 +189,7 @@ export async function runCommand(command: string, options: RunCommandOptions = {
     };
 
     subprocess.on('error', (error) => {
-      stderr += error.message;
+      appendBoundedOutput(stderr, error.message, maxBufferBytes);
       finish(null, 'error');
     });
 
@@ -152,7 +206,15 @@ export async function runCommand(command: string, options: RunCommandOptions = {
           250
         );
         forceKillTimer.unref();
-        safetyResolveTimer = setTimeout(() => finish(null, 'error'), 5_000);
+        // If even SIGKILL cannot complete cleanly, resolve after a short safety window.
+        // This favors anti-hang behavior for the harness; an extreme OS/runtime failure
+        // could still leave a child process behind and must be handled by the host.
+        safetyResolveTimer = setTimeout(() => {
+          subprocess.stdout?.destroy();
+          subprocess.stderr?.destroy();
+          subprocess.unref();
+          finish(null, 'error');
+        }, 5_000);
         safetyResolveTimer.unref();
       }, options.timeoutMs);
       timeoutTimer.unref();

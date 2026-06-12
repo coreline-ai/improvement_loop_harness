@@ -28,6 +28,7 @@
 - [../dev-plan/implement_20260610_223129.md](../dev-plan/implement_20260610_223129.md) — 전체 개발 계획 (Phase 1~17, MVP-0~4) — **완료**
 - [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) — 3차 검토 반영 계획 (Phase 1~5: 서버 조립·Store 계약 테스트·스펙 개정·CI) — 반영 완료, 원격 CI 통과
 - [../dev-plan/implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md) — 신뢰 경계 보강 구현 완료 (Phase 1~7: provenance·hidden test·verifier lane·trust boundary 표시)
+- [../dev-plan/implement_20260612_183255.md](../dev-plan/implement_20260612_183255.md) — 5차 검토 반영 패치 완료 (Phase 1~4: same_model_review 교체·CI actions 인상·체크박스 정합·exec 버퍼 상한)
 
 ## 검토 이력
 
@@ -35,6 +36,7 @@
 - [EXPERT_REVIEW_2_20260610.md](./EXPERT_REVIEW_2_20260610.md) — 2차 전문가 검토: 개발 계획 (2026-06-10, 전 항목 반영 완료)
 - [EXPERT_REVIEW_3_20260612.md](./EXPERT_REVIEW_3_20260612.md) — 3차 전문가 검토: 구현 완료 검증 (2026-06-12, 반영 완료, 원격 CI 통과)
 - [EXPERT_REVIEW_4_20260612.md](./EXPERT_REVIEW_4_20260612.md) — 4차 전문가 검토: 신뢰 경계 보강 계획(implement_20260612_061855) (2026-06-12, 전 항목 반영 완료)
+- [EXPERT_REVIEW_5_20260612.md](./EXPERT_REVIEW_5_20260612.md) — 5차 전문가 검토: 검토 반영·신뢰 경계 구현 검증 (2026-06-12, 전 항목 반영 완료)
 
 ## 현재 결론
 
