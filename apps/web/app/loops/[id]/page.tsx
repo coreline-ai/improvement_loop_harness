@@ -25,12 +25,13 @@ export default async function LoopDetailPage({ params }: { params: Promise<{ id:
         <section className="section card">
           <h2>Gate status</h2>
           <table className="table">
-            <thead><tr><th>Name</th><th>Type</th><th>Required</th><th>Status</th><th>Logs</th></tr></thead>
+            <thead><tr><th>Name</th><th>Type</th><th>Group</th><th>Required</th><th>Status</th><th>Logs</th></tr></thead>
             <tbody>
               {gates.map((gate) => (
                 <tr key={gate.name}>
                   <td>{gate.name}</td>
                   <td>{gate.type}</td>
+                  <td>{gate.group ?? 'default'}</td>
                   <td>{gate.required ? 'yes' : 'no'}</td>
                   <td><Badge value={gate.status} /></td>
                   <td className="meta">

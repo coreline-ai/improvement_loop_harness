@@ -18,12 +18,17 @@ import {
 import {
   buildEvalReport,
   writeEvalReport,
+  fallbackProvenance,
+  hashArtifactRefs,
+  localVerifierFromDecision,
+  sha256Text,
   captureBaseline,
   decide,
   evaluateRequiredEvidence,
   runGates,
   verifyTestOnBase,
   type BaselineMetrics,
+  type EvalReportProvenance,
   type GateReportEntry,
   type TestOnBaseReport
 } from '@vibeloop/eval-engine';
@@ -308,6 +313,55 @@ async function finalizeIfRunning(
   await finalizeManifest(layout, { status, ...(decision ? { decision } : {}) }).catch(() => undefined);
 }
 
+function inferGateGroups(evalConfig: EvalConfig): EvalConfig {
+  return {
+    ...evalConfig,
+    gates: evalConfig.gates.map((gate) => {
+      if (gate.group) return gate;
+      if (gate.type === 'hidden_acceptance') return { ...gate, group: 'hidden_acceptance' as const };
+      if (gate.required && ['task_acceptance', 'regression', 'hard'].includes(gate.type)) {
+        return { ...gate, group: 'pass_to_pass' as const };
+      }
+      return gate;
+    })
+  };
+}
+
+async function injectHiddenAcceptanceTests(options: {
+  evalConfig: EvalConfig;
+  evalFile: string;
+  worktreePath: string;
+}): Promise<Array<() => Promise<void>>> {
+  const cleanups: Array<() => Promise<void>> = [];
+  for (const test of options.evalConfig.hidden_acceptance?.tests ?? []) {
+    const sourcePath = path.isAbsolute(test.source_path)
+      ? test.source_path
+      : path.resolve(path.dirname(options.evalFile), test.source_path);
+    const targetPath = path.join(options.worktreePath, test.target_path);
+    await mkdir(path.dirname(targetPath), { recursive: true });
+    await copyFile(sourcePath, targetPath);
+    cleanups.push(() => rm(targetPath, { force: true }));
+  }
+  return cleanups;
+}
+
+function advisoryFindingsFor(options: {
+  gateRuns: readonly GateReportEntry[];
+  agentSpec: string;
+  evalConfig: EvalConfig;
+}): Array<Record<string, unknown>> {
+  return options.gateRuns
+    .filter((gate) => gate.type === 'advisory')
+    .map((gate) => ({
+      source: 'advisory_gate',
+      gate: gate.name,
+      status: gate.status,
+      authority: 'advisory',
+      same_model_review: options.agentSpec === 'codex' && options.evalConfig.critic?.require_different_provider !== true
+    }));
+}
+
+
 async function writeFailureReport(options: {
   layout: RunLayout;
   loopId: string;
@@ -316,6 +370,7 @@ async function writeFailureReport(options: {
   baseCommit: string;
   code: string;
   message: string;
+  provenance?: EvalReportProvenance | undefined;
 }): Promise<string> {
   const report = buildEvalReport({
     loopId: options.loopId,
@@ -332,7 +387,9 @@ async function writeFailureReport(options: {
     changedFiles: [],
     gateRuns: [],
     improvementEvidence: [],
-    risk: { areas: [], human_approval_required: false, reason: 'system_error' }
+    risk: { areas: [], human_approval_required: false, reason: 'system_error' },
+    provenance: options.provenance ?? fallbackProvenance(),
+    provenanceVerified: true
   });
   return writeEvalReport(options.layout.root, report);
 }
@@ -350,8 +407,15 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
 
   try {
     await writeLoopEvent(undefined, events, 'draft', 'loading task and eval config', logToStdout);
+    const rawTask = await readFile(options.taskFile, 'utf8');
+    const rawEval = await readFile(options.evalFile, 'utf8');
+    const inputProvenance = {
+      ...fallbackProvenance(),
+      task_hash: sha256Text(rawTask),
+      eval_config_hash: sha256Text(rawEval)
+    };
     task = await loadTask(options.taskFile);
-    evalConfig = await loadEvalConfig(options.evalFile);
+    evalConfig = inferGateGroups(await loadEvalConfig(options.evalFile));
     projectId = projectId ?? sanitizeProjectId(evalConfig.project);
 
     await writeLoopEvent(undefined, events, 'workspace_preparing', 'resolving base commit', logToStdout);
@@ -361,8 +425,8 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
     await initializeManifest(layout, { taskId: task.id, baseCommit });
     await writeLoopEvent(layout, events, 'queued', 'run directory initialized', logToStdout);
 
-    await writeArtifact(layout.root, 'input/task.yaml', await readFile(options.taskFile, 'utf8'));
-    await writeArtifact(layout.root, 'input/eval.yaml', await readFile(options.evalFile, 'utf8'));
+    await writeArtifact(layout.root, 'input/task.yaml', rawTask);
+    await writeArtifact(layout.root, 'input/eval.yaml', rawEval);
     await writeArtifact(layout.root, 'input/base_commit.txt', `${baseCommit}\n`);
 
     const agentEnv = await prepareAgentEnv({
@@ -468,7 +532,8 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
           task,
           baseCommit,
           code: 'AGENT_FAILED',
-          message: `agent failed: ${agentResult.stderr || agentResult.status}`
+          message: `agent failed: ${agentResult.stderr || agentResult.status}`,
+          provenance: inputProvenance
         });
         await writeLoopEvent(layout, events, 'decision_ready', 'agent failure report generated', logToStdout);
         await finalizeIfRunning(layout, 'failed', 'failed');
@@ -515,22 +580,32 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
       cleanupRefs
     });
 
-    const gateResult = await cancellable(
-      runGates({
-        evalConfig,
-        task,
-        taskFile: path.join(layout.input, 'task.yaml'),
-        baseCommit,
-        loopId,
-        worktreeRoot: worktree.path,
-        artifactRoot: layout.root,
-        env: agentEnv,
-        changedFiles,
-        gitMetadataBefore,
-        gitMetadataAfter
-      }),
-      options.signal
-    );
+    const hiddenCleanups = await injectHiddenAcceptanceTests({
+      evalConfig,
+      evalFile: options.evalFile,
+      worktreePath: worktree.path
+    });
+    let gateResult;
+    try {
+      gateResult = await cancellable(
+        runGates({
+          evalConfig,
+          task,
+          taskFile: path.join(layout.input, 'task.yaml'),
+          baseCommit,
+          loopId,
+          worktreeRoot: worktree.path,
+          artifactRoot: layout.root,
+          env: agentEnv,
+          changedFiles,
+          gitMetadataBefore,
+          gitMetadataAfter
+        }),
+        options.signal
+      );
+    } finally {
+      await Promise.all(hiddenCleanups.map((cleanup) => cleanup().catch(() => undefined)));
+    }
 
     const candidateMetrics = await collectCandidateMetrics(layout.root, gateResult.report.gates);
     const evidence = evaluateRequiredEvidence(task.required_evidence, {
@@ -550,6 +625,8 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
       changedFiles.map((file) => file.path),
       evalConfig.risk_classification
     );
+    const verifierPolicy = evalConfig.verifier?.policy ?? 'local';
+    const verifierMismatch = verifierPolicy === 'strict';
     const decision = decide({
       changedFiles,
       gateRuns: gateResult.report.gates,
@@ -562,10 +639,27 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
       },
       taskRiskArea: task.risk_area,
       taskHumanApprovalRequired: task.human_approval_required,
-      metaEvaluationEnabled: task.risk_area === 'eval_system'
+      metaEvaluationEnabled: task.risk_area === 'eval_system',
+      provenanceVerified: true,
+      verifierMismatch
     });
 
     await writeLoopEvent(layout, events, 'decision_ready', `decision=${decision.decision}`, logToStdout);
+    const gateArtifactHashes = await hashArtifactRefs(layout.root, [
+      'reports/gate-report.json',
+      'reports/evidence-summary.json',
+      ...gateResult.report.gates.flatMap((gate) => [gate.stdout_ref, gate.stderr_ref])
+    ]);
+    const provenance: EvalReportProvenance = {
+      ...inputProvenance,
+      candidate_patch_hash: sha256Text(diff.candidatePatch),
+      gate_artifact_hashes: gateArtifactHashes
+    };
+    const verifier = localVerifierFromDecision({
+      policy: verifierPolicy,
+      decision: decision.decision,
+      gateRuns: gateResult.report.gates
+    });
     const report = buildEvalReport({
       loopId,
       taskId: task.id,
@@ -585,6 +679,10 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
           risk.areas.some((area) => (evalConfig!.human_approval_risk_areas ?? []).includes(area)),
         reason: risk.unknown ? 'unknown' : 'classified'
       },
+      advisoryFindings: advisoryFindingsFor({ gateRuns: gateResult.report.gates, agentSpec: options.agentSpec, evalConfig }),
+      provenance,
+      provenanceVerified: true,
+      verifier,
       artifactRefs: [
         'input/task.yaml',
         'input/eval.yaml',

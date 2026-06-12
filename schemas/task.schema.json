@@ -46,6 +46,7 @@
         "eval_system",
         "secrets",
         "admin",
+        "prompt_injection",
         "security_policy",
         "performance",
         "ui",

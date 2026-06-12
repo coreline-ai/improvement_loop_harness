@@ -119,6 +119,7 @@ model GateRun {
   name        String
   type        String
   required    Boolean
+  lane        String   @default("local")
   command     String
   status      String
   exitCode    Int?
@@ -196,6 +197,9 @@ model ImprovementCandidate {
   title         String
   evidenceRefs  Json?
   riskAreaHint  String?
+  trustLevel    String   @default("medium")
+  injectionIndicators Json?
+  reproCommand  String?
   priority      Int      @default(0)
   status        String   @default("proposed")
   dismissReason String?

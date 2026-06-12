@@ -142,6 +142,16 @@ evidence 판정은 LLM이 아니라 detector가 수행한다. 각 detector는 ar
 
 baseline이 없거나 샘플이 부족하면 `inconclusive`로 기록한다. 모든 evidence 항목은 `artifact_ref`로 근거 artifact를 참조해야 한다 ([ARTIFACT_SCHEMA.md](./ARTIFACT_SCHEMA.md) §7).
 
+### 7.3 테스트 그룹
+
+| group | 의미 | 구현 |
+|---|---|---|
+| `fail_to_pass` | 새/수정 테스트가 base에서 fail, candidate에서 pass해야 evidence 인정 | 기존 test-on-base 검증 |
+| `pass_to_pass` | 기존 required gate가 candidate에서도 계속 pass해야 함 | required gate + test-integrity |
+| `hidden_acceptance` | agent에게 노출하지 않는 held-out 테스트 | agent 종료 후 worktree에 임시 주입, gate type `hidden_acceptance`, 실패 시 기존 `GATE_REQUIRED_FAILED` |
+
+Hidden acceptance 테스트의 보관 위치는 대상 repo 밖 하네스 설정/입력 디렉터리다. 주입 시점은 agent 종료 후 eval 단계이며, artifact에는 테스트 내용 원문을 기록하지 않고 gate 이름·상태·로그 ref만 기록한다.
+
 `test_integrity.forbidden_patterns`와 `suspicious_patterns`는 diff/테스트 파일 내용에 대한 보수적 substring 매칭이다. 정규식 해석이 아니므로 오탐은 가능하지만, 명시된 약화 패턴 누락을 줄이는 쪽을 우선한다.
 
 ## 8. Decision 규칙
@@ -149,22 +159,38 @@ baseline이 없거나 샘플이 부족하면 `inconclusive`로 기록한다. 모
 decision engine은 아래 우선순위 표를 위에서부터 평가해 **첫 번째로 일치하는 규칙**으로 판정한다 (first-match-wins). 같은 입력은 항상 같은 출력을 내는 순수 함수여야 한다.
 
 | 순위 | 조건 | decision | reason code |
-|---|---|---|---|
+|---:|---|---|---|
 | 1 | changed files 없음 | reject | `NO_CHANGED_FILES` |
 | 2 | git metadata 변조 감지 | reject | `GUARD_GIT_META_TAMPER` |
 | 3 | protected path 변경 ∧ (meta-eval 비활성 ∨ task.risk_area ≠ eval_system) | reject | `GUARD_PROTECTED_PATH` |
 | 4 | protected path 변경 ∧ meta-eval 활성 ∧ task.risk_area = eval_system | needs_human_review | `META_EVAL_REQUIRED` |
-| 5 | scope escape (allowed 밖/forbidden/untracked/symlink 우회) | reject | `GUARD_SCOPE_VIOLATION` |
+| 5 | write_scope 위반 또는 symlink 우회 | reject | `GUARD_SCOPE_VIOLATION` |
 | 6 | test integrity 실패 | reject | `GUARD_TEST_INTEGRITY` |
-| 7 | limits 초과 (diff 크기 등) | reject | `GUARD_LIMIT_EXCEEDED` |
-| 8 | required gate fail/error | reject | `GATE_REQUIRED_FAILED` |
-| 9 | required evidence 전부 missing | reject | `EVIDENCE_MISSING` |
-| 10 | evidence 일부 inconclusive/부족 (§9 기준) | needs_more_tests | `EVIDENCE_INCONCLUSIVE` |
-| 11 | risk area가 human approval 대상 ∨ task.human_approval_required ∨ risk 분류 unknown | needs_human_review | `RISK_HUMAN_APPROVAL` |
-| 12 | 위 어디에도 해당 없음 (전부 통과) | accept | `ALL_PASS` |
+| 7 | limits 초과 | reject | `GUARD_LIMIT_EXCEEDED` |
+| 8 | eval-report provenance hash 불일치 | reject | `ARTIFACT_PROVENANCE_MISMATCH` |
+| 9 | required gate fail/error (`hidden_acceptance` 포함) | reject | `GATE_REQUIRED_FAILED` |
+| 10 | required evidence 전부 missing | reject | `EVIDENCE_MISSING` |
+| 11 | evidence inconclusive | needs_more_tests | `EVIDENCE_INCONCLUSIVE` |
+| 12 | risk area가 human approval 대상 또는 unknown | needs_human_review | `RISK_HUMAN_APPROVAL` |
+| 13 | verifier lane의 decision/required gate status가 local과 불일치 | needs_human_review | `VERIFIER_MISMATCH` |
+| 14 | 위 어디에도 해당 없음 (전부 통과) | accept | `ALL_PASS` |
 
 - `decision_reasons`는 자유 문자열이 아니라 `{code, message, ref?}` 구조로 기록한다 ([../schemas/eval-report.schema.json](../schemas/eval-report.schema.json)).
 - LLM critic은 final authority가 아니다. critic output은 `advisory_findings`로만 들어가며 위 표의 어떤 조건에도 참여하지 않는다.
+
+### 8.1 고정 통과 의미
+
+| 항목 | 통과 의미 | 최종 authority |
+|---|---|---|
+| 수정 생성 | Agent/LLM이 후보 patch 생성 | 아님 |
+| 비판/적대적 리뷰 | LLM critic 또는 static reviewer가 문제 제기 | 아님, advisory |
+| 테스트 실행 | 지정 gate command 결과 수집 | 부분 authority |
+| 증거 검증 | 신규 테스트·보안 개선·성능 개선 evidence 탐지 | deterministic detector |
+| 보호 경로 검증 | eval/schema/guard/protected file 변조 차단 | builtin guard |
+| 최종 판정 | `decision: accept`, `reason: ALL_PASS` 산출 | deterministic decision engine |
+| PR 생성 | accepted 또는 human approved 후보만 draft PR 생성 | orchestrator policy |
+
+`accept`는 builtin guards, required gates(`hidden_acceptance` 포함), required evidence, fail-to-pass evidence, pass-to-pass regression, protected path/write_scope, risk policy, provenance hash, verifier policy가 모두 만족될 때만 가능하다.
 
 ## 9. `needs_more_tests` 기준
 
@@ -285,4 +311,8 @@ gates:
 
 ## 11. eval-report
 
-최종 report schema는 [../schemas/eval-report.schema.json](../schemas/eval-report.schema.json)을 따른다.
+최종 report schema는 [../schemas/eval-report.schema.json](../schemas/eval-report.schema.json)을 따른다. 현재 생성 버전은 schema_version: `1.1`이며, `provenance`가 required다. 검증기는 과거 `1.0` report의 provenance 부재를 하위 호환으로 허용한다.
+
+### 11.1 Verifier 비교 의미론
+
+Verifier lane의 독립성은 판정 로직 독립이 아니라 **환경 독립**이다. 비교 대상은 `decision`과 required gate의 `name/status`뿐이며, duration·timestamp·log 내용 차이는 mismatch로 보지 않는다. MVP 기본 정책은 `local` required이고, `strict` 정책은 CI/external lane 일치가 필요하다. CI artifact 자동 수집은 후속이며 현재 계약은 artifact 첨부/수동 회수 가능 형태다.

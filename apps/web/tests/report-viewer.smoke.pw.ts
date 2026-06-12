@@ -19,6 +19,10 @@ test('projects to detail to report shows ALL_PASS and SSE reconnect dedups event
   await expect(page.getByTestId('all-pass')).toHaveText('ALL_PASS');
   await expect(page.getByText('ALL_GATES_PASS')).toBeVisible();
   await expect(page.getByRole('link', { name: 'artifact: logs/gates/unit.stdout.log' })).toBeVisible();
+  await expect(page.getByTestId('trust-boundary')).toContainText('decision_engine');
+  await expect(page.getByTestId('trust-boundary')).toContainText('verified');
+  await expect(page.getByTestId('trust-boundary')).toContainText('passed');
+  await expect(page.getByText('same model: true')).toBeVisible();
 });
 
 test('approval queue submits one approval action', async ({ page }) => {

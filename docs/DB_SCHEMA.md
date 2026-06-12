@@ -119,6 +119,7 @@ model GateRun {
   name        String
   type        String
   required    Boolean
+  lane        String   @default("local")
   command     String
   status      String
   exitCode    Int?
@@ -189,19 +190,22 @@ model PullRequest {
 }
 
 model ImprovementCandidate {
-  id           String   @id @default(cuid())
-  projectId    String
-  source       String   // test_failure | typecheck | lint | security_scan | manual
-  fingerprint  String
-  title        String
-  evidenceRefs Json?
-  riskAreaHint String?
-  priority     Int      @default(0)
-  status       String   @default("proposed") // proposed|approved|queued|running|processed|dismissed
+  id            String   @id @default(cuid())
+  projectId     String
+  source        String   // test_failure | typecheck | lint | security_scan | manual
+  fingerprint   String
+  title         String
+  evidenceRefs  Json?
+  riskAreaHint  String?
+  trustLevel    String   @default("medium")
+  injectionIndicators Json?
+  reproCommand  String?
+  priority      Int      @default(0)
+  status        String   @default("proposed") // proposed|approved|queued|running|processed|dismissed
   dismissReason String?
-  taskId       String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  taskId        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   @@unique([projectId, fingerprint])
 }
@@ -272,11 +276,12 @@ model Learning {
 - `LoopEvent`는 SSE `Last-Event-ID` 재전송의 source of truth다. `seq`는 loop 단위 단조 증가 값이며, cuid는 정렬 순서를 보장하지 않으므로 event id로 쓰지 않는다.
 - `LoopRun.requestHash`는 idempotency replay(동일 key+동일 hash)와 conflict(동일 key+다른 hash, 409)를 구분하는 근거다. key unique 제약만으로는 구분할 수 없다. `agentSpec`은 해당 loop를 실행한 agent 선택값을 재현하기 위한 필드다.
 - server runner가 커널 산출물(`eval-report.json`, `gate-report.json`, `manifest.json`, `workspace-ref.json`)을 읽어 `EvalReport`·`GateRun`·`Artifact`·`AgentRun`·`WorkspaceRun` row를 영속한다.
-- `GateRun`을 분리해야 UI에서 gate별 상태와 logs를 빠르게 조회할 수 있다.
+- `GateRun`을 분리해야 UI에서 gate별 상태와 logs를 빠르게 조회할 수 있다. `GateRun.lane`은 local/ci/external verifier 결과를 구분한다.
 - `Artifact`를 분리해야 report JSON에 대용량 로그를 넣지 않는다.
 - `WorkspaceRun`은 cleanup, retry, forensic debugging에 필요하다.
 - `PullRequest`는 approval 이후 PR lifecycle을 추적한다.
 - `Learning`은 learnings.md/SKILL.md에 바로 쓰기 전 검토 queue 역할을 한다.
+- `ImprovementCandidate.trustLevel`, `injectionIndicators`, `reproCommand`는 발견 입력의 신뢰 경계 표시용이다. `reproCommand`는 표시 전용이며 실행하지 않는다.
 - `ImprovementCandidate`는 자율 루프(MVP-4)의 발견 큐다. `@@unique([projectId, fingerprint])`가 같은 문제의 중복 발견을 차단하고, `dismissed` 상태 행이 "다시 제안하지 말 것" 기억 역할을 한다 ([AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md) §3).
 - `OrchestratorState`는 프로젝트당 1개 자율 루프 실행 상태, 일일 loop/token 예산, 현재 candidate/loop, pause 사유와 discovery 대기 시각을 영속화한다. 재시작 시 `current*`와 `running` candidate를 복구하는 기준이다.
 - `OrchestratorEvent`는 loop가 아직 없거나 guardrail이 loop 외부에서 발동된 경우에도 `orchestrator.started/paused/stopped`, `candidate.picked/dismissed` 같은 프로젝트 단위 이벤트를 단조 증가 `seq`로 기록한다.

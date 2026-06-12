@@ -1,7 +1,19 @@
 import { TASK_SCHEMA_ID, validateOrThrow, type EvalConfig, type TaskDefinition } from '@vibeloop/task-protocol';
 import type { DiscoveryCandidate, GenerateTaskOptions, GeneratedTask } from './types.js';
 
-const HUMAN_APPROVAL_DEFAULTS = new Set(['auth', 'permission', 'billing', 'database_schema', 'deployment', 'ci_cd', 'eval_system', 'secrets', 'admin', 'unknown']);
+const HUMAN_APPROVAL_DEFAULTS = new Set([
+  'auth',
+  'permission',
+  'billing',
+  'database_schema',
+  'deployment',
+  'ci_cd',
+  'eval_system',
+  'secrets',
+  'admin',
+  'prompt_injection',
+  'unknown'
+]);
 
 function slug(value: string): string {
   return value

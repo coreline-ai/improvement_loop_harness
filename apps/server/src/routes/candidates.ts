@@ -1,6 +1,8 @@
 import {
   candidateFingerprint,
   discoverCandidates,
+  injectionIndicatorsForText,
+  trustLevelForSource,
   type CandidateSource,
   type DiscoveryCandidate,
   type StructuredLocation
@@ -23,6 +25,9 @@ async function createCandidateIfNew(store: Store, input: DiscoveryCandidate & { 
     title: input.title,
     evidenceRefs: input.evidenceRefs,
     riskAreaHint: input.riskAreaHint ?? null,
+    trustLevel: input.trustLevel ?? trustLevelForSource(input.source),
+    injectionIndicators: input.injectionIndicators ?? [],
+    reproCommand: input.reproCommand ?? null,
     priority: input.priority,
     status: input.status
   });
@@ -32,6 +37,8 @@ function manualCandidate(projectId: string, body: Record<string, unknown>): Disc
   const filePath = typeof body.filePath === 'string' && body.filePath.trim() ? body.filePath.trim() : 'project';
   const requestedSource = typeof body.source === 'string' ? (body.source as CandidateSource) : 'manual';
   const source = VALID_SOURCES.has(requestedSource) ? requestedSource : 'manual';
+  const rawText = [body.title, body.errorCode, body.filePath, body.reproCommand].filter((value): value is string => typeof value === 'string').join('\n');
+  const indicators = injectionIndicatorsForText(rawText);
   const location: StructuredLocation = {
     filePath,
     errorCode: typeof body.errorCode === 'string' && body.errorCode.trim() ? body.errorCode.trim() : errorCodeForSource(source)
@@ -43,7 +50,10 @@ function manualCandidate(projectId: string, body: Record<string, unknown>): Disc
     fingerprint,
     title: typeof body.title === 'string' && body.title.trim() ? body.title.trim() : `${filePath}: manual ${location.errorCode}`,
     evidenceRefs: [],
-    riskAreaHint: typeof body.riskAreaHint === 'string' ? body.riskAreaHint : null,
+    riskAreaHint: indicators.length > 0 ? 'prompt_injection' : typeof body.riskAreaHint === 'string' ? body.riskAreaHint : null,
+    trustLevel: trustLevelForSource(source),
+    injectionIndicators: indicators,
+    reproCommand: typeof body.reproCommand === 'string' ? body.reproCommand : null,
     priority: typeof body.priority === 'number' ? body.priority : 60,
     status: 'proposed',
     location

@@ -18,7 +18,11 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "type": "string"
+      "type": "string",
+      "enum": [
+        "1.0",
+        "1.1"
+      ]
     },
     "loop_id": {
       "type": "string"
@@ -179,6 +183,14 @@
               "string",
               "null"
             ]
+          },
+          "group": {
+            "type": "string",
+            "enum": [
+              "fail_to_pass",
+              "pass_to_pass",
+              "hidden_acceptance"
+            ]
           }
         }
       }
@@ -252,6 +264,183 @@
     },
     "summary": {
       "type": "string"
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "harness_version",
+        "decision_engine_version",
+        "task_hash",
+        "eval_config_hash",
+        "candidate_patch_hash",
+        "gate_artifact_hashes",
+        "generated_by"
+      ],
+      "properties": {
+        "harness_version": {
+          "type": "string"
+        },
+        "decision_engine_version": {
+          "type": "string"
+        },
+        "task_hash": {
+          "type": "string"
+        },
+        "eval_config_hash": {
+          "type": "string"
+        },
+        "candidate_patch_hash": {
+          "type": "string"
+        },
+        "gate_artifact_hashes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "generated_by": {
+          "type": "string",
+          "const": "harness"
+        }
+      }
+    },
+    "verifier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "policy",
+        "lanes",
+        "mismatch"
+      ],
+      "properties": {
+        "policy": {
+          "type": "string",
+          "enum": [
+            "local",
+            "strict"
+          ]
+        },
+        "mismatch": {
+          "type": "boolean"
+        },
+        "lanes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "lane",
+              "status",
+              "decision",
+              "required_gates"
+            ],
+            "properties": {
+              "lane": {
+                "type": "string",
+                "enum": [
+                  "local",
+                  "ci",
+                  "external"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "fail",
+                  "missing",
+                  "mismatch"
+                ]
+              },
+              "decision": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "required_gates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "name",
+                    "status"
+                  ],
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "artifact_ref": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "trust_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deterministic_authority": {
+          "type": "string"
+        },
+        "advisory_findings_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provenance_verified": {
+          "type": "boolean"
+        },
+        "hidden_acceptance_status": {
+          "type": "string"
+        },
+        "verifier_status": {
+          "type": "string"
+        },
+        "human_review_reason_code": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "schema_version": {
+            "const": "1.1"
+          }
+        },
+        "required": [
+          "schema_version"
+        ]
+      },
+      "then": {
+        "required": [
+          "provenance"
+        ]
+      }
+    }
+  ]
 }

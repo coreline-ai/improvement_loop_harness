@@ -16,6 +16,9 @@ export interface DiscoveryCandidate {
   title: string;
   evidenceRefs: string[];
   riskAreaHint?: string | null | undefined;
+  trustLevel?: 'high' | 'medium' | 'low' | undefined;
+  injectionIndicators?: string[] | undefined;
+  reproCommand?: string | null | undefined;
   priority: number;
   status: 'proposed' | 'approved' | 'queued' | 'running' | 'processed' | 'dismissed';
   location: StructuredLocation;

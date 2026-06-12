@@ -4,6 +4,8 @@
 검토 방법: 계획의 각 태스크를 (1) 현 구현 코드·테스트, (2) 기존 명세 11종, (3) 선행 워크스트림 2건([implement_20260610_223129.md](../dev-plan/implement_20260610_223129.md) 완료, [implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) 미착수)과 대조.
 
 > 반영 상태: 2026-06-12 — **전 항목 반영 완료** (H1·H2·M1~M5·L1~L5 → [implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md) 개정: 전제 조건·현황 기준선 신설, 태스크 gap-only 재정의, reason code 4곳 동시 개정 규칙, verifier 비교 의미론, repro_command 표시 전용, 서명 제외).
+>
+> 구현 상태: 2026-06-12 18:03 KST — **061855 구현 완료 및 로컬 전체 검증 통과** (`pnpm exec prisma generate`, `pnpm typecheck`, `pnpm lint`, `pnpm test`, `pnpm test:e2e`, `pnpm build`, `pnpm build:web`, `pnpm test:smoke`, `git diff --check`). 최종 CI 결과는 main push 후 별도 확인 대상.
 
 ---
 

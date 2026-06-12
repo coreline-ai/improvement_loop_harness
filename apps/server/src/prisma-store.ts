@@ -81,13 +81,14 @@ function agentRun(record: AgentRun): AgentRunRecord {
 }
 
 function gateRun(record: GateRun): GateRunRecord {
-  return record;
+  return { ...record, lane: 'lane' in record ? record.lane : 'local' };
 }
 
 function improvementCandidate(record: ImprovementCandidate): ImprovementCandidateRecord {
   return {
     ...record,
-    evidenceRefs: record.evidenceRefs
+    evidenceRefs: record.evidenceRefs,
+    injectionIndicators: record.injectionIndicators
   };
 }
 
@@ -233,6 +234,9 @@ export class PrismaStore implements Store {
             ...(patch.title !== undefined ? { title: patch.title } : {}),
             ...(patch.evidenceRefs !== undefined ? { evidenceRefs: json(patch.evidenceRefs) } : {}),
             ...(patch.riskAreaHint !== undefined ? { riskAreaHint: patch.riskAreaHint } : {}),
+            ...(patch.trustLevel !== undefined ? { trustLevel: patch.trustLevel } : {}),
+            ...(patch.injectionIndicators !== undefined ? { injectionIndicators: json(patch.injectionIndicators) } : {}),
+            ...(patch.reproCommand !== undefined ? { reproCommand: patch.reproCommand } : {}),
             ...(patch.priority !== undefined ? { priority: patch.priority } : {}),
             ...(patch.status !== undefined ? { status: patch.status } : {}),
             ...(patch.dismissReason !== undefined ? { dismissReason: patch.dismissReason } : {}),
@@ -509,6 +513,7 @@ export class PrismaStore implements Store {
           name: input.name,
           type: input.type,
           required: input.required,
+          lane: input.lane ?? 'local',
           command: input.command,
           status: input.status,
           ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),

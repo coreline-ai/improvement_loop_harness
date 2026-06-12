@@ -14,7 +14,8 @@ const PROJECT_COMMAND_TYPES = new Set<GateType>([
   'task_acceptance',
   'regression',
   'security',
-  'performance'
+  'performance',
+  'hidden_acceptance'
 ]);
 
 function isGuardGate(gate: EvalGate): boolean {

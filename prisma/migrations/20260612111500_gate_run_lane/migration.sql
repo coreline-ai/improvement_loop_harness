@@ -1,0 +1,1 @@
+ALTER TABLE "GateRun" ADD COLUMN "lane" TEXT NOT NULL DEFAULT 'local';

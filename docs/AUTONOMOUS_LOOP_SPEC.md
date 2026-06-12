@@ -10,6 +10,8 @@ Observe(발견) → Candidate 큐 → Task 자동 생성 → (승인) →
   [안쪽 루프 — 검증 커널, ARCHITECTURE §3]
   worktree → agent 수정 → guards → eval → decision
 → accept면 PR → 다음 candidate로 반복
+
+Draft PR 생성 전 필수 accept 조건은 [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §8.1의 고정 통과 의미를 따른다. LLM/advisory 결과만으로 PR을 만들 수 없고, deterministic decision engine의 `ALL_PASS` 또는 human-approved 후보만 draft PR 대상이다.
 ```
 
 전제: 바깥 루프는 **검증 커널(MVP-0~3)이 완성된 뒤에만** 가동한다. 채점기 없이 자율 루프를 돌리면 테스트 약화·결과지 우회를 막을 수 없다 — 커널이 신뢰 경계다.
@@ -58,6 +60,9 @@ CI 로그·이슈 트래커·에러 모니터링 연동은 후속 확장이다.
   "title": "tests/auth/login.test.ts: invalid password returns 500",
   "evidence_refs": ["logs/discovery/test-run-2026....log"],
   "risk_area_hint": "auth",
+  "trust_level": "medium",
+  "injection_indicators": [],
+  "repro_command": null,
   "priority": 80,
   "status": "proposed"
 }
@@ -149,3 +154,7 @@ guardrail 발동은 전부 이벤트로 기록한다 (`orchestrator.paused`, `ca
 - candidate 저장 모델: [DB_SCHEMA.md](./DB_SCHEMA.md) `ImprovementCandidate`
 - 제어 API: [API_SPEC.md](./API_SPEC.md) §10
 - 보안 가드레일의 위협 모델 근거: [SECURITY_MODEL.md](./SECURITY_MODEL.md) §10
+
+### 7.1 Trust/injection 이벤트
+
+Orchestrator는 `candidate.picked`, `approval.required` 외에 provenance/verifier/injection 관련 상태를 event payload에 포함할 수 있다. `injectionIndicators`가 있는 candidate는 auto 모드에서 자동 선택하지 않으며 supervised/human review 흐름에 남긴다.

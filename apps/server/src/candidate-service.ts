@@ -43,6 +43,11 @@ export function candidateFromRecord(candidate: ImprovementCandidateRecord): Disc
       ? candidate.evidenceRefs.filter((entry): entry is string => typeof entry === 'string')
       : [],
     riskAreaHint: candidate.riskAreaHint,
+    trustLevel: candidate.trustLevel as DiscoveryCandidate['trustLevel'],
+    injectionIndicators: Array.isArray(candidate.injectionIndicators)
+      ? candidate.injectionIndicators.filter((entry): entry is string => typeof entry === 'string')
+      : [],
+    reproCommand: candidate.reproCommand,
     priority: candidate.priority,
     status: candidate.status as DiscoveryCandidate['status'],
     location: locationFromRecord(candidate)

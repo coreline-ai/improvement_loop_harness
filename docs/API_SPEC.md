@@ -73,7 +73,7 @@ Retry body:
 ## 6. Evaluation API
 
 ```http
-GET /api/loops/:loopId/reports
+GET /api/loops/:loopId/reports  # reportJson.trust_summary/provenance/verifier/advisory_findings 포함
 GET /api/reports/:reportId
 GET /api/loops/:loopId/artifacts
 GET /api/loops/:loopId/artifacts/*path
@@ -165,3 +165,9 @@ POST /api/projects/:projectId/orchestrator/stop     # kill switch — 즉시 정
 - `stop`은 어떤 상태에서든 허용되는 최우선 명령이다. 실행 중 루프는 graceful cancel.
 - `start`의 기본 mode는 `supervised`다. `auto`는 명시적으로만. 최초 시작 시 `tokenBudgetDaily` 설정은 필수이며, 이후에는 저장된 예산을 재사용할 수 있다.
 - guardrail 발동(예산 초과·연속 실패 차단기)은 orchestrator 상태 조회와 이벤트로 노출한다.
+- Candidate 응답은 `trustLevel`, `injectionIndicators`, `reproCommand`를 포함한다. `reproCommand`는 표시 전용이며 API/runner가 실행하지 않는다.
+- `injectionIndicators`가 비어 있지 않은 proposed candidate는 `auto` 모드에서도 자동 선택하지 않고 supervised/human review 흐름에 남긴다.
+
+## 11. Trust summary fields
+
+`EvalReport.reportJson`는 UI/PR body가 바로 표시할 수 있도록 `trust_summary`를 포함한다: deterministic authority, advisory finding 수, provenance verified 여부, hidden_acceptance 상태, verifier lane 상태, human review reason code. `provenance`, `verifier`, `advisory_findings`는 원본 상세 필드다.

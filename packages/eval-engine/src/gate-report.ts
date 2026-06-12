@@ -47,7 +47,8 @@ export function skippedGateResult(
     duration_ms: null,
     stdout_ref: null,
     stderr_ref: null,
-    summary
+    summary,
+    ...(gate.group ? { group: gate.group } : {})
   };
 }
 
@@ -73,7 +74,8 @@ export function createGateResult(options: {
     duration_ms: options.finishedAt.getTime() - options.startedAt.getTime(),
     stdout_ref: options.stdoutRef,
     stderr_ref: options.stderrRef,
-    summary: options.summary
+    summary: options.summary,
+    ...(options.gate.group ? { group: options.gate.group } : {})
   };
 }
 

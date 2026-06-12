@@ -1,4 +1,4 @@
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { GuardChangedFile } from '@vibeloop/guards';
@@ -10,7 +10,15 @@ import {
   type ReasonCode
 } from './decision/rules.js';
 import type { EvidenceResult } from './evidence.js';
-import { buildEvalReport, writeEvalReport } from './report/eval-report.js';
+import {
+  buildEvalReport,
+  fallbackProvenance,
+  hashArtifactRefs,
+  localVerifierFromDecision,
+  verifyEvalReportProvenance,
+  verifierLaneMatchesLocal,
+  writeEvalReport
+} from './report/eval-report.js';
 import type { GateReportEntry } from './types.js';
 
 function changedFile(
@@ -70,9 +78,9 @@ function input(overrides: Partial<DecideInput> = {}): DecideInput {
 }
 
 describe('decision rules', () => {
-  it('defines the 12 first-match-wins rules in order', () => {
+  it('defines the 14 first-match-wins rules in order', () => {
     expect(DECISION_RULES.map((rule) => rule.rank)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
     ]);
     expect(DECISION_RULES.map((rule) => rule.code)).toEqual([
       REASON_CODES.NO_CHANGED_FILES,
@@ -82,10 +90,12 @@ describe('decision rules', () => {
       REASON_CODES.GUARD_SCOPE_VIOLATION,
       REASON_CODES.GUARD_TEST_INTEGRITY,
       REASON_CODES.GUARD_LIMIT_EXCEEDED,
+      REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH,
       REASON_CODES.GATE_REQUIRED_FAILED,
       REASON_CODES.EVIDENCE_MISSING,
       REASON_CODES.EVIDENCE_INCONCLUSIVE,
       REASON_CODES.RISK_HUMAN_APPROVAL,
+      REASON_CODES.VERIFIER_MISMATCH,
       REASON_CODES.ALL_PASS
     ]);
   });
@@ -168,6 +178,12 @@ describe('decision rules', () => {
     ],
     [
       'rule 8',
+      { provenanceVerified: false },
+      'reject',
+      REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH
+    ],
+    [
+      'rule 9',
       {
         gateRuns: [gate({ name: 'unit_tests', status: 'fail', exit_code: 1 })]
       },
@@ -175,19 +191,19 @@ describe('decision rules', () => {
       REASON_CODES.GATE_REQUIRED_FAILED
     ],
     [
-      'rule 9',
+      'rule 10',
       { improvementEvidence: [evidence({ status: 'missing' })] },
       'reject',
       REASON_CODES.EVIDENCE_MISSING
     ],
     [
-      'rule 10',
+      'rule 11',
       { improvementEvidence: [evidence({ status: 'inconclusive' })] },
       'needs_more_tests',
       REASON_CODES.EVIDENCE_INCONCLUSIVE
     ],
     [
-      'rule 11',
+      'rule 12',
       {
         risk: {
           areas: ['auth'],
@@ -198,7 +214,13 @@ describe('decision rules', () => {
       'needs_human_review',
       REASON_CODES.RISK_HUMAN_APPROVAL
     ],
-    ['rule 12', {}, 'accept', REASON_CODES.ALL_PASS]
+    [
+      'rule 13',
+      { verifierMismatch: true },
+      'needs_human_review',
+      REASON_CODES.VERIFIER_MISMATCH
+    ],
+    ['rule 14', {}, 'accept', REASON_CODES.ALL_PASS]
   ])(
     '%s returns expected decision and reason code',
     (_name, overrides, expectedDecision, expectedCode) => {
@@ -262,7 +284,9 @@ describe('eval-report', () => {
       ],
       improvementEvidence: [],
       artifactRefs: ['patches/changed-files.json'],
-      risk: { areas: [], human_approval_required: false, reason: 'none' }
+      risk: { areas: [], human_approval_required: false, reason: 'none' },
+      provenance: fallbackProvenance(),
+      provenanceVerified: true
     });
     const artifactRoot = await mkdtemp(
       path.join(os.tmpdir(), 'vibeloop-eval-report-')
@@ -284,5 +308,81 @@ describe('eval-report', () => {
       allowed_by_write_scope: true,
       protected: true
     });
+  });
+
+  it('verifies gate artifact provenance hashes and rejects mutated artifacts', async () => {
+    const artifactRoot = await mkdtemp(
+      path.join(os.tmpdir(), 'vibeloop-provenance-')
+    );
+    await mkdir(path.join(artifactRoot, 'reports'), { recursive: true });
+    await writeFile(path.join(artifactRoot, 'reports', 'gate-report.json'), '{"ok":true}\n');
+    const provenance = {
+      ...fallbackProvenance(),
+      gate_artifact_hashes: await hashArtifactRefs(artifactRoot, ['reports/gate-report.json'])
+    };
+
+    await expect(
+      verifyEvalReportProvenance(artifactRoot, {
+        schema_version: '1.1',
+        provenance
+      })
+    ).resolves.toBe(true);
+
+    await writeFile(path.join(artifactRoot, 'reports', 'gate-report.json'), '{"ok":false}\n');
+
+    await expect(
+      verifyEvalReportProvenance(artifactRoot, {
+        schema_version: '1.1',
+        provenance
+      })
+    ).resolves.toBe(false);
+  });
+
+  it('marks strict verifier policy as missing CI evidence until a CI lane is attached', () => {
+    const verifier = localVerifierFromDecision({
+      policy: 'strict',
+      decision: 'accept',
+      gateRuns: [gate({ name: 'unit_tests', required: true, status: 'pass' })]
+    });
+
+    expect(verifier.mismatch).toBe(true);
+    expect(verifier.lanes).toEqual([
+      expect.objectContaining({ lane: 'local', status: 'pass', decision: 'accept' }),
+      expect.objectContaining({ lane: 'ci', status: 'missing', decision: null })
+    ]);
+  });
+
+  it('compares verifier lanes only by decision and required gate name/status', () => {
+    const local = {
+      lane: 'local' as const,
+      status: 'pass' as const,
+      decision: 'accept',
+      required_gates: [{ name: 'unit_tests', status: 'pass' }],
+      artifact_ref: 'reports/eval-report.json',
+      summary: 'local'
+    };
+
+    expect(
+      verifierLaneMatchesLocal(local, {
+        ...local,
+        lane: 'ci',
+        artifact_ref: 'ci/eval-report.json',
+        summary: 'different duration/log/timestamp ignored'
+      })
+    ).toBe(true);
+    expect(
+      verifierLaneMatchesLocal(local, {
+        ...local,
+        lane: 'ci',
+        decision: 'reject'
+      })
+    ).toBe(false);
+    expect(
+      verifierLaneMatchesLocal(local, {
+        ...local,
+        lane: 'ci',
+        required_gates: [{ name: 'unit_tests', status: 'fail' }]
+      })
+    ).toBe(false);
   });
 });

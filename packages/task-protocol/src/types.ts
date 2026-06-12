@@ -27,6 +27,8 @@ export interface TaskDefinition {
   metadata?: Record<string, unknown>;
 }
 
+export type TestGroup = 'fail_to_pass' | 'pass_to_pass' | 'hidden_acceptance';
+
 export type GateType =
   | 'hard'
   | 'scope'
@@ -35,6 +37,7 @@ export type GateType =
   | 'task_acceptance'
   | 'regression'
   | 'performance'
+  | 'hidden_acceptance'
   | 'advisory';
 
 export interface EvalGate {
@@ -44,6 +47,7 @@ export interface EvalGate {
   required: boolean;
   timeout_seconds?: number;
   max_regression_percent?: number;
+  group?: TestGroup;
   env?: Record<string, string>;
   cwd?: string;
 }
@@ -65,6 +69,19 @@ export interface EvalConfig {
   };
   improvement_evidence?: {
     required_any?: string[];
+  };
+  hidden_acceptance?: {
+    tests: Array<{
+      name: string;
+      source_path: string;
+      target_path: string;
+    }>;
+  };
+  verifier?: {
+    policy?: 'local' | 'strict';
+  };
+  critic?: {
+    require_different_provider?: boolean;
   };
   gates: EvalGate[];
 }

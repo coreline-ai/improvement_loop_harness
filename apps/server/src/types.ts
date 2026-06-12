@@ -110,6 +110,7 @@ export interface GateRunRecord {
   name: string;
   type: string;
   required: boolean;
+  lane: string;
   command: string;
   status: string;
   exitCode?: number | null;
@@ -129,6 +130,9 @@ export interface ImprovementCandidateRecord {
   title: string;
   evidenceRefs?: JsonValue | null;
   riskAreaHint?: string | null;
+  trustLevel: string;
+  injectionIndicators?: JsonValue | null;
+  reproCommand?: string | null;
   priority: number;
   status: string;
   dismissReason?: string | null;
@@ -239,6 +243,9 @@ export interface CreateCandidateInput {
   title: string;
   evidenceRefs?: JsonValue | null;
   riskAreaHint?: string | null;
+  trustLevel?: string;
+  injectionIndicators?: JsonValue | null;
+  reproCommand?: string | null;
   priority?: number;
   status?: string;
 }
@@ -254,7 +261,7 @@ export interface CreatePullRequestInput {
 
 export type CreateWorkspaceRunInput = Omit<WorkspaceRunRecord, 'id' | 'createdAt'>;
 export type CreateAgentRunInput = Omit<AgentRunRecord, 'id'>;
-export type CreateGateRunInput = Omit<GateRunRecord, 'id'>;
+export type CreateGateRunInput = Omit<GateRunRecord, 'id' | 'lane'> & { lane?: string };
 
 export interface UpsertOrchestratorStateInput {
   mode?: OrchestratorMode;

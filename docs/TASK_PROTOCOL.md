@@ -71,7 +71,7 @@ global protected path > task.write_scope.forbidden > task.write_scope.allowed
 
 ```text
 auth, permission, billing, database_schema, deployment, ci_cd,
-eval_system, secrets, admin, security_policy
+eval_system, secrets, admin, prompt_injection, security_policy
 ```
 
 risk area는 agent가 아니라 harness가 path/rule 기반으로 재분류한다. task.yaml의 값은 힌트일 뿐이다.
@@ -116,3 +116,7 @@ tasks/<task-id>/
 ```
 
 `tasks/current/task.yaml` 같은 전역 alias는 동시 실행에 취약하므로 MVP 이후 제거한다. MVP에서 wrapper로 필요하면 symlink 대신 explicit `--task` 인자를 사용한다.
+
+## 8. Agent write boundary
+
+LLM/agent가 수정할 수 있는 범위는 `task.write_scope.allowed` 안의 target repo 파일뿐이다. 하네스 산출물은 agent write_scope가 아니다: `eval-report.json`, `gate-report.json`, `manifest.json`, `workspace-ref.json`, `candidate.patch`, baseline/evidence/provenance artifact는 harness가 생성·검증한다. Agent가 worktree 안에 같은 이름의 가짜 report를 만들더라도 판정 경로에는 사용되지 않는다.

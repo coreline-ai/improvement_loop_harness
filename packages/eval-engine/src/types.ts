@@ -43,7 +43,9 @@ export interface GateReportEntry {
   stdout_ref: string | null;
   stderr_ref: string | null;
   summary: string | null;
+  group?: EvalGate['group'] | undefined;
 }
+
 
 export interface GateReport {
   schema_version: '1.0';

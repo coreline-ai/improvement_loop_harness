@@ -113,3 +113,9 @@ retention 만료 시 하네스 cleanup job이 디스크 artifact와 DB의 `Artif
   "supporting_gate": "unit_tests"
 }
 ```
+
+## 8. eval-report 1.1 provenance
+
+`eval-report.json` schema_version `1.1`은 hash 기반 `provenance`를 필수로 가진다: harness/decision engine version, task/eval config hash, candidate patch hash, gate artifact hashes, `generated_by: "harness"`. 과거 `1.0` report는 provenance 부재를 하위 호환으로 허용하지만 신규 report는 1.1로 생성한다.
+
+Hidden acceptance 테스트 내용은 artifact에 기록하지 않는다. manifest에는 생성된 결과 artifact의 checksum만 기록하며, hidden 테스트 원문은 대상 repo 밖 보관소에 남는다.

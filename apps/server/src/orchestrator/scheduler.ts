@@ -73,7 +73,12 @@ function defaultStatePatch(now: Date): UpsertOrchestratorStateInput {
   };
 }
 
+function candidateHasInjectionIndicators(candidate: ImprovementCandidateRecord): boolean {
+  return Array.isArray(candidate.injectionIndicators) && candidate.injectionIndicators.length > 0;
+}
+
 function isLowRiskCandidate(candidate: ImprovementCandidateRecord): boolean {
+  if (candidateHasInjectionIndicators(candidate)) return false;
   return candidate.riskAreaHint === 'none' || candidate.riskAreaHint === 'low';
 }
 

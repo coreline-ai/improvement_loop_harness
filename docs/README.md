@@ -10,7 +10,7 @@
 3. [LOOP_STATE_MACHINE.md](./LOOP_STATE_MACHINE.md) — loop 상태 전이, retry/cancel/idempotency
 4. [TASK_PROTOCOL.md](./TASK_PROTOCOL.md) — task.yaml, write_scope, risk/evidence 계약
 5. [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) — eval.yaml source of truth, gate runner, decision engine
-6. [SECURITY_MODEL.md](./SECURITY_MODEL.md) — threat model, workspace isolation, secret/network/protected path 정책
+6. [SECURITY_MODEL.md](./SECURITY_MODEL.md) — threat model, workspace isolation, secret/network/protected path, trust boundary 정책
 7. [ARTIFACT_SCHEMA.md](./ARTIFACT_SCHEMA.md) — `.runs/<loop-id>/` 증거 보관 구조
 8. [API_SPEC.md](./API_SPEC.md) — API, SSE event, idempotency 요구사항
 9. [DB_SCHEMA.md](./DB_SCHEMA.md) — Prisma 모델 확장안
@@ -27,7 +27,7 @@
 
 - [../dev-plan/implement_20260610_223129.md](../dev-plan/implement_20260610_223129.md) — 전체 개발 계획 (Phase 1~17, MVP-0~4) — **완료**
 - [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) — 3차 검토 반영 계획 (Phase 1~5: 서버 조립·Store 계약 테스트·스펙 개정·CI) — 반영 완료, 원격 CI 통과
-- [../dev-plan/implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md) — 신뢰 경계 보강 계획 (Phase 1~7: provenance·hidden test·verifier lane) — 4차 검토 반영 완료, **전제: 061653 완료 후 착수**
+- [../dev-plan/implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md) — 신뢰 경계 보강 구현 완료 (Phase 1~7: provenance·hidden test·verifier lane·trust boundary 표시)
 
 ## 검토 이력
 
@@ -49,3 +49,9 @@ task.yaml
 ```
 
 이 커널이 하나의 candidate patch를 안전하게 `accept | reject | needs_human_review | needs_more_tests`로 판정할 수 있어야 웹 대시보드와 PR 자동화를 얹을 수 있다.
+
+## Trust boundary 핵심
+
+- 최종 통과 판정은 LLM이 아니라 deterministic decision engine의 `ALL_PASS`다.
+- Advisory/critic 결과는 report에 표시되지만 final authority가 아니다.
+- `eval-report` 1.1은 provenance hash와 verifier/trust summary를 포함한다.

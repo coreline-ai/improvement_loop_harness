@@ -6,6 +6,27 @@ import type { EvalConfig, EvalGate, GateType } from '@vibeloop/task-protocol';
 import { candidateFingerprint, dedupeCandidates } from '../fingerprint.js';
 import type { CandidateSource, DiscoverOptions, DiscoveryCandidate, DiscoveryCommand, StructuredLocation } from '../types.js';
 
+const INJECTION_PATTERNS = [
+  { code: 'instruction_override', pattern: /ignore previous instructions/i },
+  { code: 'instruction_override', pattern: /disregard (?:all )?(?:previous|prior) instructions/i },
+  { code: 'prompt_leak_request', pattern: /system prompt/i },
+  { code: 'prompt_leak_request', pattern: /developer message/i },
+  { code: 'secret_exfiltration_request', pattern: /reveal.*(?:secret|token|key)/i },
+  { code: 'command_injection_request', pattern: /run this command/i }
+];
+
+export function injectionIndicatorsForText(text: string): string[] {
+  return [...new Set(INJECTION_PATTERNS
+    .filter((entry) => entry.pattern.test(text))
+    .map((entry) => entry.code))];
+}
+
+export function trustLevelForSource(source: CandidateSource): 'high' | 'medium' | 'low' {
+  if (source === 'manual') return 'high';
+  if (source === 'test_failure' || source === 'typecheck' || source === 'lint') return 'medium';
+  return 'low';
+}
+
 const SOURCE_PRIORITY: Record<CandidateSource, number> = {
   security_scan: 90,
   test_failure: 80,
@@ -115,6 +136,9 @@ async function collectCommand(options: DiscoverOptions, command: DiscoveryComman
       title: titleFor(command.source, location),
       evidenceRefs: [gate.stdout_ref, gate.stderr_ref].filter((ref): ref is string => Boolean(ref)),
       riskAreaHint: riskAreaFromPath(options.evalConfig, location.filePath),
+      trustLevel: trustLevelForSource(command.source),
+      injectionIndicators: injectionIndicatorsForText(output),
+      reproCommand: null,
       priority: SOURCE_PRIORITY[command.source],
       status: 'proposed',
       location

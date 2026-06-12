@@ -50,10 +50,15 @@ const report = {
     summary: 'Accepted: all required gates passed and evidence is present.',
     decision_reasons: [{ code: 'ALL_GATES_PASS', message: 'All required gates passed.' }],
     gate_runs: [
-      { name: 'unit_tests', type: 'task_acceptance', required: true, status: 'pass', stdout_ref: 'logs/gates/unit.stdout.log' },
+      { name: 'unit_tests', type: 'task_acceptance', group: 'pass_to_pass', required: true, status: 'pass', stdout_ref: 'logs/gates/unit.stdout.log' },
+      { name: 'hidden_acceptance', type: 'hidden_acceptance', group: 'hidden_acceptance', required: true, status: 'pass' },
       { name: 'diff_scope', type: 'scope', required: true, status: 'pass' }
     ],
     improvement_evidence: [{ type: 'adds_regression_test', status: 'present', artifact_ref: 'logs/gates/unit.stdout.log', supporting_gate: 'unit_tests' }],
+    advisory_findings: [{ source: 'advisory_gate', gate: 'advisory_static', authority: 'advisory', same_model_review: true }],
+    provenance: { generated_by: 'harness', task_hash: 'hash', eval_config_hash: 'hash', candidate_patch_hash: 'hash', gate_artifact_hashes: {} },
+    verifier: { policy: 'local', mismatch: false, lanes: [{ lane: 'local', status: 'pass', decision: 'accept', required_gates: [] }] },
+    trust_summary: { deterministic_authority: 'decision_engine', advisory_findings_count: 1, provenance_verified: true, hidden_acceptance_status: 'passed', verifier_status: 'passed', human_review_reason_code: null },
     artifact_refs: ['logs/gates/unit.stdout.log'],
     changed_files: [
       { path: 'src/value.cjs', status: 'modified', added_lines: 1, deleted_lines: 1 },

@@ -65,9 +65,17 @@ describe('GitHub draft PR integration', () => {
       gate_runs: [
         { name: 'unit_tests', status: 'pass', required: true },
         { name: 'diff_scope', status: 'pass', required: true }
-      ]
+      ],
+      trust_summary: {
+        deterministic_authority: 'decision_engine',
+        advisory_findings_count: 0,
+        provenance_verified: true,
+        hidden_acceptance_status: 'passed',
+        verifier_status: 'passed'
+      }
     });
     expect(body).toContain('`ALL_PASS`');
+    expect(body).toContain('Deterministic authority: decision_engine');
 
     nock('https://api.github.com')
       .get('/repos/coreline-ai/improvement_loop_harness/pulls')
@@ -81,6 +89,7 @@ describe('GitHub draft PR integration', () => {
           draft: true
         });
         expect(String(payload.body)).toContain('`ALL_PASS`');
+        expect(String(payload.body)).toContain('Trust boundary');
         return true;
       })
       .reply(201, { html_url: 'https://github.com/coreline-ai/improvement_loop_harness/pull/7', number: 7 });

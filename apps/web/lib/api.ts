@@ -49,6 +49,9 @@ export interface CandidateRecord {
   priority: number;
   status: string;
   dismissReason?: string | null;
+  trustLevel?: string;
+  injectionIndicators?: unknown;
+  reproCommand?: string | null;
   taskId?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -126,6 +129,7 @@ export interface GateRunJson {
   stdout_ref?: string | null;
   stderr_ref?: string | null;
   summary?: string | null;
+  group?: string;
 }
 
 export interface EvalReportJson {
@@ -141,6 +145,17 @@ export interface EvalReportJson {
     message?: string;
   }>;
   artifact_refs?: string[];
+  advisory_findings?: Array<Record<string, unknown>>;
+  provenance?: { generated_by?: string; [key: string]: unknown };
+  verifier?: { policy?: string; mismatch?: boolean; lanes?: Array<{ lane: string; status: string; decision?: string | null }> };
+  trust_summary?: {
+    deterministic_authority?: string;
+    advisory_findings_count?: number;
+    provenance_verified?: boolean;
+    hidden_acceptance_status?: string;
+    verifier_status?: string;
+    human_review_reason_code?: string | null;
+  };
   summary?: string;
 }
 

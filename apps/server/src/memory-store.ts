@@ -145,6 +145,9 @@ export class MemoryStore implements Store {
       title: input.title,
       evidenceRefs: input.evidenceRefs === undefined ? null : copy(input.evidenceRefs),
       riskAreaHint: input.riskAreaHint ?? null,
+      trustLevel: input.trustLevel ?? 'medium',
+      injectionIndicators: input.injectionIndicators === undefined ? null : copy(input.injectionIndicators),
+      reproCommand: input.reproCommand ?? null,
       priority: input.priority ?? 0,
       status: input.status ?? 'proposed',
       dismissReason: null,
@@ -371,7 +374,7 @@ export class MemoryStore implements Store {
   }
 
   async createGateRun(input: CreateGateRunInput): Promise<GateRunRecord> {
-    const record: GateRunRecord = { ...input, id: id() };
+    const record: GateRunRecord = { ...input, lane: input.lane ?? 'local', id: id() };
     const list = this.gateRuns.get(input.loopRunId) ?? [];
     list.push(record);
     this.gateRuns.set(input.loopRunId, list);

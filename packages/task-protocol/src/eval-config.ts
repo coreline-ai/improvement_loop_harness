@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import YAML from 'yaml';
 import { EvalConfigError } from './errors.js';
 import { assertAllowedInterpolation } from './interpolation.js';
-import { normalizePathList } from './paths.js';
+import { normalizePathList, normalizeRepoPath } from './paths.js';
 import { EVAL_SCHEMA_ID, validateOrThrow } from './schema.js';
 import type { EvalConfig, EvalGate, GateType } from './types.js';
 
@@ -11,7 +11,8 @@ const PROJECT_COMMAND_GATE_TYPES = new Set<GateType>([
   'task_acceptance',
   'regression',
   'security',
-  'performance'
+  'performance',
+  'hidden_acceptance'
 ]);
 
 const GUARD_GATE_TYPES = new Set<GateType>(['scope', 'integrity']);
@@ -87,10 +88,19 @@ export async function loadEvalConfig(filePath: string): Promise<EvalConfig> {
 
   const protectedPaths = normalizePathList(config.protected_paths, 'protected_paths');
   const riskClassification = normalizeRiskClassification(config.risk_classification);
+  const hiddenAcceptance = config.hidden_acceptance
+    ? {
+        tests: config.hidden_acceptance.tests.map((test, index) => ({
+          ...test,
+          target_path: normalizeRepoPath(test.target_path, `hidden_acceptance.tests[${index}].target_path`)
+        }))
+      }
+    : undefined;
 
   return {
     ...config,
     ...(protectedPaths ? { protected_paths: protectedPaths } : {}),
-    ...(riskClassification ? { risk_classification: riskClassification } : {})
+    ...(riskClassification ? { risk_classification: riskClassification } : {}),
+    ...(hiddenAcceptance ? { hidden_acceptance: hiddenAcceptance } : {})
   };
 }

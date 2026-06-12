@@ -130,6 +130,7 @@ async function persistKernelArtifacts(
       name: gate.name,
       type: gate.type,
       required: gate.required,
+      lane: 'local',
       command: gate.command,
       status: gate.status,
       exitCode: gate.exit_code,

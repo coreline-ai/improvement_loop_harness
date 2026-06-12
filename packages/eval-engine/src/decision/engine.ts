@@ -25,6 +25,8 @@ export interface DecideInput {
   taskRiskArea?: string | undefined;
   taskHumanApprovalRequired?: boolean | undefined;
   metaEvaluationEnabled?: boolean | undefined;
+  provenanceVerified?: boolean | undefined;
+  verifierMismatch?: boolean | undefined;
 }
 
 export interface DecisionResult {
@@ -211,6 +213,19 @@ export function decide(input: DecideInput): DecisionResult {
     };
   }
 
+  if (input.provenanceVerified === false) {
+    return {
+      decision: 'reject',
+      reasons: [
+        reason(
+          REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH,
+          'Eval report provenance hash verification failed.',
+          'reports/eval-report.json'
+        )
+      ]
+    };
+  }
+
   const requiredGate = failedRequiredGate(input);
   if (requiredGate) {
     return {
@@ -258,6 +273,19 @@ export function decide(input: DecideInput): DecisionResult {
         reason(
           REASON_CODES.RISK_HUMAN_APPROVAL,
           'Risk classification requires human approval.'
+        )
+      ]
+    };
+  }
+
+  if (input.verifierMismatch === true) {
+    return {
+      decision: 'needs_human_review',
+      reasons: [
+        reason(
+          REASON_CODES.VERIFIER_MISMATCH,
+          'Verifier lane result does not match local deterministic result.',
+          'reports/eval-report.json'
         )
       ]
     };

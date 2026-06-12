@@ -15,6 +15,9 @@ export default async function LoopReportPage({ params }: { params: Promise<{ id:
     const evidence = report?.improvement_evidence ?? [];
     const artifactRefs = report?.artifact_refs ?? [];
     const changed = report?.changed_files ?? [];
+    const trust = report?.trust_summary;
+    const verifier = report?.verifier;
+    const advisory = report?.advisory_findings ?? [];
 
     return (
       <>
@@ -31,6 +34,20 @@ export default async function LoopReportPage({ params }: { params: Promise<{ id:
           </div>
           {report?.summary ? <p>{report.summary}</p> : null}
           <Link className="link" href={`/loops/${loop.id}`}>← loop detail</Link>
+        </section>
+        <section className="section card stack" data-testid="trust-boundary">
+          <h2>Trust boundary</h2>
+          <div className="grid three">
+            <div><div className="meta">deterministic</div><Badge value={trust?.deterministic_authority ?? 'decision_engine'} /></div>
+            <div><div className="meta">provenance</div><Badge value={trust?.provenance_verified === false ? 'mismatch' : 'verified'} /></div>
+            <div><div className="meta">hidden</div><Badge value={trust?.hidden_acceptance_status ?? 'not_configured'} /></div>
+          </div>
+          <div className="grid three">
+            <div><div className="meta">verifier</div><Badge value={trust?.verifier_status ?? 'not_configured'} /></div>
+            <div><div className="meta">advisory findings</div><Badge value={String(trust?.advisory_findings_count ?? advisory.length)} /></div>
+            <div><div className="meta">human review reason</div><Badge value={trust?.human_review_reason_code ?? 'none'} /></div>
+          </div>
+          <p className="meta">LLM/advisory 결과는 최종 authority가 아니며, accept는 deterministic decision engine의 고정 기준으로만 산출됩니다.</p>
         </section>
         <section className="section grid two">
           <div className="card stack">
@@ -70,6 +87,29 @@ export default async function LoopReportPage({ params }: { params: Promise<{ id:
                 ))}
               </div>
             ) : null}
+          </div>
+        </section>
+        <section className="section grid two">
+          <div className="card stack">
+            <h2>Verifier lanes</h2>
+            {(verifier?.lanes ?? []).map((lane) => (
+              <div className="card compact" key={lane.lane}>
+                <strong>{lane.lane}</strong> <Badge value={lane.status} />
+                <div className="meta">decision: {lane.decision ?? 'unknown'}</div>
+              </div>
+            ))}
+            {(verifier?.lanes ?? []).length === 0 ? <div className="empty">verifier lane 정보가 없습니다.</div> : null}
+          </div>
+          <div className="card stack">
+            <h2>Advisory findings</h2>
+            {advisory.map((finding, index) => (
+              <div className="card compact" key={index}>
+                <strong>{String(finding.gate ?? finding.source ?? `finding-${index}`)}</strong>
+                <div className="meta">authority: {String(finding.authority ?? 'advisory')}</div>
+                {'same_model_review' in finding ? <div className="meta">same model: {String(finding.same_model_review)}</div> : null}
+              </div>
+            ))}
+            {advisory.length === 0 ? <div className="empty">advisory finding이 없습니다.</div> : null}
           </div>
         </section>
         <section className="section card">
