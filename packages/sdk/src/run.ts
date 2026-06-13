@@ -34,11 +34,13 @@ import {
   runGates,
   verifyTestOnBase,
   collectMetricsForGates,
+  evaluateQuality,
   CANDIDATE_METRICS_SCOPE,
   type BaselineMetrics,
   type EvalReportProvenance,
   type GateReportEntry,
   type MetricRejection,
+  type QualityReport,
   type TestOnBaseReport
 } from '@vibeloop/eval-engine';
 import {
@@ -126,6 +128,12 @@ export interface RunKernelResult {
   exitCode: CliExitCode;
   reportPath?: string | undefined;
   events: LoopEvent[];
+  /**
+   * Deterministic improvement-quality verdict (M0). True when no evaluator is
+   * configured. PR candidacy = (decision === 'accept') && qualified. Does not
+   * change `decision`/`status` (correctness stays the decision engine's domain).
+   */
+  qualified: boolean;
 }
 
 export type RetryMode =
@@ -701,7 +709,8 @@ export async function runKernel(
           status: 'failed',
           exitCode: EXIT_CODES.failed,
           reportPath,
-          events
+          events,
+          qualified: false
         };
       }
     }
@@ -843,6 +852,22 @@ export async function runKernel(
       `${JSON.stringify(evidence, null, 2)}\n`
     );
 
+    // M0: deterministic improvement-quality Evaluator. A separate fixed-rule gate
+    // alongside the Verifier; never changes the decision engine. qualified=true
+    // when no evaluator is configured (no behavior change for existing projects).
+    const quality: QualityReport = evaluateQuality({
+      config: evalConfig.evaluator,
+      changedFiles,
+      evidence: evidence.evidence,
+      testOnBase,
+      requiredTestCount: task.acceptance?.required_tests?.length ?? 0
+    });
+    await writeArtifact(
+      layout.root,
+      'reports/quality-report.json',
+      `${JSON.stringify(quality, null, 2)}\n`
+    );
+
     const risk = classifyRisk(
       changedFiles.map((file) => file.path),
       evalConfig.risk_classification
@@ -930,7 +955,8 @@ export async function runKernel(
         'patches/changed-files.json',
         'metrics/baseline.json',
         'reports/gate-report.json',
-        'reports/evidence-summary.json'
+        'reports/evidence-summary.json',
+        'reports/quality-report.json'
       ]
     });
     const reportPath = await writeEvalReport(layout.root, report);
@@ -951,7 +977,8 @@ export async function runKernel(
       decision: decision.decision,
       exitCode: exitCodeForDecision(decision.decision),
       reportPath,
-      events
+      events,
+      qualified: quality.met
     };
   } catch (error) {
     const cancelled = isCancelledError(error);
@@ -986,7 +1013,8 @@ export async function runKernel(
       status,
       exitCode: cancelled ? EXIT_CODES.cancelled : EXIT_CODES.failed,
       reportPath,
-      events
+      events,
+      qualified: false
     };
   } finally {
     await Promise.all(

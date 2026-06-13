@@ -1,6 +1,11 @@
 import { runKernel } from './run.js';
 import type { RunKernelResult } from './run.js';
-import type { RunOnceOptions, RunOnceResult, VerifyPatchOptions, VerifyPatchResult } from './types.js';
+import type {
+  RunOnceOptions,
+  RunOnceResult,
+  VerifyPatchOptions,
+  VerifyPatchResult
+} from './types.js';
 
 function toRunOnceResult(result: RunKernelResult): RunOnceResult {
   return {
@@ -10,7 +15,8 @@ function toRunOnceResult(result: RunKernelResult): RunOnceResult {
     decision: result.decision,
     reportPath: result.reportPath,
     artifactRoot: result.layout.root,
-    exitCode: result.exitCode
+    exitCode: result.exitCode,
+    qualified: result.qualified
   };
 }
 
@@ -18,7 +24,9 @@ export async function runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
   return toRunOnceResult(await runKernel(options));
 }
 
-export async function verifyPatch(options: VerifyPatchOptions): Promise<VerifyPatchResult> {
+export async function verifyPatch(
+  options: VerifyPatchOptions
+): Promise<VerifyPatchResult> {
   const result = await runKernel({
     repoPath: options.repoPath,
     taskFile: options.taskFile,

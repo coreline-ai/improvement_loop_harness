@@ -29,11 +29,14 @@ async function writeFixtureTaskEval(options: {
   protectedPaths?: string[] | undefined;
   requiredTests?: string[] | undefined;
   gates?: string | undefined;
+  evaluator?: string[] | undefined;
 }): Promise<{ taskFile: string; evalFile: string }> {
   const taskFile = path.join(options.dir, `${options.taskId}.task.yaml`);
   const evalFile = path.join(options.dir, `${options.taskId}.eval.yaml`);
   const allowed = options.allowed ?? ['src/', 'tests/'];
-  const requiredTests = options.requiredTests ?? ['node tests/regression.test.js'];
+  const requiredTests = options.requiredTests ?? [
+    'node tests/regression.test.js'
+  ];
   await writeFile(
     taskFile,
     [
@@ -64,9 +67,14 @@ async function writeFixtureTaskEval(options: {
         'schema_version: "1.0"',
         'project: cli-fixture',
         'protected_paths:',
-        ...(options.protectedPaths ?? ['.env', '.env.*', 'eval.yaml', 'scripts/eval.sh']).map(
-          (entry) => `  - ${entry}`
-        ),
+        ...(
+          options.protectedPaths ?? [
+            '.env',
+            '.env.*',
+            'eval.yaml',
+            'scripts/eval.sh'
+          ]
+        ).map((entry) => `  - ${entry}`),
         'risk_classification:',
         '  none:',
         '    - src/',
@@ -102,13 +110,18 @@ async function writeFixtureTaskEval(options: {
         '    type: task_acceptance',
         '    command: node tests/regression.test.js',
         '    required: true',
+        ...(options.evaluator
+          ? ['evaluator:', ...options.evaluator.map((line) => `  ${line}`)]
+          : []),
         ''
       ].join('\n')
   );
   return { taskFile, evalFile };
 }
 
-async function createValueRepo(): Promise<Awaited<ReturnType<typeof createTempGitRepo>>> {
+async function createValueRepo(): Promise<
+  Awaited<ReturnType<typeof createTempGitRepo>>
+> {
   const repo = await createTempGitRepo();
   await repo.write('src/value.cjs', 'module.exports = 1;\n');
   await repo.git(['add', 'src/value.cjs']);
@@ -116,7 +129,11 @@ async function createValueRepo(): Promise<Awaited<ReturnType<typeof createTempGi
   return repo;
 }
 
-async function writeScenario(dir: string, name: string, actions: unknown[]): Promise<string> {
+async function writeScenario(
+  dir: string,
+  name: string,
+  actions: unknown[]
+): Promise<string> {
   const scenario = path.join(dir, `${name}.json`);
   await writeFile(scenario, `${JSON.stringify({ actions }, null, 2)}\n`);
   return scenario;
@@ -138,33 +155,41 @@ describe('createProgram', () => {
   });
 });
 
+it('runs discover dry-run and prints structured candidates without saving them', async () => {
+  const repo = await createTempGitRepo();
+  await repo.write(
+    'tests/failing.test.js',
+    "console.error('tests/failing.test.js'); process.exit(1);\n"
+  );
+  await repo.git(['add', 'tests/failing.test.js']);
+  await repo.git(['commit', '-m', 'add failing test']);
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'discover',
+      '--repo',
+      repo.repoPath,
+      '--test-command',
+      'node tests/failing.test.js'
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+  const output = JSON.parse(logs.join('\n')) as {
+    candidates: Array<{ source: string; location: { filePath: string } }>;
+  };
 
-  it('runs discover dry-run and prints structured candidates without saving them', async () => {
-    const repo = await createTempGitRepo();
-    await repo.write('tests/failing.test.js', "console.error('tests/failing.test.js'); process.exit(1);\n");
-    await repo.git(['add', 'tests/failing.test.js']);
-    await repo.git(['commit', '-m', 'add failing test']);
-    const logs: string[] = [];
-    const spy = vi.spyOn(console, 'log').mockImplementation((value: string) => logs.push(value));
-    try {
-      await createProgram().parseAsync([
-        'node',
-        'vibeloop',
-        'discover',
-        '--repo',
-        repo.repoPath,
-        '--test-command',
-        'node tests/failing.test.js'
-      ]);
-    } finally {
-      spy.mockRestore();
-    }
-    const output = JSON.parse(logs.join('\n')) as { candidates: Array<{ source: string; location: { filePath: string } }> };
-
-    expect(output.candidates).toHaveLength(1);
-    expect(output.candidates[0]).toMatchObject({ source: 'test_failure', location: { filePath: 'tests/failing.test.js' } });
+  expect(output.candidates).toHaveLength(1);
+  expect(output.candidates[0]).toMatchObject({
+    source: 'test_failure',
+    location: { filePath: 'tests/failing.test.js' }
   });
-
+});
 
 describe('resolveSameModelReview', () => {
   it.each([
@@ -181,9 +206,12 @@ describe('resolveSameModelReview', () => {
     ['codex', { reviewer_provider: 'unknown' }, true],
     // builder provider unknown but reviewer known → cannot prove independence
     ['unknown-agent --flag', { reviewer_provider: 'anthropic' }, true]
-  ] as const)('maps %s with critic config %j to %s', (agentSpec, criticConfig, expected) => {
-    expect(resolveSameModelReview(agentSpec, criticConfig)).toBe(expected);
-  });
+  ] as const)(
+    'maps %s with critic config %j to %s',
+    (agentSpec, criticConfig, expected) => {
+      expect(resolveSameModelReview(agentSpec, criticConfig)).toBe(expected);
+    }
+  );
 });
 
 describe('runKernel', () => {
@@ -191,13 +219,21 @@ describe('runKernel', () => {
     const repo = await createValueRepo();
     const dataDir = await tempDir('vibeloop-cli-data-');
     const fixtureDir = await tempDir('vibeloop-cli-fixture-');
-    const { taskFile, evalFile } = await writeFixtureTaskEval({ dir: fixtureDir, taskId: 'cli-happy' });
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'cli-happy'
+    });
     const scenario = await writeScenario(fixtureDir, 'happy', [
-      { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
       {
         type: 'create',
         path: 'tests/regression.test.js',
-        content: "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
       }
     ]);
 
@@ -219,16 +255,84 @@ describe('runKernel', () => {
     expect(result.exitCode).toBe(EXIT_CODES.accept);
     expect(result.status).toBe('accepted');
     expect(report.decision).toBe('accept');
+    // No evaluator configured → quality gate is a no-op (qualified = true).
+    expect(result.qualified).toBe(true);
     expect(report.improvement_evidence[0]?.status).toBe('present');
-    await expect(fileExists(path.join(result.layout.input, 'task.yaml'))).resolves.toBe(true);
-    await expect(fileExists(path.join(result.layout.input, 'eval.yaml'))).resolves.toBe(true);
-    await expect(fileExists(path.join(result.layout.input, 'base_commit.txt'))).resolves.toBe(true);
-    await expect(fileExists(path.join(result.layout.input, 'env-snapshot.json'))).resolves.toBe(true);
-    await expect(fileExists(path.join(result.layout.workspace, 'workspace-ref.json'))).resolves.toBe(true);
+    await expect(
+      fileExists(path.join(result.layout.input, 'task.yaml'))
+    ).resolves.toBe(true);
+    await expect(
+      fileExists(path.join(result.layout.input, 'eval.yaml'))
+    ).resolves.toBe(true);
+    await expect(
+      fileExists(path.join(result.layout.input, 'base_commit.txt'))
+    ).resolves.toBe(true);
+    await expect(
+      fileExists(path.join(result.layout.input, 'env-snapshot.json'))
+    ).resolves.toBe(true);
+    await expect(
+      fileExists(path.join(result.layout.workspace, 'workspace-ref.json'))
+    ).resolves.toBe(true);
     expect(report.artifact_refs).toContain('workspace/workspace-ref.json');
     const html = await renderLoopHtmlReport({ dataDir, loopId: result.loopId });
     expect(html.fileUrl).toMatch(/^file:\/\//);
     expect(await readFile(html.path, 'utf8')).toContain('VibeLoop Eval Report');
+  });
+
+  it('computes deterministic quality (qualified) as a separate gate without changing the correctness decision', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-cli-quality-data-');
+    const fixtureDir = await tempDir('vibeloop-cli-quality-fixture-');
+    // Tight quality bar the happy candidate (2 changed files) cannot meet.
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'cli-quality',
+      evaluator: ['max_changed_files: 1']
+    });
+    const scenario = await writeScenario(fixtureDir, 'quality', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+      }
+    ]);
+
+    const result = await runKernel({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      agentSpec: `mock:${scenario}`,
+      loopId: 'loop-cli-quality',
+      skipDependencyInstall: true
+    });
+
+    // Correctness decision is unchanged: the change still verifies (ALL_PASS).
+    expect(result.status).toBe('accepted');
+    expect(result.decision).toBe('accept');
+    // But the deterministic Evaluator gate is not met → not a PR candidate.
+    expect(result.qualified).toBe(false);
+    const quality = JSON.parse(
+      await readFile(
+        path.join(result.layout.root, 'reports', 'quality-report.json'),
+        'utf8'
+      )
+    ) as {
+      status: string;
+      met: boolean;
+      rules: Array<{ id: string; status: string }>;
+    };
+    expect(quality.met).toBe(false);
+    expect(quality.status).toBe('fail');
+    expect(quality.rules.find((rule) => rule.id === 'Q4_files')?.status).toBe(
+      'fail'
+    );
   });
 
   it('rejects guard failures, still writes eval-report.json, and skips project gates', async () => {
@@ -239,7 +343,9 @@ describe('runKernel', () => {
       dir: fixtureDir,
       taskId: 'cli-guard',
       allowed: ['.env.local'],
-      requiredTests: ['node -e "require(\'node:fs\').writeFileSync(\'project-gate-ran\',\'yes\')"']
+      requiredTests: [
+        "node -e \"require('node:fs').writeFileSync('project-gate-ran','yes')\""
+      ]
     });
     const scenario = await writeScenario(fixtureDir, 'guard', [
       { type: 'create', path: '.env.local', content: 'token=secret\n' }
@@ -264,20 +370,30 @@ describe('runKernel', () => {
     expect(result.status).toBe('rejected');
     expect(report.decision).toBe('reject');
     expect(report.decision_reasons[0]?.code).toBe('GUARD_PROTECTED_PATH');
-    expect(report.gate_runs.find((gate) => gate.name === 'unit_tests')?.status).toBe('skipped');
+    expect(
+      report.gate_runs.find((gate) => gate.name === 'unit_tests')?.status
+    ).toBe('skipped');
   });
 
   it('retry_eval_only creates a new loop and reevaluates stored candidate.patch without rerunning the agent', async () => {
     const repo = await createValueRepo();
     const dataDir = await tempDir('vibeloop-cli-retry-data-');
     const fixtureDir = await tempDir('vibeloop-cli-retry-fixture-');
-    const { taskFile, evalFile } = await writeFixtureTaskEval({ dir: fixtureDir, taskId: 'cli-retry' });
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'cli-retry'
+    });
     const scenario = await writeScenario(fixtureDir, 'retry-source', [
-      { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
       {
         type: 'create',
         path: 'tests/regression.test.js',
-        content: "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
       }
     ]);
 
@@ -297,25 +413,41 @@ describe('runKernel', () => {
       newLoopId: 'loop-cli-retry-eval-only',
       skipDependencyInstall: true
     });
-    const retryReport = JSON.parse(await readFile(retried.reportPath!, 'utf8')) as { decision: string };
-    const agentLog = await readFile(path.join(retried.layout.logs, 'agent.stdout.log'), 'utf8');
+    const retryReport = JSON.parse(
+      await readFile(retried.reportPath!, 'utf8')
+    ) as { decision: string };
+    const agentLog = await readFile(
+      path.join(retried.layout.logs, 'agent.stdout.log'),
+      'utf8'
+    );
     const workspaceRef = JSON.parse(
-      await readFile(path.join(retried.layout.workspace, 'workspace-ref.json'), 'utf8')
+      await readFile(
+        path.join(retried.layout.workspace, 'workspace-ref.json'),
+        'utf8'
+      )
     ) as { retry_of: string; retry_mode: string };
 
     expect(retried.loopId).not.toBe(first.loopId);
     expect(retried.loopId).toBe('loop-cli-retry-eval-only');
     expect(retryReport.decision).toBe('accept');
     expect(agentLog).toContain('agent skipped for retry_eval_only');
-    expect(workspaceRef).toMatchObject({ retry_of: first.loopId, retry_mode: 'retry_eval_only' });
+    expect(workspaceRef).toMatchObject({
+      retry_of: first.loopId,
+      retry_mode: 'retry_eval_only'
+    });
   });
 
   it('cancels gracefully through the SIGINT abort path and removes git worktrees', async () => {
     const repo = await createValueRepo();
     const dataDir = await tempDir('vibeloop-cli-cancel-data-');
     const fixtureDir = await tempDir('vibeloop-cli-cancel-fixture-');
-    const { taskFile, evalFile } = await writeFixtureTaskEval({ dir: fixtureDir, taskId: 'cli-cancel' });
-    const scenario = await writeScenario(fixtureDir, 'sleep', [{ type: 'sleep', ms: 2_000 }]);
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'cli-cancel'
+    });
+    const scenario = await writeScenario(fixtureDir, 'sleep', [
+      { type: 'sleep', ms: 2_000 }
+    ]);
     const controller = new AbortController();
     const running = runKernel({
       repoPath: repo.repoPath,

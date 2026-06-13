@@ -25,6 +25,11 @@ export interface RunOnceResult {
   reportPath?: string | undefined;
   artifactRoot: string;
   exitCode: number;
+  /**
+   * Deterministic improvement-quality verdict (M0). True when no evaluator is
+   * configured. PR candidacy = (decision === 'accept') && qualified.
+   */
+  qualified: boolean;
 }
 
 export interface VerifyPatchOptions extends Omit<RunOnceOptions, 'agentSpec'> {

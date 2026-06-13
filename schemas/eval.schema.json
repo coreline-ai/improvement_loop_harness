@@ -216,6 +216,46 @@
           "description": "Declared provider of the advisory reviewer (e.g. openai, anthropic). When it differs from the builder provider the advisory review is treated as independent; unset keeps same_model_review conservative."
         }
       }
+    },
+    "evaluator": {
+      "description": "Deterministic improvement-quality gate (M0). Fixed-rule thresholds computed from harness artifacts, never an LLM judgment. When absent, quality is treated as met (no behavior change). See docs/SELF_IMPROVEMENT_LOOP_DESIGN.md §8/§9.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "description": "When true, PR candidacy requires quality.met (consumed by the PR gate).",
+          "default": false
+        },
+        "max_changed_files": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_changed_lines": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "forbid_protected": {
+          "type": "boolean",
+          "default": true
+        },
+        "min_evidence_present": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 1
+        },
+        "require_test_on_base_pass": {
+          "type": "boolean",
+          "default": true
+        },
+        "target_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   }
 }

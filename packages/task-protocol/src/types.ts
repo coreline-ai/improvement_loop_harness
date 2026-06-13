@@ -90,5 +90,29 @@ export interface EvalConfig {
      */
     reviewer_provider?: string;
   };
+  /**
+   * Deterministic improvement-quality gate (Evaluator, M0). All thresholds are
+   * fixed rules computed from harness artifacts — never an LLM judgment. When
+   * absent, quality is treated as met (no behavior change). See
+   * docs/SELF_IMPROVEMENT_LOOP_DESIGN.md §8/§9.
+   */
+  evaluator?: EvaluatorConfig;
   gates: EvalGate[];
+}
+
+export interface EvaluatorConfig {
+  /** When true, PR candidacy requires quality.met (consumed by the PR gate). */
+  required?: boolean;
+  /** Q4: max changed files. */
+  max_changed_files?: number;
+  /** Q4: max changed lines (added + deleted). */
+  max_changed_lines?: number;
+  /** Q4: fail if any protected path is touched. Defaults to true when configured. */
+  forbid_protected?: boolean;
+  /** Q1: minimum count of required_evidence entries that must be `present`. Default 1. */
+  min_evidence_present?: number;
+  /** Q2: require test-on-base fail→pass when the task declares required_tests. Default true. */
+  require_test_on_base_pass?: boolean;
+  /** Q3: changed files must intersect at least one of these path prefixes. */
+  target_paths?: string[];
 }
