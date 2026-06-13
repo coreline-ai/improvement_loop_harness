@@ -631,6 +631,8 @@ FAIL-001
 
 ---
 
+> **수렴 결과(2026-06-13):** 이 비전을 현재 프로젝트와 조화시킨 종합 설계는 [docs/SELF_IMPROVEMENT_LOOP_DESIGN.md](../docs/SELF_IMPROVEMENT_LOOP_DESIGN.md)로 정리됨 — 생성·검증·평가 3-exec 분리(검증자만 결정론), 통과 후보 탐색-선택, 학습은 생성자만 개선(바 불변), Skill-first 제품화. 아래 부록 A~C는 그 결론에 이르기까지의 분석·조사 원장이다.
+
 ## 부록 A. 루프 엔지니어링 비전 vs 현재 구현 — 전문가 상세 분석 (2026-06-13)
 
 > 이 부록은 위 §1~16의 **루프 엔지니어링 비전**을 현재 VibeLoop Harness 구현 및 1~6차 전문가 검토와 대조한 분석이다. 작성 기준 커밋 `ce11f0d`, 로컬 `pnpm typecheck` 통과 / `pnpm test` 134건 통과 확인.
@@ -667,6 +669,7 @@ FAIL-001
   Prisma에 SkillVersion·Learning 모델은 있으나 자동 반영 경로 없음(MVP-5)
   evaluator(품질 점수화) 에이전트 없음 — advisory critic은 gate status만 기록
   테스트 케이스 자동 확장 없음 — eval.yaml/task.yaml은 고정 입력
+  PR 전 같은 문제 내부 refinement 판단 없음 — 통과 후보를 더 낫게 만들지 바로 판단하지 않음
   품질 수렴 종료 조건 없음 — 큐 소진/예산 초과로만 정지
 ```
 
@@ -691,20 +694,20 @@ FAIL-001
 
 ### A.4 비전 §8 구성요소 → 구현 매핑
 
-| 비전 구성요소       | 구현 위치                         | 상태                                 |
-| ------------------- | --------------------------------- | ------------------------------------ |
-| Goal Spec           | task.yaml / candidate             | ✅                                   |
-| Task Planner        | discovery task-gen(deterministic) | ✅(단일 task, 분해 없음)             |
-| Prompt Generator    | builder agent 내부                | ⚠️ 자가개선 없음                     |
-| Executor            | agent adapter(codex/mock/command) | ✅                                   |
-| Test Case Generator | —                                 | ❌ 미구현                            |
-| Verifier            | eval runner + guards + decision   | ✅ 성숙                              |
-| Evaluator           | advisory critic(미구현)           | ❌ gate status만                     |
-| Failure Analyzer    | —                                 | ❌ 미구현                            |
-| Refiner             | —                                 | ❌ 미구현(재시도는 동일 task 재실행) |
-| Memory Store        | Learning/SkillVersion(미연결)     | ❌ dead schema                       |
-| Loop Controller     | orchestrator scheduler            | ✅                                   |
-| Human Gate          | approval + risk classification    | ✅                                   |
+| 비전 구성요소       | 구현 위치                         | 상태                                                                         |
+| ------------------- | --------------------------------- | ---------------------------------------------------------------------------- |
+| Goal Spec           | task.yaml / candidate             | ✅                                                                           |
+| Task Planner        | discovery task-gen(deterministic) | ✅(단일 task, 분해 없음)                                                     |
+| Prompt Generator    | builder agent 내부                | ⚠️ 자가개선 없음                                                             |
+| Executor            | agent adapter(codex/mock/command) | ✅                                                                           |
+| Test Case Generator | —                                 | ❌ 미구현                                                                    |
+| Verifier            | eval runner + guards + decision   | ✅ 성숙                                                                      |
+| Evaluator           | advisory critic(미구현)           | ❌ gate status만                                                             |
+| Failure Analyzer    | —                                 | ❌ 미구현                                                                    |
+| Refiner             | —                                 | ❌ 미구현(통과 후보를 같은 문제 안에서 더 낫게 만드는 refinement judge 없음) |
+| Memory Store        | Learning/SkillVersion(미연결)     | ❌ dead schema                                                               |
+| Loop Controller     | orchestrator scheduler            | ✅                                                                           |
+| Human Gate          | approval + risk classification    | ✅                                                                           |
 
 ### A.5 잠재 위험(분석가 관점)
 
@@ -731,12 +734,13 @@ FAIL-001
 
 추가로 본 분석에서 신규 식별:
 
-| ID  | 항목                                                           | 비전 연결                 |
-| --- | -------------------------------------------------------------- | ------------------------- |
-| N1  | **테스트 케이스 자동 확장 루프** (엣지/실패/회귀 생성)         | §5·10                     |
-| N2  | **Failure Analyzer + cross-loop 실패 원장**                    | §6·11(실패 기록 포맷)     |
-| N3  | **품질 수렴 종료 조건** (신규 실패 없음·평가자 임계)           | §7 종료 조건              |
-| N4  | **메트릭 수집 신뢰화** (stdout 정규식 → 하네스 직접 산출 채널) | 안쪽 루프 evidence 무결성 |
+| ID  | 항목                                                                                                                     | 비전 연결                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------- |
+| N1  | **테스트 케이스 자동 확장 루프** (엣지/실패/회귀 생성)                                                                   | §5·10                     |
+| N2  | **Failure Analyzer + cross-loop 실패 원장**                                                                              | §6·11(실패 기록 포맷)     |
+| N3  | **품질 수렴 종료 조건** (신규 실패 없음·평가자 임계)                                                                     | §7 종료 조건              |
+| N4  | **메트릭 수집 신뢰화** (stdout 정규식 → 하네스 직접 산출 채널)                                                           | 안쪽 루프 evidence 무결성 |
+| N5  | **Same-Issue Refinement Loop** — 통과 후보를 즉시 PR로 보내기 전 같은 문제 안에서 더 나은 후보를 판단·재수정·재검증·선택 | Refiner / §10·11          |
 
 ---
 
@@ -846,19 +850,37 @@ FAIL-001
 - [ ] R5 `git worktree prune` 1줄 보강(즉시 가능)
 - [ ] R1·R3·R4는 검토 결과에 따라 개별 implement\_\*.md로 분리
 
-### C.7 권장 실행 순서
+### C.7 영역 6 — Same-Issue Refinement Loop [N5, Refiner]
+
+#### 검토 트랙 (조사)
+
+- [x] Q1. 현 루프에 `ALL_PASS` 이후 PR 전 "더 나은 같은 문제 후보"를 판단하는 단계가 있는가? → **없음**. 통과 후보를 즉시 PR 후보로 볼 수 있어 사용자가 의도한 중간 개선 판단이 빠져 있다.
+- [x] Q2. refinement가 decision engine을 약화하지 않고 들어갈 수 있는 위치는? → `accepted_candidate` 저장 후, draft PR 후보 생성 전. 새 후보도 기존 deterministic gate와 hidden acceptance를 다시 통과해야 한다.
+- [x] Q3. refinement가 범위 확장으로 변질되지 않게 하는 조건은? → 동일 objective·acceptance·write_scope, max round, no eval/test/protected change, advisory-only 판단, 실패 시 이전 accepted 후보 유지.
+- **발견 기록:** 별도 구현 계획 [implement_20260613_154330.md](./implement_20260613_154330.md)로 분리.
+
+#### 개발 트랙
+
+- [ ] `RefinementJudge` 계약과 상태 전이 구현
+- [ ] accepted 후보 snapshot, refinement attempt, selected candidate artifact 저장
+- [ ] accepted 후보 간 비교/선택 기준 구현
+- [ ] Skill/UAT에 accepted-v1 → refined-v2 → selected-v2 시나리오 추가
+- [ ] 적대적 테스트: eval/test 완화, protected path 접촉, 신규 기능 확장, advisory-only accept 시도 차단
+
+### C.8 권장 실행 순서
 
 ```text
 1. 부록 C 검토 트랙 전체 수행 → 각 "발견 기록" 채움 (개발 0줄)
 2. R5(worktree prune) + N4(메트릭 신뢰화) — 저위험·고ROI 선행
-3. 영역 1(Evaluator 분리) → same_model_review 승격 (비전 §4 충족)
-4. 영역 2(학습/메모리) — 비전 §11 "반복할수록 똑똑" 핵심
-5. 영역 4(품질 수렴 종료) — 영역 1·2의 신호를 종료 조건에 활용
-6. 영역 3(테스트 확장) — 검토 결과 builder 산출물로 충분하면 회귀 고정만
-7. R1(컨테이너 격리) — 자율(auto) 상시 가동 전 별도 워크스트림
+3. 영역 6(Same-Issue Refinement) — 사용자가 의도한 "통과 후 더 나은 개선 판단" 루프 보강
+4. 영역 1(Evaluator 분리) → same_model_review 승격 (비전 §4 충족)
+5. 영역 2(학습/메모리) — 비전 §11 "반복할수록 똑똑" 핵심
+6. 영역 4(품질 수렴 종료) — 영역 1·2의 신호를 종료 조건에 활용
+7. 영역 3(테스트 확장) — 검토 결과 builder 산출물로 충분하면 회귀 고정만
+8. R1(컨테이너 격리) — 자율(auto) 상시 가동 전 별도 워크스트림
 ```
 
-### C.8 이 워크스트림의 완료 기준
+### C.9 이 워크스트림의 완료 기준
 
 | 기준        | 완료 판단                                                                           |
 | ----------- | ----------------------------------------------------------------------------------- |
