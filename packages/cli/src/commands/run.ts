@@ -16,7 +16,8 @@ interface RunCommandOptions {
 }
 
 function globalDataDir(command: Command): string {
-  return (command.parent?.opts<{ dataDir: string }>().dataDir ?? command.opts<{ dataDir: string }>().dataDir) as string;
+  return (command.parent?.opts<{ dataDir: string }>().dataDir ??
+    command.opts<{ dataDir: string }>().dataDir) as string;
 }
 
 export function registerRunCommand(program: Command): void {
@@ -26,14 +27,24 @@ export function registerRunCommand(program: Command): void {
     .requiredOption('--repo <path>', 'target git repository path')
     .requiredOption('--task <path>', 'task.yaml path')
     .requiredOption('--eval <path>', 'eval.yaml path')
-    .requiredOption('--agent <spec>', 'agent adapter, e.g. mock:scenario.json, command:<shell command>, or codex')
+    .requiredOption(
+      '--agent <spec>',
+      'agent adapter, e.g. mock:scenario.json, command:<shell command>, or codex'
+    )
     .option('--out <path>', 'artifact data directory override')
     .option('--project-id <id>', 'project id override')
     .option('--loop-id <id>', 'loop id override')
     .option('--base-commit <sha>', 'base commit override')
-    .option('--llm-proxy-url <url>', 'localhost LLM proxy base URL for codex agent')
+    .option(
+      '--llm-proxy-url <url>',
+      'localhost LLM proxy base URL for codex agent'
+    )
     .option('--log-json', 'print structured loop state logs to stdout', false)
-    .option('--skip-dependency-install', 'skip dependency provisioning (test/debug only)', false)
+    .option(
+      '--skip-dependency-install',
+      'skip dependency provisioning (test/debug only)',
+      false
+    )
     .action(async (options: RunCommandOptions, command: Command) => {
       const controller = new AbortController();
       let sigintCount = 0;
@@ -69,6 +80,10 @@ export function registerRunCommand(program: Command): void {
               project_id: result.projectId,
               status: result.status,
               decision: result.decision ?? null,
+              qualified: result.qualified,
+              // PR candidacy requires correctness (accept) AND the deterministic
+              // quality gate. Identical predicate across CLI/Skill/server.
+              pr_candidate: result.decision === 'accept' && result.qualified,
               report: result.reportPath ?? null,
               artifact_root: result.artifactRoot
             },

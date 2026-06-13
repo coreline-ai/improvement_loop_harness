@@ -174,6 +174,24 @@ async function runSkillIteration({
     throw new Error(`iteration ${issue.id} did not produce accept/ALL_PASS`);
   }
 
+  // The eval fixture declares an `evaluator:` block, so the deterministic quality
+  // gate must be exercised and met for this to be a PR candidate.
+  if (output.qualified !== true || output.pr_candidate !== true) {
+    throw new Error(
+      `iteration ${issue.id} run output is accepted but not a qualified PR candidate`
+    );
+  }
+  const qualityPath = path.join(
+    path.dirname(output.report),
+    'quality-report.json'
+  );
+  const quality = JSON.parse(await readFile(qualityPath, 'utf8'));
+  if (quality.status !== 'pass' || quality.met !== true) {
+    throw new Error(
+      `iteration ${issue.id} quality gate not met: ${redact(JSON.stringify(quality))}`
+    );
+  }
+
   const changedFiles = [
     ...report.changed_files.map((file) => file.path)
   ].sort();

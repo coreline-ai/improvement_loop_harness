@@ -16,10 +16,10 @@ import { runKernel } from './run.js';
  * fixed tie-break. No LLM votes, no LLM scoring. Candidates that do not verify
  * are never compared; a failed candidate never displaces a passing one.
  *
- * Cost is bounded by the candidate count: total kernel runs =
- * `builders.length + sum(refinementRounds[*].length)` (each refinement round runs
- * only while no accepted candidate exists). Callers MUST cap `builders` and
- * `refinementRounds` — there is no implicit ceiling.
+ * Cost is bounded by the candidate count: total kernel runs ≤
+ * `builders.length + sum(refinementRounds[*].length) + sum(challengerRounds[*].length)`
+ * (refinement rounds run only until the first accepted candidate; challenger rounds
+ * always run). Callers MUST cap all three — there is no implicit ceiling.
  *
  * See docs/SELF_IMPROVEMENT_LOOP_DESIGN.md §5/§8/§12.
  */
@@ -39,6 +39,13 @@ export interface ImprovementLoopOptions {
    * displaces an earlier passing candidate.
    */
   refinementRounds?: string[][] | undefined;
+  /**
+   * Challenger rounds run ALWAYS (even after an accepted candidate exists) to
+   * search for a measurably better one — this is the "passed, but can it be
+   * improved?" exploration. The Arbiter selects the best-known across all rounds;
+   * a failed/worse challenger never displaces an earlier passing candidate.
+   */
+  challengerRounds?: string[][] | undefined;
   projectId?: string | undefined;
   loopId?: string | undefined;
   baseCommit?: string | undefined;
@@ -75,14 +82,23 @@ export interface SelectionReport {
   candidate_count: number;
   accepted_count: number;
   selected_candidate_id: string | null;
+  selected_artifact_root: string | null;
+  selected_report: string | null;
+  selected_patch: string | null;
   candidates: Array<{
     candidate_id: string;
     accepted: boolean;
     decision?: string | undefined;
     qualified: boolean;
     score?: CandidateScore | undefined;
+    artifact_root: string;
+    report_path?: string | undefined;
+    quality_report_ref: string;
   }>;
 }
+
+const CANDIDATE_PATCH_REF = 'patches/candidate.patch';
+const QUALITY_REPORT_REF = 'reports/quality-report.json';
 
 export interface ImprovementLoopResult {
   loopId: string;
@@ -177,17 +193,14 @@ export async function runImprovementLoop(
   let resolvedProjectId = options.projectId ?? 'default';
   let candidateCounter = 0;
 
-  // Round 0 is the initial builder pool; later rounds are bounded refinement and
-  // run ONLY while no accepted candidate has appeared yet (recover from failure).
-  const rounds = [options.builders, ...(options.refinementRounds ?? [])];
-
-  for (let round = 0; round < rounds.length; round += 1) {
-    if (round > 0 && outcomes.some((outcome) => outcome.accepted)) {
-      break; // already have a passing candidate; stop refining
-    }
-    // Sequential, isolated candidates. (Parallelism is a later optimization; the
-    // independence requirement is satisfied by separate worktree/exec per candidate.)
-    for (const agentSpec of rounds[round]!) {
+  // Run one round's builder specs as isolated candidates. (Sequential for v1;
+  // parallelism is a later optimization — independence is satisfied by a separate
+  // worktree/exec per candidate.)
+  const runRoundSpecs = async (
+    specs: string[],
+    round: number
+  ): Promise<void> => {
+    for (const agentSpec of specs) {
       const candidateId = `${baseLoopId}-c${candidateCounter}`;
       candidateCounter += 1;
       const result = await runKernel({
@@ -224,6 +237,29 @@ export async function runImprovementLoop(
       }
       outcomes.push(outcome);
     }
+  };
+
+  let round = 0;
+  // Recovery rounds: round 0 is the initial builder pool; later refinement rounds
+  // run ONLY while no accepted candidate has appeared yet (recover from failure).
+  const recoveryRounds = [
+    options.builders,
+    ...(options.refinementRounds ?? [])
+  ];
+  for (let r = 0; r < recoveryRounds.length; r += 1) {
+    if (r > 0 && outcomes.some((outcome) => outcome.accepted)) {
+      break; // already have a passing candidate; stop failure-recovery refinement
+    }
+    await runRoundSpecs(recoveryRounds[r]!, round);
+    round += 1;
+  }
+
+  // Challenger rounds: run ALWAYS (even after an accepted candidate exists) to
+  // search for a measurably BETTER one. The Arbiter still selects the best-known
+  // across everything, and a failed challenger never displaces a passing candidate.
+  for (const challenger of options.challengerRounds ?? []) {
+    await runRoundSpecs(challenger, round);
+    round += 1;
   }
 
   const accepted = outcomes
@@ -238,12 +274,20 @@ export async function runImprovementLoop(
     candidate_count: outcomes.length,
     accepted_count: accepted.length,
     selected_candidate_id: selected?.candidateId ?? null,
+    selected_artifact_root: selected?.artifactRoot ?? null,
+    selected_report: selected?.reportPath ?? null,
+    selected_patch: selected
+      ? path.join(selected.artifactRoot, CANDIDATE_PATCH_REF)
+      : null,
     candidates: outcomes.map((outcome) => ({
       candidate_id: outcome.candidateId,
       accepted: outcome.accepted,
       decision: outcome.decision,
       qualified: outcome.qualified,
-      score: outcome.score
+      score: outcome.score,
+      artifact_root: outcome.artifactRoot,
+      report_path: outcome.reportPath,
+      quality_report_ref: path.join(outcome.artifactRoot, QUALITY_REPORT_REF)
     }))
   };
 

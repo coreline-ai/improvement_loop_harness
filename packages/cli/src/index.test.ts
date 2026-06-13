@@ -393,6 +393,66 @@ describe('runImprovementLoop', () => {
     expect(result.candidates).toHaveLength(1);
     expect(result.selected?.candidateId).toBe('refine2-1-c0');
   });
+
+  it('runs challenger rounds even after acceptance and selects the better candidate', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-challenger-data-');
+    const fixtureDir = await tempDir('vibeloop-challenger-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'challenger'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    // round 0: accepted but larger (extra file)
+    const larger = await writeScenario(fixtureDir, 'ch-larger', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      },
+      {
+        type: 'create',
+        path: 'src/extra.cjs',
+        content: 'module.exports = { extra: true, note: "larger" };\n'
+      }
+    ]);
+    // challenger: accepted and smaller → should win even though round 0 passed
+    const smaller = await writeScenario(fixtureDir, 'ch-smaller', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'challenger-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${larger}`],
+      challengerRounds: [[`mock:${smaller}`]]
+    });
+
+    // challenger ran despite round 0 acceptance; Arbiter picked the smaller one.
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[1]?.round).toBe(1);
+    expect(result.selected?.candidateId).toBe('challenger-1-c1');
+    expect(result.selected?.score?.changed_files).toBe(2);
+  });
 });
 
 describe('runKernel', () => {

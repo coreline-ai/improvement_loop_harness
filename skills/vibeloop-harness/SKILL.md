@@ -9,7 +9,7 @@ Use this skill to run VibeLoop as a thin wrapper around the project SDK/CLI. Do 
 
 ## Core rules
 
-- Treat the deterministic eval report as the source of truth: `decision=accept` and `ALL_PASS` are required for an auto PR candidate.
+- Treat the deterministic reports as the source of truth. A PR candidate requires ALL of: `decision=accept`, first reason `ALL_PASS`, and `quality-report.json` `status` not `fail` (i.e. `qualified`). `decision=accept` already implies hidden/protected/scope guards passed; quality is the separate fixed gate. Never call an accepted-but-unqualified run a PR candidate.
 - Handle one problem per run. If multiple issues exist, create one task/eval pair per issue.
 - Never expose hidden acceptance tests to the builder agent.
 - Never print OAuth tokens, API keys, `auth.json`, or token-like strings.
@@ -103,13 +103,16 @@ Summarize `eval-report.json` with `scripts/summarize-report.mjs`; never infer ac
 
 ### pr-candidate
 
-Create a PR candidate only when:
+Create a PR candidate only when ALL hold (the summarizer's `prCandidate` is true):
 
 - `decision` is `accept`
 - first decision reason is `ALL_PASS`
+- `quality-report.json` `status` is not `fail` (i.e. `qualified` / quality gate met)
 - hidden acceptance did not leak
 - protected file and diff-scope gates passed
 - human review is not required, or the user explicitly approved it
+
+An accepted-but-unqualified run (correctness passed, quality gate failed) is NOT a PR candidate — surface it as `improve_quality_then_rerun`.
 
 ## References
 

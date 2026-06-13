@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { Command } from 'commander';
 import { EXIT_CODES, runImprovementLoop } from '@vibeloop/sdk';
 
@@ -95,6 +96,14 @@ export function registerImproveCommand(program: Command): void {
               accepted_count: result.candidates.filter((c) => c.accepted)
                 .length,
               selected_candidate_id: result.selected?.candidateId ?? null,
+              selected_artifact_root: result.selected?.artifactRoot ?? null,
+              selected_report: result.selected?.reportPath ?? null,
+              selected_patch: result.selected
+                ? path.join(
+                    result.selected.artifactRoot,
+                    'patches/candidate.patch'
+                  )
+                : null,
               selection_report: result.selectionReportPath ?? null
             },
             null,

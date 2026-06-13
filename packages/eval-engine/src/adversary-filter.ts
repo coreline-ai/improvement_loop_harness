@@ -12,6 +12,8 @@
  * deliberately NOT implemented here. See docs/SELF_IMPROVEMENT_LOOP_DESIGN.md §10.
  */
 
+import { pathMatchesAny } from '@vibeloop/guards';
+
 export type AdversaryProposalKind =
   | 'objective_edge'
   | 'regression_guard'
@@ -80,8 +82,9 @@ export function filterAdversaryProposal(
   const targetPath = normalize(proposal.targetPath);
   const body = proposal.body;
 
-  // scope — staged inside an allowed test/staging directory
-  if (!config.testDirs.some((dir) => targetPath.startsWith(normalize(dir)))) {
+  // scope — staged inside an allowed test/staging directory (proper containment,
+  // not bare startsWith, so `tests/` cannot be spoofed by `tests-evil/...`).
+  if (!pathMatchesAny(targetPath, config.testDirs)) {
     failedFilters.push('scope');
   }
 

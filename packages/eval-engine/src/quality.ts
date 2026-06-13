@@ -1,3 +1,4 @@
+import { pathMatchesAny } from '@vibeloop/guards';
 import type { EvaluatorConfig } from '@vibeloop/task-protocol';
 
 /**
@@ -49,10 +50,6 @@ export interface EvaluateQualityInput {
   requiredTestCount?: number | undefined;
 }
 
-function normalizePath(value: string): string {
-  return value.replace(/\\/g, '/');
-}
-
 export function evaluateQuality(input: EvaluateQualityInput): QualityReport {
   if (!input.config) {
     return {
@@ -97,11 +94,12 @@ export function evaluateQuality(input: EvaluateQualityInput): QualityReport {
     }
   }
 
-  // Q3 — target directness (only when target_paths declared)
+  // Q3 — target directness (only when target_paths declared). Uses proper path
+  // containment (exact or dir-prefix), not bare startsWith, to avoid `src/cart`
+  // wrongly matching `src/cartoon.ts`.
   if (config.target_paths && config.target_paths.length > 0) {
-    const targets = config.target_paths.map(normalizePath);
     const hit = input.changedFiles.some((file) =>
-      targets.some((target) => normalizePath(file.path).startsWith(target))
+      pathMatchesAny(file.path, config.target_paths)
     );
     rules.push({
       id: 'Q3',

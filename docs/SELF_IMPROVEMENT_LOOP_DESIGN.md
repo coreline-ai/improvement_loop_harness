@@ -430,11 +430,17 @@ CLI / API / Skill
   - 판정 로직 복제 금지
 ```
 
-PR 후보 자격:
+PR 후보 자격 (전 채널 동일 predicate — CLI `run`, Skill summarizer, server PR 게이트, `improve` selection):
 
 ```text
-pr_candidate = selected ∧ accepted ∧ create_draft_pr_enabled
+pr_candidate = decision=accept (⇒ ALL_PASS + hidden/protected/scope guards)
+             ∧ qualified (quality-report.status != fail)
+             ∧ (improve 경로) Arbiter selected
 ```
+
+accepted-but-unqualified는 PR 후보가 아니다 → `improve_quality_then_rerun`. `improve`는 selection-report와 출력에 `selected_artifact_root/report/patch`, 후보별 `artifact_root/report_path/quality_report_ref`를 담아 PR-actionable하게 만든다.
+
+"통과 후 더 나은 개선" 탐색: `runImprovementLoop`의 **challengerRounds**는 accepted 후보가 있어도 항상 실행되어 더 나은 후보를 찾고, Arbiter가 best-known을 재선택한다(실패/열등 challenger는 기존 통과 후보를 못 밀어냄). 실패 복구용 `refinementRounds`(첫 accepted에서 중단)와 구분된다.
 
 ## 16. 기존 작업·계획 재배치
 
