@@ -26,7 +26,8 @@
     "uat:skill-loop:adversarial": "pnpm build && node scripts/uat/skill-real-user-loop-adversarial-uat.mjs",
     "test:skill-loop:adversarial": "pnpm build && vitest run --passWithNoTests tests/e2e/skill-productization/skill-real-user-loop-adversarial.e2e.test.ts",
     "uat:skill-loop:self-improvement": "pnpm build && node scripts/uat/skill-self-improvement-loop-uat.mjs",
-    "test:skill-loop:self-improvement": "pnpm build && vitest run --passWithNoTests tests/e2e/skill-productization/skill-self-improvement-loop.e2e.test.ts"
+    "test:skill-loop:self-improvement": "pnpm build && vitest run --passWithNoTests tests/e2e/skill-productization/skill-self-improvement-loop.e2e.test.ts",
+    "bundle:skill": "pnpm build && node scripts/bundle-skill.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

@@ -17,6 +17,7 @@ export default [
       'tests/e2e/user-scenarios/**/target-template/**',
       'tests/e2e/user-scenarios/**/hidden/**',
       'tests/e2e/user-scenarios/**/agent-*.cjs',
+      'skills/vibeloop-harness/vendor/**',
       '*.tsbuildinfo'
     ]
   },
