@@ -97,10 +97,11 @@ describe.sequential('vibeloop-harness adversarial Skill loop UAT', () => {
       failedGate: 'test_integrity'
     });
     expect(output.cases[3]).toMatchObject({
-      actualDecision: 'accept',
-      reason: 'ALL_PASS',
-      summaryNextAction: 'prepare_pr_candidate',
-      leakedPreviousContext: true
+      actualDecision: 'reject',
+      reason: 'GUARD_ARTIFACT_LEAK',
+      failedGate: 'artifact_leak',
+      detectedBy: 'core_artifact_leak_gate',
+      previousContextRedacted: true
     });
   }, 120_000);
 });

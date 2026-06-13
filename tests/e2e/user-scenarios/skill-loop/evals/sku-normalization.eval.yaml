@@ -27,6 +27,16 @@ evaluator:
   forbid_protected: true
   target_paths:
     - src/cart.cjs
+artifact_leak:
+  scan_agent_stdout: true
+  scan_agent_stderr: true
+  forbidden_literals:
+    - label: previous_issue_cart_quantity
+      value: skill-loop-cart-quantity
+    - label: hidden_sentinel
+      value: SECRET_HIDDEN_EXPECTATION
+  builtins:
+    token_like: true
 hidden_acceptance:
   tests:
     - name: hidden_sku_whitespace_lowercase
@@ -52,6 +62,10 @@ gates:
   - name: test_integrity
     type: integrity
     command: builtin:test-integrity
+    required: true
+  - name: artifact_leak
+    type: integrity
+    command: builtin:artifact-leak
     required: true
   - name: visible_sku_normalization_regression
     type: task_acceptance

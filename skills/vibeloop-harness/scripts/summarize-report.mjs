@@ -57,6 +57,9 @@ function isPrCandidate(report, qualityStatus) {
 
 function nextAction(report, failedGates, prCandidate, qualityStatus) {
   if (prCandidate) return 'prepare_pr_candidate';
+  if (report.decision_reasons?.[0]?.code === 'GUARD_ARTIFACT_LEAK') {
+    return 'remove_leaked_context_then_rerun';
+  }
   if (report.decision === 'accept' && qualityStatus === 'fail') {
     return 'improve_quality_then_rerun';
   }

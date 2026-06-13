@@ -109,7 +109,8 @@ Create a PR candidate only when ALL hold (the summarizer's `prCandidate` is true
 - first decision reason is `ALL_PASS`
 - `quality-report.json` `status` is not `fail` (i.e. `qualified` / quality gate met)
 - hidden acceptance did not leak
-- protected file and diff-scope gates passed
+- protected file, diff-scope, and (when configured) `artifact-leak` gates passed
+- the decision reason is not `GUARD_ARTIFACT_LEAK` (agent/artifact context·secret leak rejects at the kernel; surface as `remove_leaked_context_then_rerun`)
 - human review is not required, or the user explicitly approved it
 
 An accepted-but-unqualified run (correctness passed, quality gate failed) is NOT a PR candidate — surface it as `improve_quality_then_rerun`.

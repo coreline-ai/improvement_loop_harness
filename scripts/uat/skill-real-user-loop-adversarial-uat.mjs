@@ -365,7 +365,9 @@ async function runContextLeakCase(root) {
     path.join(leakRun.output.artifact_root, 'logs/agent.stdout.log'),
     'utf8'
   );
-  const leakedPreviousContext = agentStdout.includes(cartIssue.id);
+  // Core artifact-leak guard rejects at the kernel (not the wrapper); the leaked
+  // previous-issue id must be redacted out of the persisted agent log.
+  const previousContextRedacted = !agentStdout.includes(cartIssue.id);
   const branches = (
     await git(repoPath, ['branch', '--format=%(refname:short)'])
   )
@@ -376,10 +378,10 @@ async function runContextLeakCase(root) {
   assertNoPrBranch(branches, skuIssue.id, caseId);
 
   const detected =
-    leakRun.report.decision === 'accept' &&
-    leakRun.report.decision_reasons?.[0]?.code === 'ALL_PASS' &&
-    leakRun.summary.nextAction === 'prepare_pr_candidate' &&
-    leakedPreviousContext &&
+    leakRun.report.decision === 'reject' &&
+    leakRun.report.decision_reasons?.[0]?.code === 'GUARD_ARTIFACT_LEAK' &&
+    leakRun.summary.nextAction !== 'prepare_pr_candidate' &&
+    previousContextRedacted &&
     !leakRun.hiddenTextLeaked;
 
   if (!detected) {
@@ -390,7 +392,7 @@ async function runContextLeakCase(root) {
             decision: leakRun.report.decision,
             reason: leakRun.report.decision_reasons?.[0]?.code,
             summaryNextAction: leakRun.summary.nextAction,
-            leakedPreviousContext,
+            previousContextRedacted,
             hiddenTextLeaked: leakRun.hiddenTextLeaked
           },
           null,
@@ -403,15 +405,16 @@ async function runContextLeakCase(root) {
   return {
     caseId,
     description:
-      'candidate passes deterministic gates but UAT blocks PR-candidate creation because agent log includes previous task context',
+      'agent leaked previous task context; core artifact-leak guard rejects at the kernel before any PR candidate',
     detected: true,
-    detectedBy: 'uat_context_isolation',
-    expectedDecision: 'accept_then_uat_block',
+    detectedBy: 'core_artifact_leak_gate',
+    expectedDecision: 'reject',
     actualDecision: leakRun.report.decision,
     reason: leakRun.report.decision_reasons[0].code,
+    failedGate: 'artifact_leak',
     cliExitCode: leakRun.cliExitCode,
     summaryNextAction: leakRun.summary.nextAction,
-    leakedPreviousContext: true,
+    previousContextRedacted: true,
     prCandidateCreated: false,
     hiddenTextLeaked: false,
     initialCommit,
