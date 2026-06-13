@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { EXIT_CODES, runOnce, verifyPatch } from './index.js';
-import type { RunOnceOptions, RunOnceResult, VerifyPatchOptions, VerifyPatchResult } from './index.js';
+import type {
+  RunOnceOptions,
+  RunOnceResult,
+  VerifyPatchOptions,
+  VerifyPatchResult
+} from './index.js';
 
 describe('sdk public surface', () => {
   it('exports run/verify functions and stable public result types', () => {
@@ -13,7 +18,8 @@ describe('sdk public surface', () => {
       decision: 'accept',
       reportPath: '/tmp/report.json',
       artifactRoot: '/tmp/artifacts',
-      exitCode: EXIT_CODES.accept
+      exitCode: EXIT_CODES.accept,
+      qualified: true
     };
     const verifyResult: VerifyPatchResult = result;
     const runOptions = {} as RunOnceOptions;

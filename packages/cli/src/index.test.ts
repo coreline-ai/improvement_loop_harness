@@ -7,7 +7,11 @@ import { EXIT_CODES } from './exit-codes.js';
 import { createProgram, VERSION } from './index.js';
 import { renderLoopHtmlReport } from './commands/report.js';
 import { retryLoop } from './commands/retry.js';
-import { resolveSameModelReview, runKernel } from './run.js';
+import {
+  resolveSameModelReview,
+  runImprovementLoop,
+  runKernel
+} from './run.js';
 
 async function tempDir(prefix: string): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), prefix));
@@ -212,6 +216,85 @@ describe('resolveSameModelReview', () => {
       expect(resolveSameModelReview(agentSpec, criticConfig)).toBe(expected);
     }
   );
+});
+
+describe('runImprovementLoop', () => {
+  it('selects the best-known accepted candidate by deterministic score and ignores failed ones', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-iloop-data-');
+    const fixtureDir = await tempDir('vibeloop-iloop-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'iloop'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const large = await writeScenario(fixtureDir, 'large', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      },
+      {
+        type: 'create',
+        path: 'src/extra.cjs',
+        content: 'module.exports = { extra: true, note: "larger diff" };\n'
+      }
+    ]);
+    const small = await writeScenario(fixtureDir, 'small', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+    const failing = await writeScenario(fixtureDir, 'failing', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+      // no regression test → required acceptance test fails → reject
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'iloop-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${large}`, `mock:${small}`, `mock:${failing}`]
+    });
+
+    expect(result.candidates).toHaveLength(3);
+    expect(
+      result.candidates
+        .filter((c) => c.accepted)
+        .map((c) => c.candidateId)
+        .sort()
+    ).toEqual(['iloop-1-c0', 'iloop-1-c1']);
+    expect(result.candidates[2]?.accepted).toBe(false); // failing candidate
+    // Arbiter prefers the smaller accepted candidate (c1) over the larger (c0).
+    expect(result.selected?.candidateId).toBe('iloop-1-c1');
+    expect(result.selected?.score?.changed_files).toBe(2);
+
+    const report = JSON.parse(
+      await readFile(result.selectionReportPath!, 'utf8')
+    ) as { selected_candidate_id: string; accepted_count: number };
+    expect(report.selected_candidate_id).toBe('iloop-1-c1');
+    expect(report.accepted_count).toBe(2);
+  });
 });
 
 describe('runKernel', () => {
