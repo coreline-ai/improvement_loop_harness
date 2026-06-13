@@ -1,8 +1,8 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { runKernel } from '@vibeloop/cli';
-import type { RunKernelResult } from '@vibeloop/cli';
+import { runKernel } from '@vibeloop/sdk';
+import type { RunKernelResult } from '@vibeloop/sdk';
 import type { LoopRunner, LoopRunnerInput, LoopRunnerResult } from './queue.js';
 import type { JsonValue, Store } from './types.js';
 

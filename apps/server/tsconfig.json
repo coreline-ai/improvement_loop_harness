@@ -26,7 +26,7 @@
       "path": "../../packages/workspace-runner"
     },
     {
-      "path": "../../packages/cli"
+      "path": "../../packages/sdk"
     }
   ],
   "include": [

@@ -85,6 +85,15 @@ export default defineWorkspace([
   },
   {
     test: {
+      name: 'sdk',
+      root: 'packages/sdk',
+      environment: 'node',
+      include: ['src/**/*.test.ts'],
+      exclude: ['dist/**', 'node_modules/**']
+    }
+  },
+  {
+    test: {
       name: 'cli',
       root: 'packages/cli',
       environment: 'node',

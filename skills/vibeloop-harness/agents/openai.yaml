@@ -1,0 +1,4 @@
+interface:
+  display_name: "VibeLoop Harness"
+  short_description: "Run VibeLoop verification safely from Codex."
+  default_prompt: "Use VibeLoop Harness to verify one AI code change with fixed acceptance gates and summarize the eval report."

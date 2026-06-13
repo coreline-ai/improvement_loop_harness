@@ -20,22 +20,13 @@
       "path": "../artifacts"
     },
     {
-      "path": "../workspace-runner"
-    },
-    {
-      "path": "../guards"
-    },
-    {
-      "path": "../eval-engine"
-    },
-    {
-      "path": "../agent-adapters"
-    },
-    {
       "path": "../report-html"
     },
     {
       "path": "../discovery"
+    },
+    {
+      "path": "../sdk"
     }
   ],
   "exclude": [

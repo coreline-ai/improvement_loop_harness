@@ -32,6 +32,9 @@
       "path": "./packages/report-html"
     },
     {
+      "path": "./packages/sdk"
+    },
+    {
       "path": "./packages/cli"
     },
     {

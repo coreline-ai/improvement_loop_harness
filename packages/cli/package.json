@@ -20,15 +20,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@vibeloop/agent-adapters": "workspace:*",
     "@vibeloop/artifacts": "workspace:*",
-    "@vibeloop/eval-engine": "workspace:*",
-    "@vibeloop/guards": "workspace:*",
+    "@vibeloop/discovery": "workspace:*",
+    "@vibeloop/report-html": "workspace:*",
+    "@vibeloop/sdk": "workspace:*",
     "@vibeloop/shared": "workspace:*",
     "@vibeloop/task-protocol": "workspace:*",
-    "@vibeloop/workspace-runner": "workspace:*",
-    "commander": "^14.0.2",
-    "@vibeloop/report-html": "workspace:*",
-    "@vibeloop/discovery": "workspace:*"
+    "commander": "^14.0.2"
   }
 }

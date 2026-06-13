@@ -4,8 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Command } from 'commander';
 import { createRunLayout, readManifest, type RunManifest } from '@vibeloop/artifacts';
-import { runKernel, type RetryMode } from '../run.js';
-import { EXIT_CODES } from '../exit-codes.js';
+import { EXIT_CODES, runKernel, type RetryMode } from '@vibeloop/sdk';
 
 interface RetryCommandOptions {
   mode: RetryMode;

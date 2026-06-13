@@ -51,15 +51,15 @@ importers:
       '@vibeloop/artifacts':
         specifier: workspace:*
         version: link:../../packages/artifacts
-      '@vibeloop/cli':
-        specifier: workspace:*
-        version: link:../../packages/cli
       '@vibeloop/discovery':
         specifier: workspace:*
         version: link:../../packages/discovery
       '@vibeloop/github-integration':
         specifier: workspace:*
         version: link:../../packages/github-integration
+      '@vibeloop/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@vibeloop/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -117,33 +117,24 @@ importers:
 
   packages/cli:
     dependencies:
-      '@vibeloop/agent-adapters':
-        specifier: workspace:*
-        version: link:../agent-adapters
       '@vibeloop/artifacts':
         specifier: workspace:*
         version: link:../artifacts
       '@vibeloop/discovery':
         specifier: workspace:*
         version: link:../discovery
-      '@vibeloop/eval-engine':
-        specifier: workspace:*
-        version: link:../eval-engine
-      '@vibeloop/guards':
-        specifier: workspace:*
-        version: link:../guards
       '@vibeloop/report-html':
         specifier: workspace:*
         version: link:../report-html
+      '@vibeloop/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@vibeloop/shared':
         specifier: workspace:*
         version: link:../shared
       '@vibeloop/task-protocol':
         specifier: workspace:*
         version: link:../task-protocol
-      '@vibeloop/workspace-runner':
-        specifier: workspace:*
-        version: link:../workspace-runner
       commander:
         specifier: ^14.0.2
         version: 14.0.3
@@ -196,6 +187,30 @@ importers:
       '@vibeloop/eval-engine':
         specifier: workspace:*
         version: link:../eval-engine
+
+  packages/sdk:
+    dependencies:
+      '@vibeloop/agent-adapters':
+        specifier: workspace:*
+        version: link:../agent-adapters
+      '@vibeloop/artifacts':
+        specifier: workspace:*
+        version: link:../artifacts
+      '@vibeloop/eval-engine':
+        specifier: workspace:*
+        version: link:../eval-engine
+      '@vibeloop/guards':
+        specifier: workspace:*
+        version: link:../guards
+      '@vibeloop/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@vibeloop/task-protocol':
+        specifier: workspace:*
+        version: link:../task-protocol
+      '@vibeloop/workspace-runner':
+        specifier: workspace:*
+        version: link:../workspace-runner
 
   packages/shared: {}
 

@@ -1,6 +1,5 @@
 import type { Command } from 'commander';
-import { runKernel } from '../run.js';
-import { EXIT_CODES } from '../exit-codes.js';
+import { EXIT_CODES, runOnce } from '@vibeloop/sdk';
 
 interface RunCommandOptions {
   repo: string;
@@ -48,7 +47,7 @@ export function registerRunCommand(program: Command): void {
       };
       process.on('SIGINT', onSigint);
       try {
-        const result = await runKernel({
+        const result = await runOnce({
           repoPath: options.repo,
           taskFile: options.task,
           evalFile: options.eval,
@@ -71,7 +70,7 @@ export function registerRunCommand(program: Command): void {
               status: result.status,
               decision: result.decision ?? null,
               report: result.reportPath ?? null,
-              artifact_root: result.layout.root
+              artifact_root: result.artifactRoot
             },
             null,
             2

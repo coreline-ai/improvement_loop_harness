@@ -5,7 +5,7 @@ import { registerGcCommand } from './commands/gc.js';
 import { registerReportCommand } from './commands/report.js';
 import { registerRetryCommand } from './commands/retry.js';
 import { registerRunCommand } from './commands/run.js';
-import { EXIT_CODES } from './exit-codes.js';
+import { EXIT_CODES } from '@vibeloop/sdk';
 
 export const VERSION = '0.1.0';
 
@@ -36,7 +36,6 @@ export function runCli(argv: string[] = process.argv): void {
     });
 }
 
-export * from './exit-codes.js';
-export * from './run.js';
+export * from '@vibeloop/sdk';
 export * from './commands/retry.js';
 export * from './commands/discover.js';

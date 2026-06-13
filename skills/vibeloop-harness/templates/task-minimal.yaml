@@ -1,0 +1,22 @@
+schema_version: '1.0'
+id: vibeloop-task
+title: Fix one bounded issue
+objective: Fix exactly one issue and add or update a regression test that proves the fix.
+base_branch: main
+risk_area: none
+write_scope:
+  allowed:
+    - src/
+    - tests/
+  forbidden:
+    - .env
+    - .env.*
+required_evidence:
+  - adds_regression_test
+acceptance:
+  required_tests:
+    - npm test
+limits:
+  max_changed_files: 6
+  max_changed_lines: 200
+  agent_timeout_seconds: 300
