@@ -448,39 +448,50 @@ Human Gatekeeper
 ## 실패 기록
 
 ### 실패 ID
+
 FAIL-001
 
 ### 발생 위치
+
 로그인 폼 / 이메일 입력
 
 ### 테스트 케이스
+
 잘못된 이메일 형식 입력
 
 ### 예상 결과
+
 이메일 형식 오류 메시지가 표시되어야 함
 
 ### 실제 결과
+
 아무 메시지 없이 제출 버튼이 비활성화됨
 
 ### 재현 절차
+
 1. 로그인 페이지 접속
 2. 이메일 입력란에 `abc` 입력
 3. 비밀번호 입력
 4. 제출 버튼 확인
 
 ### 원인 추정
+
 이메일 검증은 수행되지만 사용자에게 오류 메시지를 표시하지 않음
 
 ### 심각도
+
 중간
 
 ### 수정 방향
+
 검증 실패 시 명확한 오류 메시지 표시
 
 ### 재테스트 결과
+
 수정 후 PASS
 
 ### 다음 루프 참조 메모리
+
 폼 검증 실패 시 버튼 비활성화만 하지 말고 반드시 사용자 안내 메시지를 표시할 것
 ```
 
@@ -617,3 +628,242 @@ FAIL-001
 
 그리고 좋은 루프는 반드시 멈출 줄 알아야 한다.
 ```
+
+---
+
+## 부록 A. 루프 엔지니어링 비전 vs 현재 구현 — 전문가 상세 분석 (2026-06-13)
+
+> 이 부록은 위 §1~16의 **루프 엔지니어링 비전**을 현재 VibeLoop Harness 구현 및 1~6차 전문가 검토와 대조한 분석이다. 작성 기준 커밋 `ce11f0d`, 로컬 `pnpm typecheck` 통과 / `pnpm test` 134건 통과 확인.
+
+### A.1 핵심 결론 (한 줄)
+
+```text
+이 노트의 "안쪽 루프(작성→검증→판정)"는 이미 운영 수준으로 구현됐고,
+"바깥 루프(발견→큐→연속 실행→가드레일)"는 MVP-4로 구현됐다.
+그러나 이 노트의 진짜 차별점인 "정립→참조 학습 루프(남는 자산·반복할수록 똑똑해짐)"는
+거의 미구현이며, 평가자(Evaluator) 분리와 테스트 케이스 자동 확장도 미구현이다.
+```
+
+즉 **VibeLoop은 "한 번에 1개를 안전하게 검증하는 루프"는 완성했지만, "반복할수록 똑똑해지는 루프"는 아직 아니다.** 이것이 §13 운영규칙 11번("반복할수록 시스템이 더 똑똑해져야 한다")과 현재 구현의 가장 큰 거리다.
+
+### A.2 현재 구현 지도 (3계층)
+
+```text
+[안쪽 루프 — 검증 커널] 성숙 / 운영 수준
+  worktree 격리 → builder agent(write_scope 한정) → builtin guards
+  → test-on-base(SWE-bench식 fail-on-base) → eval.yaml gates
+  → evidence detectors 6종 → decision engine 14규칙(first-match-wins)
+  → eval-report.json(항상 생성) → accept면 draft PR 후보
+  근거: packages/{guards,eval-engine,workspace-runner,sdk}, decision/rules.ts
+
+[바깥 루프 — Orchestrator] MVP-4 구현됨
+  discovery collectors(test/typecheck/lint/security) → fingerprint dedup
+  → candidate 큐 → deterministic task 자동 생성 → 순차 1루프 실행
+  → 가드레일(일일 20루프/토큰예산 필수/재시도 2/연속실패 5/draft PR 5/발견 30분)
+  → 좀비 복구 · kill switch · injection-indicator auto 차단
+  근거: apps/server/src/orchestrator/{scheduler,guardrails}.ts, packages/discovery
+
+[자산 계층 — 학습/평가/메모리] 대부분 미구현 ← 이 노트의 핵심이 비어 있음
+  Prisma에 SkillVersion·Learning 모델은 있으나 자동 반영 경로 없음(MVP-5)
+  evaluator(품질 점수화) 에이전트 없음 — advisory critic은 gate status만 기록
+  테스트 케이스 자동 확장 없음 — eval.yaml/task.yaml은 고정 입력
+  품질 수렴 종료 조건 없음 — 큐 소진/예산 초과로만 정지
+```
+
+### A.3 비전 §13 운영규칙 12개 → 구현 정합 매트릭스
+
+| #   | 운영 규칙                  | 정합    | 근거 / 갭                                                                                                                                                                                                                            |
+| --- | -------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | 목표는 사람이 정한다       | ✅      | candidate 승인 + task objective는 하네스 생성, supervised 기본                                                                                                                                                                       |
+| 2   | 프롬프트는 에이전트가 생성 | ⚠️ 부분 | task.yaml은 deterministic 생성. builder가 내부적으로 프롬프트를 쓰지만, **프롬프트를 스스로 평가·개선하는 메타 루프는 없음**                                                                                                         |
+| 3   | 작성자/검증자 분리         | ✅      | builder agent ↔ eval runner + decision engine, 신뢰 경계가 타입으로 강제                                                                                                                                                             |
+| 4   | 검증자/평가자 분리         | ⚠️ 부분 | `same_model_review`가 **builder↔reviewer provider identity 비교로 승격**됨(implement_20260613_133900, commit 예정). advisory도 reviewer provider를 노출. 단 **독립 LLM evaluator runner(품질 점수화)는 2nd provider 통합 시점 후속** |
+| 5   | 테스트 케이스 계속 확장    | ❌      | eval.yaml/task.yaml 고정. **엣지/실패/회귀 케이스 자동 생성 루프 없음**                                                                                                                                                              |
+| 6   | 실패는 반드시 기록         | ✅(약)  | eval-report.json + artifacts에 보관. 단 **cross-loop 표준 실패 원장(ledger)은 약함**                                                                                                                                                 |
+| 7   | 실패 원인 다음 루프 참조   | ❌      | dismissed fingerprint 재제안 방지만 존재. **실패 원인→다음 루프 참조(정립/참조) 미구현**                                                                                                                                             |
+| 8   | 신규 기능 자동 구현 금지   | ✅      | auto 모드 low-risk만, 위험영역·injection은 human gate                                                                                                                                                                                |
+| 9   | 종료 조건 명확             | ⚠️ 부분 | 예산·연속실패·재시도 차단기는 있음. **품질 수렴 종료("신규 실패 없음"·"평가자 임계 이상") 없음**                                                                                                                                     |
+| 10  | 한 바퀴마다 남는 자산      | ⚠️ 부분 | artifact·report는 남음. **재사용 규칙·메모리·개선 프롬프트 자산은 안 남음**                                                                                                                                                          |
+| 11  | 반복할수록 똑똑해진다      | ❌      | **학습 루프 부재가 가장 큰 갭**                                                                                                                                                                                                      |
+| 12  | 범위 확장 시 사람 승인     | ✅      | 신규 기능은 candidate/백로그까지, 자동 구현 금지                                                                                                                                                                                     |
+
+→ 12개 중 **완전 정합 5개, 부분 4개, 미구현 3개.** 미구현·부분 항목은 모두 §13의 4·5·7·9·10·11 — 즉 **"학습/평가/확장" 클러스터**에 집중된다.
+
+### A.4 비전 §8 구성요소 → 구현 매핑
+
+| 비전 구성요소       | 구현 위치                         | 상태                                 |
+| ------------------- | --------------------------------- | ------------------------------------ |
+| Goal Spec           | task.yaml / candidate             | ✅                                   |
+| Task Planner        | discovery task-gen(deterministic) | ✅(단일 task, 분해 없음)             |
+| Prompt Generator    | builder agent 내부                | ⚠️ 자가개선 없음                     |
+| Executor            | agent adapter(codex/mock/command) | ✅                                   |
+| Test Case Generator | —                                 | ❌ 미구현                            |
+| Verifier            | eval runner + guards + decision   | ✅ 성숙                              |
+| Evaluator           | advisory critic(미구현)           | ❌ gate status만                     |
+| Failure Analyzer    | —                                 | ❌ 미구현                            |
+| Refiner             | —                                 | ❌ 미구현(재시도는 동일 task 재실행) |
+| Memory Store        | Learning/SkillVersion(미연결)     | ❌ dead schema                       |
+| Loop Controller     | orchestrator scheduler            | ✅                                   |
+| Human Gate          | approval + risk classification    | ✅                                   |
+
+### A.5 잠재 위험(분석가 관점)
+
+1. **격리 강도** — eval 명령을 worktree에서 실행하지만 컨테이너/네트워크 격리가 없어, 악의적 agent의 임의 코드 실행은 호스트 신뢰 가정에 의존(1차 검토 C-레벨, 6차까지 잔여).
+2. **메트릭 파싱이 stdout 정규식 기반** (`run.ts` parseMetric) — agent가 가짜 metric을 stdout에 출력하면 evidence 오인 가능. test-on-base 교차검증이 일부 완화하나 latency/coverage 단독 지표는 취약.
+3. **학습 루프 부재로 인한 무한 반복 비용** — §7 비전의 "동일 유형 실패 반복 시 사람 판단" 중 일부는 연속실패 차단기(5회)로만 근사. 원인 군집화가 없어 "같은 실패의 다른 표면"을 다른 candidate로 반복 시도할 수 있음.
+
+---
+
+## 부록 B. 1~6차 검토 종합 — 잔여 과제 누적 원장 (2026-06-13)
+
+6차 검토에서 5차 사이클은 **종결**됐고, 그때 명시된 잔여 과제는 다음뿐이다. 본 부록은 이를 단일 원장으로 고정하고 본 노트의 비전 갭과 연결한다.
+
+| ID  | 잔여 과제                                                                             | 출처                      | 비전 연결(§)               | 우선순위        |
+| --- | ------------------------------------------------------------------------------------- | ------------------------- | -------------------------- | --------------- |
+| R1  | **컨테이너/네트워크 격리** — eval/agent 실행 sandbox                                  | 1·5·6차                   | 안쪽 루프 신뢰 경계        | 높음(보안)      |
+| R2  | **LLM critic/evaluator runner** — 도입 시 `same_model_review`를 실제 모델 비교로 승격 | 2·4·5·6차                 | §4·9차(검증자/평가자 분리) | 높음(비전 핵심) |
+| R3  | **hidden test 보안 저장소** — repo 밖 암호화 보관·주입                                | 4·5·6차                   | 안쪽 루프 누설 방지        | 중간            |
+| R4  | **`vibeloop init`** — task/eval 템플릿 생성기                                         | 2차                       | Goal Spec 자동화           | 중간            |
+| R5  | **O1: rm 폴백 후 `git worktree prune`**                                               | 6차(경미)                 | 운영 위생                  | 낮음            |
+| R6  | **learnings/SKILL.md 자동 반영(Skill Manager, MVP-5)**                                | AUTONOMOUS_LOOP_SPEC §8   | §11(반복할수록 똑똑)       | 높음(비전 핵심) |
+| R7  | **LLM 기반 candidate 고도화** — 원인 추정·중복 군집화                                 | AUTONOMOUS_LOOP_SPEC §8   | §7(실패 원인 참조)         | 중간            |
+| R8  | **발견 소스 확장** — CI 로그·이슈 트래커·에러 모니터링                                | AUTONOMOUS_LOOP_SPEC §3.1 | Observe 확장               | 낮음            |
+
+추가로 본 분석에서 신규 식별:
+
+| ID  | 항목                                                           | 비전 연결                 |
+| --- | -------------------------------------------------------------- | ------------------------- |
+| N1  | **테스트 케이스 자동 확장 루프** (엣지/실패/회귀 생성)         | §5·10                     |
+| N2  | **Failure Analyzer + cross-loop 실패 원장**                    | §6·11(실패 기록 포맷)     |
+| N3  | **품질 수렴 종료 조건** (신규 실패 없음·평가자 임계)           | §7 종료 조건              |
+| N4  | **메트릭 수집 신뢰화** (stdout 정규식 → 하네스 직접 산출 채널) | 안쪽 루프 evidence 무결성 |
+
+---
+
+## 부록 C. 신규 검토·개발 계획 — "학습 루프(Learning Loop)" 워크스트림
+
+> 목적: 본 노트의 비전 중 미구현 클러스터(평가자 분리 · 학습/메모리 · 테스트 확장 · 품질 수렴 종료)를 **검토(조사) 우선 → gap-only 개발** 순서로 다룬다. AUTONOMOUS_LOOP_SPEC의 "자율 루프는 검증 커널 안정화 후"라는 전제를 지키며, 본 워크스트림은 **신뢰 경계와 deterministic 판정 권한을 절대 약화하지 않는다.**
+
+### C.0 절대 제약 (변경 불가)
+
+- 최종 accept 판정은 **deterministic decision engine의 `ALL_PASS`만**. evaluator/critic/learning은 전부 advisory.
+- learning/memory는 **읽기 참조·우선순위 힌트**로만 쓰고, gate 통과/실패를 바꾸지 않는다.
+- 신규 기능 자동 구현 금지(§6) — 본 계획도 신규 기능 제안은 candidate/백로그까지만.
+- 발견 입력은 untrusted — 학습 자산도 prompt injection 벡터가 될 수 있으므로 구조화 필드만 참조한다.
+
+### C.1 진행 규칙
+
+- 각 영역은 **검토 트랙(조사) → 발견 기록 → 개발 트랙(gap-only)** 순서다.
+- 검토 트랙이 끝나기 전에 개발 트랙을 시작하지 않는다.
+- 검토 결과 "이미 충분히 구현됨/불필요"로 판명되면 개발 트랙을 회귀 고정 테스트로 축소한다(4차 검토 gap-only 원칙).
+- 실제 구현 착수 시 `dev-plan/implement_YYYYMMDD_HHMMSS.md`로 정식 계획을 분리한다(AGENTS.md §10). 본 부록은 그 상위 검토 설계다.
+- 각 검토 항목의 "발견 기록"란은 조사 후 채운다(현재 공란 = 미조사).
+
+### C.2 영역 1 — 평가자(Evaluator)/Critic 분리 [R2, 비전 §4·9]
+
+#### 검토 트랙 (조사)
+
+- [ ] Q1. 현 advisory gate 경로(`advisoryFindingsFor`, `same_model_review`)가 evaluator를 얹기에 충분한 확장점인가?
+- [ ] Q2. evaluator를 **별도 신뢰 도메인**(다른 provider/다른 프로세스)으로 둘 때 비용·지연·키 관리 영향은?
+- [ ] Q3. evaluator 출력(품질 점수)을 decision에 절대 반영하지 않으면서 사람에게 유용하게 노출하는 보고 위치는?(eval-report advisory 블록 vs 별도 artifact)
+- [ ] Q4. `same_model_review=true` 보수 표시를 "실제 모델 비교 결과"로 승격하는 최소 계약은?
+- 검토 방법: `run.ts`/`decision/engine.ts`/`EVAL_ENGINE_SPEC §8.1` 직접 추적 + advisory 경로 단위 테스트 검토.
+- **발견 기록:** _(조사 후 작성)_
+
+#### 개발 트랙 (검토 통과 후 gap-only)
+
+- [ ] advisory critic runner를 adapter로 구현(provider 독립 실행, 실패 시 advisory-only로 흡수)
+- [ ] evaluator 품질 점수를 eval-report `advisory` 블록에만 기록(decision 불참 회귀 테스트 추가)
+- [ ] `same_model_review`를 실제 reviewer provider 비교로 승격, 불명이면 보수적 true 유지
+- 자체 테스트: decision 14규칙 불변 회귀 / advisory 실패가 accept를 막지 않음 / provider 동일 시 표시 정확
+
+### C.3 영역 2 — 학습·메모리 루프 (Memory Store / 정립·참조) [R6·R7, 비전 §7·11·12]
+
+#### 검토 트랙 (조사)
+
+- [ ] Q1. Prisma `Learning`·`SkillVersion` 모델의 현 필드가 "재사용 규칙·실패 패턴·금지 항목"(§12)을 담기에 충분한가? 부족 필드는?
+- [ ] Q2. 학습 자산을 **다음 루프에 참조**시키는 안전한 주입 지점은? (task objective 금지 — injection 벡터. candidate 우선순위 가중·write_scope 힌트만 후보)
+- [ ] Q3. dismissed fingerprint dedup 외에, 실패 원인 군집화를 deterministic하게 할 수 있는 키 설계가 가능한가?(LLM 없이 1차)
+- [ ] Q4. "남는 자산"을 사람이 읽는 단일 원장(failure ledger) 포맷은? (§11 실패 기록 포맷 재사용)
+- 검토 방법: Prisma schema + discovery fingerprint + AUTONOMOUS_LOOP_SPEC §3.3 대조, dead schema 사용처 grep.
+- **발견 기록:** _(조사 후 작성)_
+
+#### 개발 트랙 (검토 통과 후 gap-only)
+
+- [ ] 루프 종료 시 구조화 learning 레코드 영속(성공/실패 패턴·재사용 규칙, 원문 텍스트 미저장)
+- [ ] candidate 우선순위에 learning 기반 가중(참조는 힌트만, 판정 불참)
+- [ ] cross-loop failure ledger 뷰/조회(읽기 전용)
+- 자체 테스트: learning이 decision/gate 결과를 바꾸지 않음 / injection 문자열 미주입 / 재시작 후 참조 복구
+
+### C.4 영역 3 — 테스트 케이스 자동 확장 [N1, 비전 §5·10]
+
+#### 검토 트랙 (조사)
+
+- [ ] Q1. 테스트 자동 생성은 **builder agent의 산출물(write_scope 내 테스트 파일)**로 이미 부분 충족되는가? test-integrity·test-on-base가 생성 테스트를 어떻게 검증하는가?
+- [ ] Q2. "엣지/실패/회귀 케이스 확장"을 별도 단계로 둘 때, anti-gaming(가짜 통과 테스트)을 어떻게 막는가? (test-on-base의 fail-on-base 강제 적용 가능 여부)
+- [ ] Q3. 확장 테스트를 hidden acceptance로 둘지, 공개 eval gate로 둘지의 신뢰 경계 영향은?
+- 검토 방법: `test-on-base.ts`·`test-integrity.ts`·hidden acceptance 주입 경로 추적.
+- **발견 기록:** _(조사 후 작성)_
+
+#### 개발 트랙 (검토 통과 후 gap-only)
+
+- [ ] (필요 시) 테스트 확장 단계를 builder 산출물 + test-on-base 강제로 한정 도입
+- [ ] 확장 테스트도 기존 guard/decision을 그대로 통과해야 함(우회 불가) 회귀 테스트
+- 자체 테스트: 생성 테스트가 base에서 fail함을 강제 / assertion 삭제·skip 차단 유지
+
+### C.5 영역 4 — 품질 수렴 종료 조건 [N3, 비전 §7]
+
+#### 검토 트랙 (조사)
+
+- [ ] Q1. 현 orchestrator 종료는 큐 소진·예산·연속실패뿐. "신규 실패 없음 N회 연속" 종료를 가드레일에 추가할 자연스러운 지점은?(`evaluateBeforeLoop`)
+- [ ] Q2. evaluator 임계 점수 종료를 도입하면 절대 제약(deterministic만 accept)과 충돌하지 않는가? (종료=정지일 뿐 accept 아님 → 충돌 없음 확인 필요)
+- [ ] Q3. 종료 시 사람 승인 게이트(§7.4 "사람이 종료 승인") 노출 위치는?
+- 검토 방법: `guardrails.ts`·`scheduler.ts` 종료/정지 경로 추적.
+- **발견 기록:** _(조사 후 작성)_
+
+#### 개발 트랙 (검토 통과 후 gap-only)
+
+- [ ] guardrail에 "신규 처리 가능 candidate 없음 + 연속 무수확 N회 → graceful stop + 알림" 추가
+- [ ] 종료 이벤트(`orchestrator.converged`)와 사람 종료 승인 큐 연결
+- 자체 테스트: 종료가 accept를 만들지 않음 / kill switch·예산 정지와 우선순위 충돌 없음
+
+### C.6 영역 5 — 안쪽 루프 신뢰 경계 보강 [R1·R3·R4·R5·N4]
+
+> 비전 클러스터와 별개지만, 학습 루프를 자율로 돌리기 전 반드시 닫아야 하는 기반 항목. 검토만 우선 수행하고 개발은 별도 워크스트림으로 분리 가능.
+
+#### 검토 트랙 (조사)
+
+- [ ] R1. 컨테이너/netns 격리 도입 시 worktree·deps 캐시·proxy 경로 영향 범위 조사(MVP 이후 인수 조건)
+- [ ] N4. 메트릭 수집을 stdout 정규식 → 하네스 직접 산출(별도 파일/exit code) 채널로 옮길 수 있는 detector 목록 식별
+- [ ] R3. hidden test 현 평문 copy→cleanup 경로의 누설 표면 재점검(artifact redaction 포함)
+- [ ] R4·R5. `vibeloop init` 템플릿 범위 / `git worktree prune` 삽입 지점 확정
+- 검토 방법: `run.ts`(parseMetric·injectHiddenAcceptanceTests), `workspace-runner/worktree.ts`(removeWorktree) 추적.
+- **발견 기록:** _(조사 후 작성)_
+
+#### 개발 트랙
+
+- [ ] N4 메트릭 신뢰화(가장 ROI 높음 — 단독 PR 가능)
+- [ ] R5 `git worktree prune` 1줄 보강(즉시 가능)
+- [ ] R1·R3·R4는 검토 결과에 따라 개별 implement\_\*.md로 분리
+
+### C.7 권장 실행 순서
+
+```text
+1. 부록 C 검토 트랙 전체 수행 → 각 "발견 기록" 채움 (개발 0줄)
+2. R5(worktree prune) + N4(메트릭 신뢰화) — 저위험·고ROI 선행
+3. 영역 1(Evaluator 분리) → same_model_review 승격 (비전 §4 충족)
+4. 영역 2(학습/메모리) — 비전 §11 "반복할수록 똑똑" 핵심
+5. 영역 4(품질 수렴 종료) — 영역 1·2의 신호를 종료 조건에 활용
+6. 영역 3(테스트 확장) — 검토 결과 builder 산출물로 충분하면 회귀 고정만
+7. R1(컨테이너 격리) — 자율(auto) 상시 가동 전 별도 워크스트림
+```
+
+### C.8 이 워크스트림의 완료 기준
+
+| 기준        | 완료 판단                                                                           |
+| ----------- | ----------------------------------------------------------------------------------- |
+| 비전 정합   | §13 운영규칙 4·5·7·9·10·11이 "부분/미구현"에서 "충족"으로 이동                      |
+| 신뢰 경계   | learning/evaluator 도입 후에도 decision 14규칙·accept 경로 불변(회귀 테스트로 고정) |
+| 보안        | 학습 자산·발견 입력이 task objective/프롬프트에 원문 주입되지 않음                  |
+| 잔여 원장   | 부록 B의 R1~R8·N1~N4가 "검토 완료 + 개발/분리/기각" 중 하나로 정리됨                |
+| 회귀 안정성 | `pnpm typecheck`/`lint`/`test`/`test:e2e`/CI 전부 통과 유지                         |

@@ -3,11 +3,7 @@
   "$id": "https://vibeloop.dev/schemas/eval.schema.json",
   "title": "VibeLoop Eval Config",
   "type": "object",
-  "required": [
-    "schema_version",
-    "project",
-    "gates"
-  ],
+  "required": ["schema_version", "project", "gates"],
   "additionalProperties": false,
   "properties": {
     "schema_version": {
@@ -92,10 +88,7 @@
       "properties": {
         "mode": {
           "type": "string",
-          "enum": [
-            "per_loop",
-            "cached_per_base_commit"
-          ],
+          "enum": ["per_loop", "cached_per_base_commit"],
           "default": "cached_per_base_commit"
         }
       }
@@ -117,12 +110,7 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": [
-          "name",
-          "type",
-          "command",
-          "required"
-        ],
+        "required": ["name", "type", "command", "required"],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -168,11 +156,7 @@
           },
           "group": {
             "type": "string",
-            "enum": [
-              "fail_to_pass",
-              "pass_to_pass",
-              "hidden_acceptance"
-            ]
+            "enum": ["fail_to_pass", "pass_to_pass", "hidden_acceptance"]
           }
         }
       }
@@ -181,9 +165,7 @@
       "description": "Hidden acceptance tests stored outside the target repo. The harness copies them into the candidate worktree only after the agent exits and removes them after evaluation.",
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "tests"
-      ],
+      "required": ["tests"],
       "properties": {
         "tests": {
           "type": "array",
@@ -191,11 +173,7 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "name",
-              "source_path",
-              "target_path"
-            ],
+            "required": ["name", "source_path", "target_path"],
             "properties": {
               "name": {
                 "type": "string",
@@ -220,10 +198,7 @@
       "properties": {
         "policy": {
           "type": "string",
-          "enum": [
-            "local",
-            "strict"
-          ],
+          "enum": ["local", "strict"],
           "default": "local"
         }
       }
@@ -235,6 +210,10 @@
         "require_different_provider": {
           "type": "boolean",
           "default": false
+        },
+        "reviewer_provider": {
+          "type": "string",
+          "description": "Declared provider of the advisory reviewer (e.g. openai, anthropic). When it differs from the builder provider the advisory review is treated as independent; unset keeps same_model_review conservative."
         }
       }
     }

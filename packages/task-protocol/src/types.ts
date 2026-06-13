@@ -82,6 +82,13 @@ export interface EvalConfig {
   };
   critic?: {
     require_different_provider?: boolean;
+    /**
+     * Declared provider of the advisory reviewer (e.g. 'openai', 'anthropic').
+     * Used to decide reviewer independence: when it differs from the builder
+     * provider the review is treated as independent. Unset/'unknown' keeps the
+     * conservative `same_model_review = true`.
+     */
+    reviewer_provider?: string;
   };
   gates: EvalGate[];
 }

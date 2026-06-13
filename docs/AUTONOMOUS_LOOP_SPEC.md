@@ -12,7 +12,7 @@ Observe(발견) → Candidate 큐 → Task 자동 생성 → (승인) →
 → accept면 PR → 다음 candidate로 반복
 
 Draft PR 생성 전 필수 accept 조건은 [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §8.1의 고정 통과 의미를 따른다. LLM/advisory 결과만으로 PR을 만들 수 없고, deterministic decision engine의 `ALL_PASS` 또는 human-approved 후보만 draft PR 대상이다.
-Advisory report의 `same_model_review`는 모델 동일성 확증이 아니라 reviewer provider 독립성 미보장 표시이며, 정확한 의미는 [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §8.1을 따른다.
+Advisory report의 `same_model_review`는 모델 동일성 확증이 아니라 reviewer provider 독립성 미보장 표시이며, builder provider와 `critic.reviewer_provider`의 identity 비교로 판정한다(정확한 의미는 [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §8.1). advisory는 decision에 참여하지 않는다.
 Hidden acceptance 테스트의 보관·주입·redaction 규칙은 [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §7.3이 정의하며, 바깥 루프는 이를 변경하거나 agent에 노출하지 않는다.
 ```
 

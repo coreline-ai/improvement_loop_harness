@@ -17,6 +17,7 @@ import {
   type TerminalRunStatus
 } from '@vibeloop/artifacts';
 import {
+  providerForAgentSpec,
   resolveAgentAdapter,
   type AgentRunResult
 } from '@vibeloop/agent-adapters';
@@ -348,6 +349,15 @@ async function injectHiddenAcceptanceTests(options: {
   return cleanups;
 }
 
+/**
+ * Decides whether the advisory review must be treated as NOT independent of the
+ * builder (`same_model_review = true` means independence is not guaranteed).
+ *
+ * Promotion from the prior adapter-shape heuristic to real provider identity:
+ * compare the builder provider with the declared reviewer provider. Different
+ * known providers → independent (false). Same provider → not independent (true).
+ * Unknown/undeclared → conservative true.
+ */
 export function resolveSameModelReview(
   agentSpec: string,
   criticConfig: EvalConfig['critic'] | undefined
@@ -356,13 +366,21 @@ export function resolveSameModelReview(
     return false;
   }
 
-  const normalizedSpec = agentSpec.trim();
-  if (normalizedSpec.startsWith('mock:')) {
+  const builderProvider = providerForAgentSpec(agentSpec);
+  // mock builders are test-only and never an LLM self-review.
+  if (builderProvider === 'mock') {
     return false;
   }
 
-  // The current advisory runner contract does not prove provider independence.
-  // Treat any LLM-backed or unknown adapter spec as not independently reviewed.
+  const reviewerProvider = criticConfig?.reviewer_provider?.trim();
+  if (reviewerProvider) {
+    if (reviewerProvider === 'unknown' || builderProvider === 'unknown') {
+      return true;
+    }
+    return builderProvider === reviewerProvider;
+  }
+
+  // No reviewer provider declared: independence cannot be proven.
   return true;
 }
 
@@ -375,6 +393,9 @@ function advisoryFindingsFor(options: {
     options.agentSpec,
     options.evalConfig.critic
   );
+  const builderProvider = providerForAgentSpec(options.agentSpec);
+  const reviewerProvider =
+    options.evalConfig.critic?.reviewer_provider?.trim() || 'undeclared';
   return options.gateRuns
     .filter((gate) => gate.type === 'advisory')
     .map((gate) => ({
@@ -382,6 +403,8 @@ function advisoryFindingsFor(options: {
       gate: gate.name,
       status: gate.status,
       authority: 'advisory',
+      builder_provider: builderProvider,
+      reviewer_provider: reviewerProvider,
       same_model_review: sameModelReview
     }));
 }

@@ -172,7 +172,15 @@ describe('resolveSameModelReview', () => {
     ['codex', undefined, true],
     ['codex exec --cd /tmp/worktree -', undefined, true],
     ['unknown-agent --flag', undefined, true],
-    ['codex', { require_different_provider: true }, false]
+    ['codex', { require_different_provider: true }, false],
+    // provider-identity promotion: different known provider → independent
+    ['codex', { reviewer_provider: 'anthropic' }, false],
+    // same provider → not independent
+    ['codex', { reviewer_provider: 'openai' }, true],
+    // declared-but-unknown reviewer → conservative
+    ['codex', { reviewer_provider: 'unknown' }, true],
+    // builder provider unknown but reviewer known → cannot prove independence
+    ['unknown-agent --flag', { reviewer_provider: 'anthropic' }, true]
   ] as const)('maps %s with critic config %j to %s', (agentSpec, criticConfig, expected) => {
     expect(resolveSameModelReview(agentSpec, criticConfig)).toBe(expected);
   });
