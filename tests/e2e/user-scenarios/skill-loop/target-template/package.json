@@ -1,0 +1,9 @@
+{
+  "name": "skill-loop-user-scenario",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "for f in tests/*.test.cjs; do node \"$f\"; done"
+  }
+}

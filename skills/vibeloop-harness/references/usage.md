@@ -49,6 +49,26 @@ Optional environment:
 - `VIBELOOP_UAT_OAUTH_UPSTREAM_BASE_URL`
 - `VIBELOOP_UAT_KEEP_TMP=0`
 
+## Skill real-user loop UAT
+
+```bash
+pnpm uat:skill-loop
+```
+
+This creates a temporary git repo, runs two separate Skill wrapper invocations, applies each accepted candidate patch, creates `pr-candidate/<task-id>` local branches, and stops with `issue_queue_exhausted` only after final user-level tests pass.
+
+Adversarial negative UAT:
+
+```bash
+pnpm uat:skill-loop:adversarial
+```
+
+This passes only when hidden bypass, protected path tampering, test-integrity cheating, and context leakage are detected before PR-candidate creation.
+
+Optional environment:
+
+- `VIBELOOP_UAT_KEEP_TMP=1`
+
 ## Report summarizer
 
 ```bash

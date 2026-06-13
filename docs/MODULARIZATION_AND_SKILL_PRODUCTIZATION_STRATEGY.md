@@ -324,16 +324,18 @@ Skill:
 
 ## 10. 현재 구현 반영 상태 (2026-06-13)
 
-| 영역               | 현재 상태                                                                   | 증거 파일                                                         |
-| ------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| SDK/API            | `@vibeloop/sdk`가 `runKernel`, `runOnce`, `verifyPatch`, 공개 타입을 export | `packages/sdk/src/index.ts`, `packages/sdk/src/run-once.ts`       |
-| CLI thin wrapper   | `@vibeloop/cli`는 argument parsing 후 SDK를 호출                            | `packages/cli/src/commands/run.ts`, `packages/cli/src/run.ts`     |
-| Server reuse       | server runner가 CLI가 아니라 SDK를 import                                   | `apps/server/src/runner.ts`                                       |
-| OAuth proxy module | Codex OAuth proxy가 reusable adapter로 분리                                 | `packages/agent-adapters/src/oauth-proxy.ts`                      |
-| Skill package      | Codex Skill skeleton, templates, safety/usage reference 추가                | `skills/vibeloop-harness/SKILL.md`                                |
-| Skill scripts      | task/eval 생성, CLI wrapper, report summarizer 추가                         | `skills/vibeloop-harness/scripts/*.mjs`                           |
-| Skill-first e2e    | template 생성, wrapper 실행, summarizer redaction 검증                      | `tests/e2e/skill-productization/skill-productization.e2e.test.ts` |
-| Runbook            | 제품화 실행 절차와 다음 채널 backlog 문서화                                 | `docs/SKILL_PRODUCTIZATION_RUNBOOK.md`                            |
+| 영역                 | 현재 상태                                                                   | 증거 파일                                                                      |
+| -------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| SDK/API              | `@vibeloop/sdk`가 `runKernel`, `runOnce`, `verifyPatch`, 공개 타입을 export | `packages/sdk/src/index.ts`, `packages/sdk/src/run-once.ts`                    |
+| CLI thin wrapper     | `@vibeloop/cli`는 argument parsing 후 SDK를 호출                            | `packages/cli/src/commands/run.ts`, `packages/cli/src/run.ts`                  |
+| Server reuse         | server runner가 CLI가 아니라 SDK를 import                                   | `apps/server/src/runner.ts`                                                    |
+| OAuth proxy module   | Codex OAuth proxy가 reusable adapter로 분리                                 | `packages/agent-adapters/src/oauth-proxy.ts`                                   |
+| Skill package        | Codex Skill skeleton, templates, safety/usage reference 추가                | `skills/vibeloop-harness/SKILL.md`                                             |
+| Skill scripts        | task/eval 생성, CLI wrapper, report summarizer 추가                         | `skills/vibeloop-harness/scripts/*.mjs`                                        |
+| Skill-first e2e      | template 생성, wrapper 실행, summarizer redaction 검증                      | `tests/e2e/skill-productization/skill-productization.e2e.test.ts`              |
+| Skill loop UAT       | 임시 git repo에서 여러 문제를 1개씩 수정·검증·commit·PR 후보 branch화       | `scripts/uat/skill-real-user-loop-uat.mjs`, `docs/SKILL_REAL_USER_LOOP_UAT.md` |
+| Adversarial loop UAT | hidden bypass/protected path/test-integrity/context leak 실패 차단 검증     | `scripts/uat/skill-real-user-loop-adversarial-uat.mjs`                         |
+| Runbook              | 제품화 실행 절차와 다음 채널 backlog 문서화                                 | `docs/SKILL_PRODUCTIZATION_RUNBOOK.md`                                         |
 
 현재 구현은 `@vibeloop/core`라는 별도 패키지를 새로 만들지 않고, 기존 커널을 `@vibeloop/sdk`의 public API로 먼저 고정한 상태다. 따라서 제품 채널은 아래처럼 연결한다.
 

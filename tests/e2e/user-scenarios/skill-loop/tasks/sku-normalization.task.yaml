@@ -1,0 +1,19 @@
+schema_version: '1.0'
+id: skill-loop-sku-normalization
+title: SKU normalization trims and uppercases values
+objective: Fix only SKU normalization so values are trimmed and uppercased, and add a regression test that fails on the current base commit and passes on the candidate.
+base_branch: main
+risk_area: none
+write_scope:
+  allowed:
+    - src/
+    - tests/
+required_evidence:
+  - adds_regression_test
+acceptance:
+  required_tests:
+    - node tests/sku-normalization.test.cjs
+limits:
+  max_changed_files: 6
+  max_changed_lines: 180
+  agent_timeout_seconds: 120

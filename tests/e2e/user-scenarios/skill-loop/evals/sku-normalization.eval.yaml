@@ -1,0 +1,61 @@
+schema_version: '1.0'
+project: skill-loop-sku-normalization
+protected_paths:
+  - .env
+  - .env.*
+  - eval.yaml
+  - scripts/eval.sh
+risk_classification:
+  none:
+    - src/
+    - tests/
+limits:
+  max_changed_files: 6
+  max_changed_lines: 180
+  agent_timeout_seconds: 120
+test_integrity:
+  forbidden_patterns:
+    - test.skip
+    - it.only
+    - describe.only
+  suspicious_patterns:
+    - expect(true).toBe(true)
+hidden_acceptance:
+  tests:
+    - name: hidden_sku_whitespace_lowercase
+      source_path: ../hidden/sku-whitespace-lowercase.hidden.cjs
+      target_path: tests/hidden/sku-whitespace-lowercase.test.cjs
+gates:
+  - name: git_meta_integrity
+    type: integrity
+    command: builtin:git-meta-integrity
+    required: true
+  - name: protected_files
+    type: scope
+    command: builtin:protected-files
+    required: true
+  - name: diff_scope
+    type: scope
+    command: builtin:diff-scope
+    required: true
+  - name: limits
+    type: integrity
+    command: builtin:limits
+    required: true
+  - name: test_integrity
+    type: integrity
+    command: builtin:test-integrity
+    required: true
+  - name: visible_sku_normalization_regression
+    type: task_acceptance
+    command: node tests/sku-normalization.test.cjs
+    required: true
+  - name: hidden_sku_whitespace_lowercase
+    type: hidden_acceptance
+    group: hidden_acceptance
+    command: node tests/hidden/sku-whitespace-lowercase.test.cjs
+    required: true
+  - name: advisory_static
+    type: advisory
+    command: node -e "process.exit(0)"
+    required: false

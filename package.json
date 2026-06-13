@@ -20,7 +20,11 @@
     "build:web": "pnpm --filter web build",
     "test:scenario:user": "pnpm build && vitest run --passWithNoTests tests/e2e/user-scenarios/real-user-flow.e2e.test.ts",
     "uat:codex-proxy": "pnpm build && node scripts/uat/codex-proxy-uat.mjs",
-    "uat:codex-oauth": "pnpm build && node scripts/uat/codex-oauth-proxy-uat.mjs"
+    "uat:codex-oauth": "pnpm build && node scripts/uat/codex-oauth-proxy-uat.mjs",
+    "uat:skill-loop": "pnpm build && node scripts/uat/skill-real-user-loop-uat.mjs",
+    "test:skill-loop": "pnpm build && vitest run --passWithNoTests tests/e2e/skill-productization/skill-real-user-loop.e2e.test.ts",
+    "uat:skill-loop:adversarial": "pnpm build && node scripts/uat/skill-real-user-loop-adversarial-uat.mjs",
+    "test:skill-loop:adversarial": "pnpm build && vitest run --passWithNoTests tests/e2e/skill-productization/skill-real-user-loop-adversarial.e2e.test.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

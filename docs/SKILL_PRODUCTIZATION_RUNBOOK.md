@@ -114,6 +114,17 @@ pnpm uat:codex-oauth
 - `VIBELOOP_UAT_OAUTH_UPSTREAM_BASE_URL`
 - `VIBELOOP_UAT_KEEP_TMP=0`
 
+## 7.5 Skill 실사용 루프 UAT
+
+여러 문제를 한 번에 하나씩 처리하는 실제 사용자형 loop는 아래 온디맨드 UAT로 검증한다. 이 테스트는 임시 git repo를 만들고, issue별 Skill invocation을 분리한 뒤, 각 accepted patch를 commit하고 `pr-candidate/<task-id>` branch를 만든다.
+
+```bash
+pnpm uat:skill-loop
+pnpm uat:skill-loop:adversarial
+```
+
+상세 시나리오와 통과 기준은 [SKILL_REAL_USER_LOOP_UAT.md](./SKILL_REAL_USER_LOOP_UAT.md)를 따른다. 적대적 UAT는 bad candidate가 PR 후보로 넘어가지 않는지 확인한다. 제품의 완전 자율 discovery loop와는 다르게, 이 UAT는 deterministic issue queue를 사용해 Skill 제품 경로의 실제 동작을 검증한다.
+
 ## 8. 고정 검증 게이트
 
 Skill 제품화 변경 후 최소 검증:
@@ -125,6 +136,8 @@ pnpm lint
 pnpm test
 pnpm test:e2e
 pnpm test:scenario:user
+pnpm uat:skill-loop
+pnpm uat:skill-loop:adversarial
 pnpm uat:codex-oauth
 ```
 
