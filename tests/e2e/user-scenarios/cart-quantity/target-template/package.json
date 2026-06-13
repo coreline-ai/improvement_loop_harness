@@ -1,0 +1,9 @@
+{
+  "name": "cart-quantity-user-scenario",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node tests/cart.base.test.cjs"
+  }
+}

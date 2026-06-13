@@ -1,0 +1,19 @@
+schema_version: '1.0'
+id: real-user-cart-quantity
+title: Cart total respects item quantity
+objective: Fix cart total calculation so item quantity is included, and add a regression test that fails on the base commit and passes on the candidate.
+base_branch: main
+risk_area: none
+write_scope:
+  allowed:
+    - src/
+    - tests/
+required_evidence:
+  - adds_regression_test
+acceptance:
+  required_tests:
+    - node tests/cart-quantity.test.cjs
+limits:
+  max_changed_files: 6
+  max_changed_lines: 160
+  agent_timeout_seconds: 120

@@ -5,6 +5,7 @@
 ## 읽는 순서
 
 - [autonomous_coding_improvement_loop_harness.md](./autonomous_coding_improvement_loop_harness.md) — 구현 명세 진입점
+
 1. [PRODUCT_SPEC.md](./PRODUCT_SPEC.md) — 제품 정의, 사용자 가치, 범위
 2. [ARCHITECTURE.md](./ARCHITECTURE.md) — 전체 아키텍처와 검증 커널 우선 구조
 3. [LOOP_STATE_MACHINE.md](./LOOP_STATE_MACHINE.md) — loop 상태 전이, retry/cancel/idempotency
@@ -29,6 +30,12 @@
 - [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) — 3차 검토 반영 계획 (Phase 1~5: 서버 조립·Store 계약 테스트·스펙 개정·CI) — 반영 완료, 원격 CI 통과
 - [../dev-plan/implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md) — 신뢰 경계 보강 구현 완료 (Phase 1~7: provenance·hidden test·verifier lane·trust boundary 표시)
 - [../dev-plan/implement_20260612_183255.md](../dev-plan/implement_20260612_183255.md) — 5차 검토 반영 패치 완료 (Phase 1~4: same_model_review 교체·CI actions 인상·체크박스 정합·exec 버퍼 상한)
+- [../dev-plan/implement_20260613_085309.md](../dev-plan/implement_20260613_085309.md) — 모듈 분리 및 Skill 우선 제품화 개발 계획 (Phase 1~7: SDK/API 경계·OAuth proxy module·Skill skeleton·templates·UAT)
+
+## 실제 사용자 시나리오 테스트
+
+- [MODULARIZATION_AND_SKILL_PRODUCTIZATION_STRATEGY.md](./MODULARIZATION_AND_SKILL_PRODUCTIZATION_STRATEGY.md) — VibeLoop을 Skill 우선 제품으로 만들되 CLI/SDK/CI/API/PR Bot으로 확장 가능하게 하는 모듈 분리 전략
+- [USER_SCENARIO_TESTING.md](./USER_SCENARIO_TESTING.md) — mock agent가 아닌 실제 CLI + command agent, Codex ChatGPT login, no-API-key OAuth proxy 기반 장바구니 수량 버그 수정 사용자 시나리오/UAT
 
 ## 검토 이력
 
@@ -37,6 +44,7 @@
 - [EXPERT_REVIEW_3_20260612.md](./EXPERT_REVIEW_3_20260612.md) — 3차 전문가 검토: 구현 완료 검증 (2026-06-12, 반영 완료, 원격 CI 통과)
 - [EXPERT_REVIEW_4_20260612.md](./EXPERT_REVIEW_4_20260612.md) — 4차 전문가 검토: 신뢰 경계 보강 계획(implement_20260612_061855) (2026-06-12, 전 항목 반영 완료)
 - [EXPERT_REVIEW_5_20260612.md](./EXPERT_REVIEW_5_20260612.md) — 5차 전문가 검토: 검토 반영·신뢰 경계 구현 검증 (2026-06-12, 전 항목 반영 완료)
+- [EXPERT_REVIEW_6_20260612.md](./EXPERT_REVIEW_6_20260612.md) — 6차 전문가 검토: 5차 반영 패치 구현 검증 (2026-06-12, 발견 0건 — **검토 사이클 종결**, 경미 관찰 O1만 선택 과제)
 
 ## 현재 결론
 

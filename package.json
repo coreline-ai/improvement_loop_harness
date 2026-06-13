@@ -17,7 +17,10 @@
     "clean": "rm -rf packages/*/dist coverage .vibeloop",
     "start:server": "pnpm --filter @vibeloop/server start",
     "test:smoke": "pnpm --filter web test:smoke",
-    "build:web": "pnpm --filter web build"
+    "build:web": "pnpm --filter web build",
+    "test:scenario:user": "pnpm build && vitest run --passWithNoTests tests/e2e/user-scenarios/real-user-flow.e2e.test.ts",
+    "uat:codex-proxy": "pnpm build && node scripts/uat/codex-proxy-uat.mjs",
+    "uat:codex-oauth": "pnpm build && node scripts/uat/codex-oauth-proxy-uat.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

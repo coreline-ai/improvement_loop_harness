@@ -27,7 +27,7 @@ export function registerRunCommand(program: Command): void {
     .requiredOption('--repo <path>', 'target git repository path')
     .requiredOption('--task <path>', 'task.yaml path')
     .requiredOption('--eval <path>', 'eval.yaml path')
-    .requiredOption('--agent <spec>', 'agent adapter, e.g. mock:scenario.json or codex')
+    .requiredOption('--agent <spec>', 'agent adapter, e.g. mock:scenario.json, command:<shell command>, or codex')
     .option('--out <path>', 'artifact data directory override')
     .option('--project-id <id>', 'project id override')
     .option('--loop-id <id>', 'loop id override')

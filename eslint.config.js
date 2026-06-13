@@ -14,6 +14,9 @@ export default [
       'coverage/**',
       '.vibeloop/**',
       'tests/e2e/fixtures/**',
+      'tests/e2e/user-scenarios/**/target-template/**',
+      'tests/e2e/user-scenarios/**/hidden/**',
+      'tests/e2e/user-scenarios/**/agent-*.cjs',
       '*.tsbuildinfo'
     ]
   },

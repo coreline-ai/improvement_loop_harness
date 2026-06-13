@@ -11,6 +11,7 @@ import {
 } from '@vibeloop/artifacts';
 import {
   CodexAgentAdapter,
+  CommandAgentAdapter,
   MockAgentAdapter,
   type AgentAdapter,
   type AgentRunResult
@@ -236,6 +237,13 @@ function parseAgentSpec(
       proxyBaseUrl: options.proxyBaseUrl ?? 'http://127.0.0.1:1',
       limits: options.limits
     });
+  }
+  if (spec.startsWith('command:')) {
+    const command = spec.slice('command:'.length).trim();
+    if (!command) {
+      throw new Error('command agent requires command:<shell command>');
+    }
+    return new CommandAgentAdapter(() => command);
   }
   throw new Error(`unsupported agent spec: ${spec}`);
 }
@@ -530,11 +538,18 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
         limits: mergeLimits(task.limits, evalConfig.limits),
         proxyBaseUrl: options.proxyBaseUrl
       });
+      const agentTaskFile = path.join(layout.input, 'task.yaml');
       agentResult = await cancellable(
         adapter.run({
           worktree: worktree.path,
-          taskFile: path.join(layout.input, 'task.yaml'),
-          env: agentEnv,
+          taskFile: agentTaskFile,
+          env: {
+            ...agentEnv,
+            VIBELOOP_LOOP_ID: loopId,
+            VIBELOOP_PROJECT_ID: projectId,
+            VIBELOOP_TASK_FILE: agentTaskFile,
+            VIBELOOP_WORKTREE: worktree.path
+          },
           timeoutMs: mergeLimits(task.limits, evalConfig.limits).agent_timeout_seconds
             ? mergeLimits(task.limits, evalConfig.limits).agent_timeout_seconds! * 1000
             : undefined,
