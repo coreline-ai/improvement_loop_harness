@@ -451,35 +451,35 @@ pr_candidate = selected ∧ accepted ∧ create_draft_pr_enabled
 | [implement_20260613_154330](../dev-plan/implement_20260613_154330.md) | advisory RefinementJudge 가정은 폐기, 본 문서와 160413 계획으로 대체   | superseded      |
 | [implement_20260613_160413](../dev-plan/implement_20260613_160413.md) | 최신 구현 계획                                                         | source of truth |
 
-## 17. 진화 로드맵
+## 17. 진화 로드맵 (구현 상태)
 
 ```text
-M0: Deterministic Evaluator + 단일 Builder
-    - LLM evaluator 없음
-    - verified ∧ qualified일 때만 PR 후보
+M0 [구현 완료]  Deterministic Evaluator + 단일 Builder
+    - evaluateQuality (eval-engine), eval.yaml `evaluator` block, SDK `qualified`
+    - LLM evaluator 없음; verified ∧ qualified일 때만 PR 후보. (commit 6205af7)
 
-M1: 병렬 Builder 후보 풀
-    - 후보 N개 생성
-    - 고정 Evaluator + Arbiter로 best-known 선택
+M1 [구현 완료]  병렬 Builder 후보 풀 + deterministic Arbiter
+    - runImprovementLoop (sdk): 후보별 격리 kernel → 고정 점수/tie-break best-known 선택. (70bcf80)
 
-M2: Adversary exec + proposal filter
-    - 다른 provider/model/process 권장
-    - proposal은 고정 필터 후 ephemeral gate만 가능
+M3 [구현 완료]  bounded same-issue refinement
+    - refinementRounds: accepted 없을 때만 추가 round, keep-best, round-cap. (31a3343)
 
-M3: bounded same-issue refinement
-    - structured failure reason 기반 자동 재수정
-    - round/budget/plateau stop
+M5 [구현 완료]  Skill-first 제품화
+    - `vibeloop improve` CLI + Skill fix-and-improve 모드. (b9e869f)
 
-M4: shadow rule learning + replay corpus
-    - 룰 완화 금지
-    - 다음 loop rulepack candidate로만 승격
+M2 [부분: 결정론 필터만]  Adversary proposal filter
+    - filterAdversaryProposal (eval-engine): 정적 고정 필터(scope/objective/no-weakening/
+      no-hidden-leak/bounded-cost) 구현. (0888ef3)
+    - 미구현(게이트): Adversary LLM 실행 + proposal 테스트 EXECUTION(ephemeral gate)은
+      미신뢰 LLM 생성 코드 실행 → R1 격리 하드 전제. R1 이후.
 
-M5: Skill-first 제품화 + 실사용 UAT
-    - Skill은 SDK wrapper
-    - 판정 로직 복제 금지
+M4 [부분: 결정론 안전핵만]  shadow rule learning
+    - diffRulepack(append-only) + decideShadowPromotion(승격 게이트) 구현. (1ca7c1a)
+    - 미구현(의존): replay-corpus EXECUTION(룰 실행)은 rulepack-runner/policy.lock
+      인프라(160413 Phase 2) 의존. 그 이후.
 ```
 
-병행 전제: 컨테이너/네트워크 격리(R1)는 무인 상시 가동의 별도 보안 전제다.
+병행 전제: 컨테이너/네트워크 격리(R1)는 무인 상시 가동의 별도 보안 전제이며, **M2의 Adversary 테스트 실행의 하드 전제**다.
 
 ## 18. 비목표 (Non-goals)
 
