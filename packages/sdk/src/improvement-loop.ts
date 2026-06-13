@@ -26,6 +26,14 @@ export interface ImprovementLoopOptions {
   dataDir: string;
   /** One agent spec per candidate (>= 1). Each runs in its own worktree/exec. */
   builders: string[];
+  /**
+   * M3 — bounded same-issue refinement (recover from failure). Each entry is an
+   * additional round of builder specs, run ONLY if no `accepted` candidate has
+   * appeared yet. The list length is the round cap. The Arbiter still selects the
+   * best-known accepted candidate across all rounds; a failed refinement never
+   * displaces an earlier passing candidate.
+   */
+  refinementRounds?: string[][] | undefined;
   projectId?: string | undefined;
   loopId?: string | undefined;
   baseCommit?: string | undefined;
@@ -45,6 +53,7 @@ export interface CandidateScore {
 export interface CandidateOutcome {
   candidateId: string;
   agentSpec: string;
+  round: number;
   status: TerminalRunStatus;
   decision?: Decision | undefined;
   qualified: boolean;
@@ -161,42 +170,55 @@ export async function runImprovementLoop(
 
   const outcomes: CandidateOutcome[] = [];
   let resolvedProjectId = options.projectId ?? 'default';
+  let candidateCounter = 0;
 
-  // Sequential, isolated candidates. (Parallelism is a later optimization; the
-  // independence requirement is satisfied by separate worktree/exec per candidate.)
-  for (let index = 0; index < options.builders.length; index += 1) {
-    const agentSpec = options.builders[index]!;
-    const candidateId = `${baseLoopId}-c${index}`;
-    const result = await runKernel({
-      repoPath: options.repoPath,
-      taskFile: options.taskFile,
-      evalFile: options.evalFile,
-      dataDir: options.dataDir,
-      agentSpec,
-      projectId: options.projectId,
-      loopId: candidateId,
-      baseCommit,
-      proxyBaseUrl: options.proxyBaseUrl,
-      signal: options.signal,
-      logToStdout: options.logToStdout,
-      skipDependencyInstall: options.skipDependencyInstall
-    });
-    resolvedProjectId = result.projectId;
-    const accepted = result.decision === 'accept' && result.qualified;
-    const outcome: CandidateOutcome = {
-      candidateId,
-      agentSpec,
-      status: result.status,
-      decision: result.decision,
-      qualified: result.qualified,
-      accepted,
-      artifactRoot: result.layout.root,
-      reportPath: result.reportPath
-    };
-    if (accepted) {
-      outcome.score = scoreFor(await readCandidateSignals(result.layout.root));
+  // Round 0 is the initial builder pool; later rounds are bounded refinement and
+  // run ONLY while no accepted candidate has appeared yet (recover from failure).
+  const rounds = [options.builders, ...(options.refinementRounds ?? [])];
+
+  for (let round = 0; round < rounds.length; round += 1) {
+    if (round > 0 && outcomes.some((outcome) => outcome.accepted)) {
+      break; // already have a passing candidate; stop refining
     }
-    outcomes.push(outcome);
+    // Sequential, isolated candidates. (Parallelism is a later optimization; the
+    // independence requirement is satisfied by separate worktree/exec per candidate.)
+    for (const agentSpec of rounds[round]!) {
+      const candidateId = `${baseLoopId}-c${candidateCounter}`;
+      candidateCounter += 1;
+      const result = await runKernel({
+        repoPath: options.repoPath,
+        taskFile: options.taskFile,
+        evalFile: options.evalFile,
+        dataDir: options.dataDir,
+        agentSpec,
+        projectId: options.projectId,
+        loopId: candidateId,
+        baseCommit,
+        proxyBaseUrl: options.proxyBaseUrl,
+        signal: options.signal,
+        logToStdout: options.logToStdout,
+        skipDependencyInstall: options.skipDependencyInstall
+      });
+      resolvedProjectId = result.projectId;
+      const accepted = result.decision === 'accept' && result.qualified;
+      const outcome: CandidateOutcome = {
+        candidateId,
+        agentSpec,
+        round,
+        status: result.status,
+        decision: result.decision,
+        qualified: result.qualified,
+        accepted,
+        artifactRoot: result.layout.root,
+        reportPath: result.reportPath
+      };
+      if (accepted) {
+        outcome.score = scoreFor(
+          await readCandidateSignals(result.layout.root)
+        );
+      }
+      outcomes.push(outcome);
+    }
   }
 
   const accepted = outcomes

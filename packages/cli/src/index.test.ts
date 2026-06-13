@@ -295,6 +295,103 @@ describe('runImprovementLoop', () => {
     expect(report.selected_candidate_id).toBe('iloop-1-c1');
     expect(report.accepted_count).toBe(2);
   });
+
+  it('runs a bounded refinement round only when round 0 produced no accepted candidate', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-refine-data-');
+    const fixtureDir = await tempDir('vibeloop-refine-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'refine'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const failing = await writeScenario(fixtureDir, 'r-failing', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+      // no regression test → round 0 rejects
+    ]);
+    const fixed = await writeScenario(fixtureDir, 'r-fixed', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'refine-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${failing}`],
+      refinementRounds: [[`mock:${fixed}`]]
+    });
+
+    // round 0 (c0) failed → refinement round 1 (c1) ran and passed.
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates[0]?.round).toBe(0);
+    expect(result.candidates[0]?.accepted).toBe(false);
+    expect(result.candidates[1]?.round).toBe(1);
+    expect(result.candidates[1]?.accepted).toBe(true);
+    expect(result.selected?.candidateId).toBe('refine-1-c1');
+  });
+
+  it('does not run refinement rounds once an accepted candidate exists', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-refine2-data-');
+    const fixtureDir = await tempDir('vibeloop-refine2-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'refine2'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const ok = await writeScenario(fixtureDir, 'r2-ok', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+    const unused = await writeScenario(fixtureDir, 'r2-unused', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'refine2-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${ok}`],
+      refinementRounds: [[`mock:${unused}`]]
+    });
+
+    // round 0 accepted → refinement round is skipped entirely.
+    expect(result.candidates).toHaveLength(1);
+    expect(result.selected?.candidateId).toBe('refine2-1-c0');
+  });
 });
 
 describe('runKernel', () => {
