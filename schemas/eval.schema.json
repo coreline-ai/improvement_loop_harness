@@ -246,7 +246,7 @@
         },
         "require_test_on_base_pass": {
           "type": "boolean",
-          "default": true
+          "default": false
         },
         "target_paths": {
           "type": "array",

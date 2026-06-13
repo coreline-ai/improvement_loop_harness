@@ -79,8 +79,12 @@ export function evaluateQuality(input: EvaluateQualityInput): QualityReport {
     threshold: minPresent
   });
 
-  // Q2 — test meaning (only when the task declares required tests)
-  if (config.require_test_on_base_pass ?? true) {
+  // Q2 — test meaning (opt-in; only when the task declares required tests).
+  // Default false: the kernel already enforces fail-to-pass for
+  // adds_regression_test / fixes_reproduced_failure evidence, and requiring it for
+  // every evaluator user would wrongly fail non-bugfix tasks (refactor/perf) whose
+  // required tests legitimately pass on base too.
+  if (config.require_test_on_base_pass ?? false) {
     if ((input.requiredTestCount ?? 0) > 0) {
       const passed = input.testOnBase?.base_failed_candidate_passed === true;
       rules.push({

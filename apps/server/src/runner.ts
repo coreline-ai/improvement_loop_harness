@@ -28,20 +28,22 @@ interface EvalReportJson {
 }
 
 interface GateReportJson {
-  gates?: Array<{
-    name: string;
-    type: string;
-    required: boolean;
-    command: string;
-    status: string;
-    exit_code: number | null;
-    duration_ms: number | null;
-    stdout_ref: string | null;
-    stderr_ref: string | null;
-    summary: string | null;
-    started_at: string | null;
-    finished_at: string | null;
-  }> | undefined;
+  gates?:
+    | Array<{
+        name: string;
+        type: string;
+        required: boolean;
+        command: string;
+        status: string;
+        exit_code: number | null;
+        duration_ms: number | null;
+        stdout_ref: string | null;
+        stderr_ref: string | null;
+        summary: string | null;
+        started_at: string | null;
+        finished_at: string | null;
+      }>
+    | undefined;
 }
 
 interface WorkspaceRefJson {
@@ -58,7 +60,9 @@ export interface KernelLoopRunnerOptions {
 }
 
 function resolveEvalFile(projectRoot: string, evalConfigPath: string): string {
-  return path.isAbsolute(evalConfigPath) ? evalConfigPath : path.join(projectRoot, evalConfigPath);
+  return path.isAbsolute(evalConfigPath)
+    ? evalConfigPath
+    : path.join(projectRoot, evalConfigPath);
 }
 
 function artifactKind(artifactPath: string): string {
@@ -86,7 +90,11 @@ function artifactKind(artifactPath: string): string {
 
 function agentType(agentSpec: string): string {
   if (agentSpec.startsWith('mock:')) return 'mock';
-  if (agentSpec === CODEX_AGENT_SPEC || agentSpec.startsWith(`${CODEX_AGENT_SPEC}:`)) return CODEX_AGENT_SPEC;
+  if (
+    agentSpec === CODEX_AGENT_SPEC ||
+    agentSpec.startsWith(`${CODEX_AGENT_SPEC}:`)
+  )
+    return CODEX_AGENT_SPEC;
   return agentSpec.split(':')[0] || 'unknown';
 }
 
@@ -105,10 +113,18 @@ async function persistKernelArtifacts(
   result: RunKernelResult
 ): Promise<void> {
   const root = result.layout.root;
-  const evalReport = await readJson<EvalReportJson>(path.join(root, 'reports', 'eval-report.json'));
-  const gateReport = await readJson<GateReportJson>(path.join(root, 'reports', 'gate-report.json'));
-  const manifest = await readJson<RunManifestJson>(path.join(root, 'manifest.json'));
-  const workspaceRef = await readJson<WorkspaceRefJson>(path.join(root, 'workspace', 'workspace-ref.json'));
+  const evalReport = await readJson<EvalReportJson>(
+    path.join(root, 'reports', 'eval-report.json')
+  );
+  const gateReport = await readJson<GateReportJson>(
+    path.join(root, 'reports', 'gate-report.json')
+  );
+  const manifest = await readJson<RunManifestJson>(
+    path.join(root, 'manifest.json')
+  );
+  const workspaceRef = await readJson<WorkspaceRefJson>(
+    path.join(root, 'workspace', 'workspace-ref.json')
+  );
 
   if (evalReport) {
     await store.createReport({
@@ -120,7 +136,11 @@ async function persistKernelArtifacts(
       artifactRef: 'reports/eval-report.json'
     });
     await store.updateLoop(input.loop.id, {
-      baseCommit: evalReport.base_commit ?? manifest?.base_commit ?? input.loop.baseCommit ?? null,
+      baseCommit:
+        evalReport.base_commit ??
+        manifest?.base_commit ??
+        input.loop.baseCommit ??
+        null,
       candidateCommit: evalReport.candidate_commit ?? null,
       decisionReasons: evalReport.decision_reasons ?? null
     });
@@ -145,12 +165,18 @@ async function persistKernelArtifacts(
     });
   }
 
-  if (workspaceRef?.worktree_path && (workspaceRef.base_commit ?? manifest?.base_commit ?? input.loop.baseCommit)) {
+  if (
+    workspaceRef?.worktree_path &&
+    (workspaceRef.base_commit ?? manifest?.base_commit ?? input.loop.baseCommit)
+  ) {
     await store.createWorkspaceRun({
       loopRunId: input.loop.id,
       kind: 'git_worktree',
       path: workspaceRef.worktree_path,
-      baseCommit: workspaceRef.base_commit ?? manifest?.base_commit ?? input.loop.baseCommit!,
+      baseCommit:
+        workspaceRef.base_commit ??
+        manifest?.base_commit ??
+        input.loop.baseCommit!,
       status: 'cleaned',
       cleanedAt: finishedAt
     });
@@ -190,21 +216,30 @@ async function persistKernelArtifacts(
   }
 }
 
-export function createKernelLoopRunner(options: KernelLoopRunnerOptions): LoopRunner {
+export function createKernelLoopRunner(
+  options: KernelLoopRunnerOptions
+): LoopRunner {
   return async (input: LoopRunnerInput): Promise<LoopRunnerResult> => {
     const project = await options.store.getProject(input.task.projectId);
     if (!project?.localPath) {
-      throw new Error(`project ${input.task.projectId} requires localPath for kernel runner`);
+      throw new Error(
+        `project ${input.task.projectId} requires localPath for kernel runner`
+      );
     }
 
     const agentSpec = input.loop.agentSpec ?? options.defaultAgentSpec;
-    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'vibeloop-server-task-'));
+    const tempDir = await mkdtemp(
+      path.join(os.tmpdir(), 'vibeloop-server-task-')
+    );
     const taskFile = path.join(tempDir, 'task.yaml');
     const evalFile = resolveEvalFile(project.localPath, project.evalConfigPath);
     const startedAt = new Date();
 
     try {
-      await writeFile(taskFile, `${JSON.stringify(input.task.taskYaml, null, 2)}\n`);
+      await writeFile(
+        taskFile,
+        `${JSON.stringify(input.task.taskYaml, null, 2)}\n`
+      );
       const result = await runKernel({
         repoPath: project.localPath,
         taskFile,
@@ -219,15 +254,25 @@ export function createKernelLoopRunner(options: KernelLoopRunnerOptions): LoopRu
         skipDependencyInstall: options.skipDependencyInstall ?? false
       });
       const finishedAt = new Date();
-      await persistKernelArtifacts(options.store, input, agentSpec, startedAt, finishedAt, result);
+      await persistKernelArtifacts(
+        options.store,
+        input,
+        agentSpec,
+        startedAt,
+        finishedAt,
+        result
+      );
       return {
         status: result.status,
         decision: result.decision,
         artifactRoot: result.layout.root,
-        tokenUsageTotal: 0
+        tokenUsageTotal: 0,
+        qualified: result.qualified
       };
     } finally {
-      await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+      await rm(tempDir, { recursive: true, force: true }).catch(
+        () => undefined
+      );
     }
   };
 }

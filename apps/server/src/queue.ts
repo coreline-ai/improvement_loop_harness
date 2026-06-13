@@ -11,6 +11,11 @@ export interface LoopRunnerResult {
   decision?: string | undefined;
   artifactRoot?: string | undefined;
   tokenUsageTotal?: number | undefined;
+  /**
+   * Deterministic improvement-quality verdict (M0). Undefined for legacy runners.
+   * PR candidacy requires `accepted` (correctness) AND `qualified !== false`.
+   */
+  qualified?: boolean | undefined;
 }
 
 export type LoopRunner = (input: LoopRunnerInput) => Promise<LoopRunnerResult>;
@@ -24,7 +29,9 @@ export class InProcessLoopQueue {
   ) {}
 
   enqueue(loop: LoopRunRecord, task: TaskRecord): void {
-    void this.store.addLoopEvent(loop.id, 'loop.queued', { status: loop.status });
+    void this.store.addLoopEvent(loop.id, 'loop.queued', {
+      status: loop.status
+    });
     if (!this.runner) {
       return;
     }

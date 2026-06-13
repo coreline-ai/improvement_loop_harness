@@ -16,6 +16,11 @@ import { runKernel } from './run.js';
  * fixed tie-break. No LLM votes, no LLM scoring. Candidates that do not verify
  * are never compared; a failed candidate never displaces a passing one.
  *
+ * Cost is bounded by the candidate count: total kernel runs =
+ * `builders.length + sum(refinementRounds[*].length)` (each refinement round runs
+ * only while no accepted candidate exists). Callers MUST cap `builders` and
+ * `refinementRounds` — there is no implicit ceiling.
+ *
  * See docs/SELF_IMPROVEMENT_LOOP_DESIGN.md §5/§8/§12.
  */
 

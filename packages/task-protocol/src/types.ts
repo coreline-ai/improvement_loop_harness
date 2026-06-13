@@ -111,7 +111,11 @@ export interface EvaluatorConfig {
   forbid_protected?: boolean;
   /** Q1: minimum count of required_evidence entries that must be `present`. Default 1. */
   min_evidence_present?: number;
-  /** Q2: require test-on-base fail→pass when the task declares required_tests. Default true. */
+  /**
+   * Q2: require test-on-base fail→pass when the task declares required_tests.
+   * Default false (opt-in): the kernel already enforces fail-to-pass for
+   * regression evidence, and forcing it would wrongly fail non-bugfix tasks.
+   */
   require_test_on_base_pass?: boolean;
   /** Q3: changed files must intersect at least one of these path prefixes. */
   target_paths?: string[];
