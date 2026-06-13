@@ -7,6 +7,7 @@ interface ImproveCommandOptions {
   task: string;
   eval: string;
   agent: string[];
+  challenger: string[];
   out?: string | undefined;
   projectId?: string | undefined;
   loopId?: string | undefined;
@@ -36,6 +37,12 @@ export function registerImproveCommand(program: Command): void {
     .option(
       '--agent <spec>',
       'builder agent spec (repeatable; one candidate per spec)',
+      collect,
+      []
+    )
+    .option(
+      '--challenger <spec>',
+      'challenger agent spec (repeatable; runs even after acceptance to search for a better candidate)',
       collect,
       []
     )
@@ -74,6 +81,9 @@ export function registerImproveCommand(program: Command): void {
           evalFile: options.eval,
           dataDir: options.out ?? globalDataDir(command),
           builders: options.agent,
+          ...(options.challenger.length > 0
+            ? { challengerRounds: [options.challenger] }
+            : {}),
           projectId: options.projectId,
           loopId: options.loopId,
           baseCommit: options.baseCommit,

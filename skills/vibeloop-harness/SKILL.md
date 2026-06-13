@@ -1,6 +1,6 @@
 ---
 name: vibeloop-harness
-description: Run VibeLoop Harness verification for one AI code change from Codex. Use when a user asks to fix one issue with guarded acceptance gates, verify an existing patch, run Codex OAuth UAT, run Skill real-user loop UAT, run adversarial failure UAT, create task/eval YAML, summarize eval-report.json, or prepare a PR candidate only after deterministic VibeLoop accept/ALL_PASS.
+description: Run VibeLoop Harness verification for one AI code change from Codex. Use when a user asks to fix one issue with guarded acceptance gates, verify an existing patch, run Codex OAuth UAT, run Skill real-user loop UAT, run adversarial failure UAT, run the self-improvement loop UAT (candidate pool + challenger selection across an issue queue), create task/eval YAML, summarize eval-report.json, or prepare a PR candidate only after deterministic VibeLoop accept/ALL_PASS.
 ---
 
 # VibeLoop Harness
@@ -92,6 +92,16 @@ pnpm uat:skill-loop:adversarial
 ```
 
 It intentionally exercises hidden-test bypass, protected path tampering, test-integrity cheating, and context leakage. The script passes only when all failures are detected and no PR candidate is created.
+
+### self-improvement-loop-uat
+
+Use the project script to prove the loop selects a measurably-better candidate each iteration and accumulates across an issue queue:
+
+```bash
+pnpm uat:skill-loop:self-improvement
+```
+
+For each issue it runs a verbose builder and a tight challenger; the deterministic Arbiter must select the challenger with a strictly higher fixed score (smaller, cleaner diff at equal correctness). It advances issue-by-issue, and a final fully-bad pool must yield no selection and no PR candidate. Selection is never an LLM opinion. With `VIBELOOP_UAT_GITHUB=1` it also publishes each selected patch as a draft PR against a throwaway private GitHub repo and then deletes (or archives, if the token lacks `delete_repo`) it; the default run is hermetic. See `docs/SKILL_SELF_IMPROVEMENT_LOOP_UAT.md`.
 
 ### discover
 
