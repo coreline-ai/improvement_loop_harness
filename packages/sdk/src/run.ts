@@ -631,12 +631,28 @@ export async function runKernel(
         'agent skipped; applying stored candidate.patch',
         logToStdout
       );
+      // No agent ran, so there is no fresh agent output to leak. Still produce
+      // an EXPLICIT artifact-leak verdict for the safe static skipped-agent
+      // output, so the builtin gate never relies on a not-evaluated fallback
+      // (which now fails closed when artifact_leak is configured).
+      const skippedStdout =
+        'agent skipped for retry_eval_only; stored candidate.patch reapplied\n';
+      const leakScan = scanArtifactLeak({
+        stdout: skippedStdout,
+        stderr: '',
+        config: evalConfig.artifact_leak
+      });
+      artifactLeakResult = leakScan.result;
       await writeArtifact(
         layout.root,
         'logs/agent.stdout.log',
-        'agent skipped for retry_eval_only; stored candidate.patch reapplied\n'
+        leakScan.redactedStdout
       );
-      await writeArtifact(layout.root, 'logs/agent.stderr.log', '');
+      await writeArtifact(
+        layout.root,
+        'logs/agent.stderr.log',
+        leakScan.redactedStderr
+      );
       await cancellable(
         applyPatch(worktree.path, options.evalOnlyPatch),
         options.signal

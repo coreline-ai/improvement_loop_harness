@@ -27,6 +27,9 @@ evaluator:
   forbid_protected: true
   target_paths:
     - src/cart.cjs
+# NOTE: this fixture validates context forbidden-literal rejection (previous
+# task id + hidden sentinel), NOT token_like detection. token_like reject is
+# opt-in and carries false-positive risk, so it is intentionally left off here.
 artifact_leak:
   scan_agent_stdout: true
   scan_agent_stderr: true
@@ -35,8 +38,6 @@ artifact_leak:
       value: skill-loop-cart-quantity
     - label: hidden_sentinel
       value: SECRET_HIDDEN_EXPECTATION
-  builtins:
-    token_like: true
 hidden_acceptance:
   tests:
     - name: hidden_sku_whitespace_lowercase

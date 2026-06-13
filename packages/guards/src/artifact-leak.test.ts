@@ -59,6 +59,22 @@ describe('scanArtifactLeak', () => {
     expect(out.redactedStdout).not.toContain('AKIAIOSFODNN7EXAMPLE');
   });
 
+  it('does NOT reject a benign keyword assignment (password/secret) by default — false-positive guard', () => {
+    // A `password:`/`secret:` assignment in example/docs/test output must not
+    // fail a normal candidate. token_like reject is opt-in precisely to avoid
+    // this; by default such content is redact-only (status pass).
+    const out = scanArtifactLeak({
+      stdout: 'example docs: password: hunter2 (sample, not a real secret)',
+      config: { forbidden_literals: [] } // token_like NOT opted in (default)
+    });
+    expect(out.result.status).toBe('pass'); // no false reject
+    expect(out.redactedStdout).toContain('[REDACTED]'); // still redact-only
+    expect(out.redactedStdout).not.toContain('hunter2');
+    expect(
+      out.findings.some((f) => f.kind === 'token_like' && !f.rejecting)
+    ).toBe(true);
+  });
+
   it('does not scan stderr when scan_agent_stderr is false', () => {
     const out = scanArtifactLeak({
       stderr: 'leak skill-loop-cart-quantity',

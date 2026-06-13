@@ -49,6 +49,7 @@ Artifact root는 **대상 repo 밖** 하네스 데이터 디렉터리에 둔다 
 - `metrics/gates/<gate>.json`, `metrics/baseline-gates/<gate>.json`: gate command가 `VIBELOOP_METRICS_FILE` env가 가리키는 경로에 기록하는 구조화 metric (N4). 하네스 제어 artifact root 하위(worktree·write_scope 밖)라 builder agent가 사전 주입할 수 없다. stdout regex 대비 우선이며, schema validation(알려진 key + finite number)을 통과한 값만 evidence에 쓰인다 ([EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §7.1).
 - `test-on-base.json`: 신규 테스트의 fail-on-base → pass-on-candidate 검증 결과 ([EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §7.2)
 - `integrity/git-meta-*.json`: agent 실행 전후 `.git` config/hooks 해시 스냅샷 ([SECURITY_MODEL.md](./SECURITY_MODEL.md) §4)
+- `input/eval.yaml`: provenance 목적의 원본 eval config 사본이다. `artifact_leak.forbidden_literals`의 raw 값이 그대로 남으므로(redact 대상 아님) 실제 운영 secret이 아니라 회수 가능한 marker만 넣는다. artifact-leak v1 스캔 대상이 아니다 ([EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) artifact-leak 커버리지 표).
 
 ## 3. manifest.json
 

@@ -261,6 +261,71 @@ describe('runGates', () => {
   });
 });
 
+describe('builtin:artifact-leak gate (fail-open invariant)', () => {
+  const artifactLeakGate: EvalConfig['gates'] = [
+    {
+      name: 'artifact_leak',
+      type: 'integrity',
+      command: 'builtin:artifact-leak',
+      required: true
+    }
+  ];
+
+  it('fails closed when artifact_leak is configured but no precomputed result reaches the gate', async () => {
+    const context = await contextFor({ gates: artifactLeakGate });
+    // Configured, but the kernel never handed a verdict to the gate. This must
+    // NOT silently pass — a not-evaluated guard is a fail-open hazard.
+    context.evalConfig.artifact_leak = {
+      scan_agent_stdout: true,
+      scan_agent_stderr: true
+    };
+    context.artifactLeak = undefined;
+
+    const result = await runGates(context);
+    const gate = result.report.gates.find((g) => g.name === 'artifact_leak');
+    expect(gate?.status).toBe('error');
+    expect(gate?.summary).toContain('artifact_leak is configured');
+  });
+
+  it('passes as not-configured when artifact_leak is absent and no result is provided (backward compatible)', async () => {
+    const context = await contextFor({ gates: artifactLeakGate });
+    context.evalConfig.artifact_leak = undefined;
+    context.artifactLeak = undefined;
+
+    const result = await runGates(context);
+    const gate = result.report.gates.find((g) => g.name === 'artifact_leak');
+    expect(gate?.status).toBe('pass');
+    expect(gate?.summary).toContain('not configured');
+  });
+
+  it('surfaces the precomputed verdict (pass or fail) when one is provided', async () => {
+    const passCtx = await contextFor({ gates: artifactLeakGate });
+    passCtx.evalConfig.artifact_leak = { scan_agent_stdout: true };
+    passCtx.artifactLeak = {
+      status: 'pass',
+      summary: 'no leak',
+      violations: []
+    };
+    const passResult = await runGates(passCtx);
+    expect(
+      passResult.report.gates.find((g) => g.name === 'artifact_leak')?.status
+    ).toBe('pass');
+
+    const failCtx = await contextFor({ gates: artifactLeakGate });
+    failCtx.evalConfig.artifact_leak = { scan_agent_stdout: true };
+    failCtx.artifactLeak = {
+      status: 'fail',
+      code: 'ARTIFACT_LEAK',
+      summary: 'forbidden literal leaked',
+      violations: [{ code: 'ARTIFACT_LEAK', message: 'leak' }]
+    };
+    const failResult = await runGates(failCtx);
+    expect(
+      failResult.report.gates.find((g) => g.name === 'artifact_leak')?.status
+    ).toBe('fail');
+  });
+});
+
 describe('baseline, test-on-base, and evidence detection', () => {
   it('marks adds_regression_test present only when the new test fails on base and passes on candidate', async () => {
     const repo = await createTempGitRepo();

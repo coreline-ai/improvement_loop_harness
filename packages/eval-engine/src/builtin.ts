@@ -76,16 +76,27 @@ async function runBuiltinCheck(
         context.evalConfig.test_integrity ?? {},
         { baseCommit: context.baseCommit }
       );
-    case 'artifact-leak':
+    case 'artifact-leak': {
       // Scan runs in the kernel (where agent stdout/stderr is available); this
       // gate only surfaces the precomputed verdict.
-      return (
-        context.artifactLeak ?? {
-          status: 'pass',
-          summary: 'artifact-leak not evaluated',
-          violations: []
-        }
-      );
+      if (context.artifactLeak) {
+        return context.artifactLeak;
+      }
+      // Fail closed: if artifact_leak is configured, a missing precomputed
+      // result means the scan never reached this gate. Never silently pass — a
+      // not-evaluated guard must not look like a clean guard (fail-open).
+      if (context.evalConfig.artifact_leak) {
+        throw new BuiltinGateError(
+          'artifact_leak is configured but no precomputed scan result reached builtin:artifact-leak'
+        );
+      }
+      // Not configured: there is nothing to scan; backward-compatible pass.
+      return {
+        status: 'pass',
+        summary: 'artifact-leak not configured',
+        violations: []
+      };
+    }
     default:
       throw new BuiltinGateError(
         `unsupported builtin gate command: ${gate.command}`
