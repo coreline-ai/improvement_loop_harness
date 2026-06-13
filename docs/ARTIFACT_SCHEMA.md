@@ -36,12 +36,17 @@ Artifact root는 **대상 repo 밖** 하네스 데이터 디렉터리에 둔다 
 │   └── eval-report.json
 ├── metrics/
 │   ├── baseline.json
-│   └── candidate.json
+│   ├── candidate.json
+│   ├── baseline-gates/      # 구조화 metric (baseline gate별, gate가 기록)
+│   │   └── <gate>.json
+│   └── gates/               # 구조화 metric (candidate gate별, gate가 기록)
+│       └── <gate>.json
 └── integrity/
     ├── git-meta-before.json
     └── git-meta-after.json
 ```
 
+- `metrics/gates/<gate>.json`, `metrics/baseline-gates/<gate>.json`: gate command가 `VIBELOOP_METRICS_FILE` env가 가리키는 경로에 기록하는 구조화 metric (N4). 하네스 제어 artifact root 하위(worktree·write_scope 밖)라 builder agent가 사전 주입할 수 없다. stdout regex 대비 우선이며, schema validation(알려진 key + finite number)을 통과한 값만 evidence에 쓰인다 ([EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §7.1).
 - `test-on-base.json`: 신규 테스트의 fail-on-base → pass-on-candidate 검증 결과 ([EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md) §7.2)
 - `integrity/git-meta-*.json`: agent 실행 전후 `.git` config/hooks 해시 스냅샷 ([SECURITY_MODEL.md](./SECURITY_MODEL.md) §4)
 
@@ -81,13 +86,13 @@ Artifact root는 **대상 repo 밖** 하네스 데이터 디렉터리에 둔다 
 
 ## 5. Retention Policy
 
-| decision | 기본 보존 |
-|---|---:|
-| accepted/approved (PR 생성 포함) | 180일 |
-| needs_human_review | 180일 |
-| rejected | 30일 |
-| failed | 30일 |
-| cancelled | 7일 |
+| decision                         | 기본 보존 |
+| -------------------------------- | --------: |
+| accepted/approved (PR 생성 포함) |     180일 |
+| needs_human_review               |     180일 |
+| rejected                         |      30일 |
+| failed                           |      30일 |
+| cancelled                        |       7일 |
 
 보안 로그와 secret scan output은 **artifact 기록 시점에 하네스가** redaction 후 저장한다 (gitleaks 등의 출력은 발견한 secret 원문을 포함하므로 기록 전 마스킹이 필수다).
 

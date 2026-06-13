@@ -1,4 +1,11 @@
-import { access, lstat, mkdir, readFile, writeFile } from 'node:fs/promises';
+import {
+  access,
+  lstat,
+  mkdir,
+  readFile,
+  rm,
+  writeFile
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -9,7 +16,7 @@ import { provisionDependencies } from './deps.js';
 import { createEphemeralHome, scrubEnv } from './env.js';
 import { buildSafeGitArgs, buildSafeGitEnv, safeGit } from './git.js';
 import { diffGitMetadataSnapshots, snapshotGitMetadata } from './snapshot.js';
-import { createWorktree, isPathInside } from './worktree.js';
+import { createWorktree, isPathInside, removeWorktree } from './worktree.js';
 
 async function tempDir(prefix: string): Promise<string> {
   return import('node:fs/promises').then(({ mkdtemp }) =>
@@ -112,6 +119,34 @@ describe('base commit and worktree isolation', () => {
       safeGit(second.path, ['rev-parse', 'HEAD'])
     ).resolves.toMatchObject({ stdout: `${repo.initialCommit}\n` });
     await expect(access(first.lockPath)).rejects.toThrow();
+  });
+
+  it('prunes stale worktree metadata via the rm fallback without re-locking', async () => {
+    const repo = await createTempGitRepo();
+    const dataDir = await tempDir('vibeloop-worktrees-prune-');
+    const worktree = await createWorktree({
+      repoPath: repo.repoPath,
+      dataDir,
+      projectId: 'proj-1',
+      loopId: 'loop-prune',
+      baseCommit: repo.initialCommit
+    });
+
+    // Simulate the working tree disappearing so git worktree remove fails and the
+    // rm fallback path (which prunes stale admin metadata) runs.
+    await rm(worktree.path, { recursive: true, force: true });
+    const adminEntry = path.join(
+      repo.repoPath,
+      '.git',
+      'worktrees',
+      'loop-prune'
+    );
+    await expect(access(adminEntry)).resolves.toBeUndefined();
+
+    // Must resolve (no LockTimeoutError from re-acquiring the held repo lock) and
+    // leave no stale .git/worktrees admin entry behind.
+    await expect(removeWorktree(worktree)).resolves.toBeUndefined();
+    await expect(access(adminEntry)).rejects.toThrow();
   });
 });
 

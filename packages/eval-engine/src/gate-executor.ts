@@ -7,6 +7,12 @@ import {
   interpolationValues
 } from './interpolate.js';
 import { createGateResult, gateLogPaths } from './gate-report.js';
+import {
+  CANDIDATE_METRICS_SCOPE,
+  ensureStructuredMetricsDir,
+  structuredMetricsPath,
+  STRUCTURED_METRICS_ENV
+} from './metrics.js';
 import type { GateReportEntry, GateRunContext } from './types.js';
 
 function statusFromRunCommand(
@@ -32,9 +38,25 @@ export async function executeCommandGate(
   const gateEnv = interpolateRecord(gate.env, values);
   const logPaths = gateLogPaths(context.artifactRoot, gate.name);
 
+  // N4: hand the gate a harness-controlled structured metrics path (outside the
+  // worktree/write_scope) so it can emit trustworthy metrics instead of stdout text.
+  await ensureStructuredMetricsDir(
+    context.artifactRoot,
+    CANDIDATE_METRICS_SCOPE
+  );
+  const metricsFile = structuredMetricsPath(
+    context.artifactRoot,
+    CANDIDATE_METRICS_SCOPE,
+    gate.name
+  );
+
   const result = await runCommand(command, {
     cwd,
-    env: { ...(context.env ?? process.env), ...gateEnv },
+    env: {
+      ...(context.env ?? process.env),
+      [STRUCTURED_METRICS_ENV]: metricsFile,
+      ...gateEnv
+    },
     ...(gate.timeout_seconds ? { timeoutMs: gate.timeout_seconds * 1000 } : {}),
     stdoutFile: logPaths.stdoutFile,
     stderrFile: logPaths.stderrFile

@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { appendFile, copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  appendFile,
+  copyFile,
+  mkdir,
+  readFile,
+  rm,
+  writeFile
+} from 'node:fs/promises';
 import path from 'node:path';
 import {
   createRunDir,
@@ -25,9 +32,12 @@ import {
   evaluateRequiredEvidence,
   runGates,
   verifyTestOnBase,
+  collectMetricsForGates,
+  CANDIDATE_METRICS_SCOPE,
   type BaselineMetrics,
   type EvalReportProvenance,
   type GateReportEntry,
+  type MetricRejection,
   type TestOnBaseReport
 } from '@vibeloop/eval-engine';
 import {
@@ -57,7 +67,11 @@ import {
   type DependencyProvisionResult,
   type WorktreeRef
 } from '@vibeloop/workspace-runner';
-import { EXIT_CODES, exitCodeForDecision, type CliExitCode } from './exit-codes.js';
+import {
+  EXIT_CODES,
+  exitCodeForDecision,
+  type CliExitCode
+} from './exit-codes.js';
 
 export type LoopStateName =
   | 'draft'
@@ -131,7 +145,6 @@ interface WorkspaceRefArtifact {
   retry_mode?: RetryMode | undefined;
 }
 
-
 class CancelledError extends Error {
   constructor() {
     super('loop cancelled');
@@ -148,11 +161,13 @@ function generatedLoopId(): string {
 }
 
 function sanitizeProjectId(project: string): string {
-  return project
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-')
-    .replace(/^-+|-+$/g, '') || 'default';
+  return (
+    project
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'default'
+  );
 }
 
 function terminalStatusForDecision(decision: Decision): TerminalRunStatus {
@@ -191,7 +206,10 @@ async function writeLoopEvent(
     console.log(JSON.stringify(event));
   }
   if (layout) {
-    await appendFile(layout.path('logs/loop-events.jsonl'), `${JSON.stringify(event)}\n`);
+    await appendFile(
+      layout.path('logs/loop-events.jsonl'),
+      `${JSON.stringify(event)}\n`
+    );
   }
 }
 
@@ -201,7 +219,10 @@ function throwIfCancelled(signal: AbortSignal | undefined): void {
   }
 }
 
-async function cancellable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+async function cancellable<T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined
+): Promise<T> {
   if (!signal) {
     return promise;
   }
@@ -211,44 +232,33 @@ async function cancellable<T>(promise: Promise<T>, signal: AbortSignal | undefin
     new Promise<never>((_, reject) => {
       const onAbort = (): void => reject(new CancelledError());
       signal.addEventListener('abort', onAbort, { once: true });
-      promise.finally(() => signal.removeEventListener('abort', onAbort)).catch(() => undefined);
+      promise
+        .finally(() => signal.removeEventListener('abort', onAbort))
+        .catch(() => undefined);
     })
   ]);
-}
-
-function parseMetric(stdout: string, names: string[]): number | undefined {
-  for (const name of names) {
-    const pattern = new RegExp(`${name}\\s*[:=]\\s*([0-9]+(?:\\.[0-9]+)?)`, 'i');
-    const match = stdout.match(pattern);
-    if (match?.[1]) {
-      return Number(match[1]);
-    }
-  }
-  return undefined;
 }
 
 async function collectCandidateMetrics(
   artifactRoot: string,
   gateRuns: readonly GateReportEntry[]
-): Promise<BaselineMetrics> {
-  const metrics: BaselineMetrics = {};
-  for (const gate of gateRuns) {
-    if (!gate.stdout_ref) {
-      continue;
-    }
-    const stdout = await readFile(path.join(artifactRoot, gate.stdout_ref), 'utf8').catch(() => '');
-    const coverage = parseMetric(stdout, ['coverage', 'coverage_percent']);
-    const latency = parseMetric(stdout, ['latency', 'latency_ms', 'p95_ms']);
-    const findings = parseMetric(stdout, ['security_findings', 'findings']);
-    const critical = parseMetric(stdout, ['critical_security_findings', 'critical']);
-    const duplicate = parseMetric(stdout, ['duplicate_score', 'duplication', 'duplicates']);
-    if (coverage !== undefined) metrics.coverage_percent = coverage;
-    if (latency !== undefined) metrics.latency_ms = latency;
-    if (findings !== undefined) metrics.security_findings = findings;
-    if (critical !== undefined) metrics.critical_security_findings = critical;
-    if (duplicate !== undefined) metrics.duplicate_score = duplicate;
-  }
-  return metrics;
+): Promise<{ metrics: BaselineMetrics; rejected: MetricRejection[] }> {
+  const gates = await Promise.all(
+    gateRuns.map(async (gate) => ({
+      name: gate.name,
+      stdout: gate.stdout_ref
+        ? await readFile(
+            path.join(artifactRoot, gate.stdout_ref),
+            'utf8'
+          ).catch(() => '')
+        : ''
+    }))
+  );
+  return collectMetricsForGates({
+    artifactRoot,
+    scope: CANDIDATE_METRICS_SCOPE,
+    gates
+  });
 }
 
 function toAnnotatedChangedFilesArtifact(
@@ -264,19 +274,27 @@ function toAnnotatedChangedFilesArtifact(
       is_symlink: file.isSymlink,
       added_lines: file.addedLines,
       deleted_lines: file.deletedLines,
-      ...(file.allowedByWriteScope !== undefined ? { allowed_by_write_scope: file.allowedByWriteScope } : {}),
+      ...(file.allowedByWriteScope !== undefined
+        ? { allowed_by_write_scope: file.allowedByWriteScope }
+        : {}),
       ...(file.protected !== undefined ? { protected: file.protected } : {})
     })),
-    untracked_files: files.filter((file) => file.status === 'untracked').map((file) => file.path),
+    untracked_files: files
+      .filter((file) => file.status === 'untracked')
+      .map((file) => file.path),
     renames: files.flatMap((file) =>
-      file.status === 'renamed' && file.oldPath ? [{ old_path: file.oldPath, path: file.path }] : []
+      file.status === 'renamed' && file.oldPath
+        ? [{ old_path: file.oldPath, path: file.path }]
+        : []
     ),
     symlinks: files.filter((file) => file.isSymlink).map((file) => file.path)
   };
 }
 
 async function candidateCommit(worktreePath: string): Promise<string | null> {
-  const result = await safeGit(worktreePath, ['rev-parse', 'HEAD']).catch(() => undefined);
+  const result = await safeGit(worktreePath, ['rev-parse', 'HEAD']).catch(
+    () => undefined
+  );
   return result?.stdout.trim() ?? null;
 }
 
@@ -288,7 +306,10 @@ async function finalizeIfRunning(
   if (!layout) {
     return;
   }
-  await finalizeManifest(layout, { status, ...(decision ? { decision } : {}) }).catch(() => undefined);
+  await finalizeManifest(layout, {
+    status,
+    ...(decision ? { decision } : {})
+  }).catch(() => undefined);
 }
 
 function inferGateGroups(evalConfig: EvalConfig): EvalConfig {
@@ -296,8 +317,12 @@ function inferGateGroups(evalConfig: EvalConfig): EvalConfig {
     ...evalConfig,
     gates: evalConfig.gates.map((gate) => {
       if (gate.group) return gate;
-      if (gate.type === 'hidden_acceptance') return { ...gate, group: 'hidden_acceptance' as const };
-      if (gate.required && ['task_acceptance', 'regression', 'hard'].includes(gate.type)) {
+      if (gate.type === 'hidden_acceptance')
+        return { ...gate, group: 'hidden_acceptance' as const };
+      if (
+        gate.required &&
+        ['task_acceptance', 'regression', 'hard'].includes(gate.type)
+      ) {
         return { ...gate, group: 'pass_to_pass' as const };
       }
       return gate;
@@ -346,7 +371,10 @@ function advisoryFindingsFor(options: {
   agentSpec: string;
   evalConfig: EvalConfig;
 }): Array<Record<string, unknown>> {
-  const sameModelReview = resolveSameModelReview(options.agentSpec, options.evalConfig.critic);
+  const sameModelReview = resolveSameModelReview(
+    options.agentSpec,
+    options.evalConfig.critic
+  );
   return options.gateRuns
     .filter((gate) => gate.type === 'advisory')
     .map((gate) => ({
@@ -357,7 +385,6 @@ function advisoryFindingsFor(options: {
       same_model_review: sameModelReview
     }));
 }
-
 
 async function writeFailureReport(options: {
   layout: RunLayout;
@@ -391,7 +418,9 @@ async function writeFailureReport(options: {
   return writeEvalReport(options.layout.root, report);
 }
 
-export async function runKernel(options: RunKernelOptions): Promise<RunKernelResult> {
+export async function runKernel(
+  options: RunKernelOptions
+): Promise<RunKernelResult> {
   const loopId = options.loopId ?? generatedLoopId();
   const events: LoopEvent[] = [];
   const logToStdout = options.logToStdout ?? false;
@@ -403,7 +432,13 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
   const cleanupRefs: WorktreeRef[] = [];
 
   try {
-    await writeLoopEvent(undefined, events, 'draft', 'loading task and eval config', logToStdout);
+    await writeLoopEvent(
+      undefined,
+      events,
+      'draft',
+      'loading task and eval config',
+      logToStdout
+    );
     const rawTask = await readFile(options.taskFile, 'utf8');
     const rawEval = await readFile(options.evalFile, 'utf8');
     const inputProvenance = {
@@ -415,16 +450,38 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
     evalConfig = inferGateGroups(await loadEvalConfig(options.evalFile));
     projectId = projectId ?? sanitizeProjectId(evalConfig.project);
 
-    await writeLoopEvent(undefined, events, 'workspace_preparing', 'resolving base commit', logToStdout);
-    baseCommit = baseCommit ?? (await resolveBaseCommit(options.repoPath, task.base_branch ?? 'HEAD'));
+    await writeLoopEvent(
+      undefined,
+      events,
+      'workspace_preparing',
+      'resolving base commit',
+      logToStdout
+    );
+    baseCommit =
+      baseCommit ??
+      (await resolveBaseCommit(options.repoPath, task.base_branch ?? 'HEAD'));
 
-    layout = await createRunDir({ dataDir: options.dataDir, projectId, loopId });
+    layout = await createRunDir({
+      dataDir: options.dataDir,
+      projectId,
+      loopId
+    });
     await initializeManifest(layout, { taskId: task.id, baseCommit });
-    await writeLoopEvent(layout, events, 'queued', 'run directory initialized', logToStdout);
+    await writeLoopEvent(
+      layout,
+      events,
+      'queued',
+      'run directory initialized',
+      logToStdout
+    );
 
     await writeArtifact(layout.root, 'input/task.yaml', rawTask);
     await writeArtifact(layout.root, 'input/eval.yaml', rawEval);
-    await writeArtifact(layout.root, 'input/base_commit.txt', `${baseCommit}\n`);
+    await writeArtifact(
+      layout.root,
+      'input/base_commit.txt',
+      `${baseCommit}\n`
+    );
 
     const agentEnv = await prepareAgentEnv({
       env: process.env,
@@ -439,9 +496,21 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
     );
 
     throwIfCancelled(options.signal);
-    await writeLoopEvent(layout, events, 'workspace_preparing', 'creating isolated worktree', logToStdout);
+    await writeLoopEvent(
+      layout,
+      events,
+      'workspace_preparing',
+      'creating isolated worktree',
+      logToStdout
+    );
     const worktree = await cancellable(
-      createWorktree({ repoPath: options.repoPath, dataDir: options.dataDir, projectId, loopId, baseCommit }),
+      createWorktree({
+        repoPath: options.repoPath,
+        dataDir: options.dataDir,
+        projectId,
+        loopId,
+        baseCommit
+      }),
       options.signal
     );
     cleanupRefs.push(worktree);
@@ -469,9 +538,18 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
       ...(options.retryOf ? { retry_of: options.retryOf } : {}),
       ...(options.retryMode ? { retry_mode: options.retryMode } : {})
     };
-    await writeJson(path.join(layout.workspace, 'workspace-ref.json'), workspaceRef);
+    await writeJson(
+      path.join(layout.workspace, 'workspace-ref.json'),
+      workspaceRef
+    );
 
-    await writeLoopEvent(layout, events, 'workspace_preparing', 'capturing baseline metrics', logToStdout);
+    await writeLoopEvent(
+      layout,
+      events,
+      'workspace_preparing',
+      'capturing baseline metrics',
+      logToStdout
+    );
     const baseline = await cancellable(
       captureBaseline({
         evalConfig,
@@ -487,19 +565,56 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
       options.signal
     );
 
-    await writeLoopEvent(layout, events, 'workspace_preparing', 'capturing git metadata snapshot', logToStdout);
-    const gitMetadataBefore = await cancellable(snapshotGitMetadata(worktree.path), options.signal);
-    await writeJson(path.join(layout.integrity, 'git-metadata-before.json'), gitMetadataBefore);
-    await writeLoopEvent(layout, events, 'workspace_ready', 'workspace fixed at base commit', logToStdout);
+    await writeLoopEvent(
+      layout,
+      events,
+      'workspace_preparing',
+      'capturing git metadata snapshot',
+      logToStdout
+    );
+    const gitMetadataBefore = await cancellable(
+      snapshotGitMetadata(worktree.path),
+      options.signal
+    );
+    await writeJson(
+      path.join(layout.integrity, 'git-metadata-before.json'),
+      gitMetadataBefore
+    );
+    await writeLoopEvent(
+      layout,
+      events,
+      'workspace_ready',
+      'workspace fixed at base commit',
+      logToStdout
+    );
 
     let agentResult: AgentRunResult | undefined;
     if (options.evalOnlyPatch !== undefined) {
-      await writeLoopEvent(layout, events, 'agent_running', 'agent skipped; applying stored candidate.patch', logToStdout);
-      await writeArtifact(layout.root, 'logs/agent.stdout.log', 'agent skipped for retry_eval_only; stored candidate.patch reapplied\n');
+      await writeLoopEvent(
+        layout,
+        events,
+        'agent_running',
+        'agent skipped; applying stored candidate.patch',
+        logToStdout
+      );
+      await writeArtifact(
+        layout.root,
+        'logs/agent.stdout.log',
+        'agent skipped for retry_eval_only; stored candidate.patch reapplied\n'
+      );
       await writeArtifact(layout.root, 'logs/agent.stderr.log', '');
-      await cancellable(applyPatch(worktree.path, options.evalOnlyPatch), options.signal);
+      await cancellable(
+        applyPatch(worktree.path, options.evalOnlyPatch),
+        options.signal
+      );
     } else {
-      await writeLoopEvent(layout, events, 'agent_running', 'running builder agent', logToStdout);
+      await writeLoopEvent(
+        layout,
+        events,
+        'agent_running',
+        'running builder agent',
+        logToStdout
+      );
       const adapter = resolveAgentAdapter(options.agentSpec, {
         loopId,
         limits: mergeLimits(task.limits, evalConfig.limits),
@@ -517,16 +632,26 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
             VIBELOOP_TASK_FILE: agentTaskFile,
             VIBELOOP_WORKTREE: worktree.path
           },
-          timeoutMs: mergeLimits(task.limits, evalConfig.limits).agent_timeout_seconds
-            ? mergeLimits(task.limits, evalConfig.limits).agent_timeout_seconds! * 1000
+          timeoutMs: mergeLimits(task.limits, evalConfig.limits)
+            .agent_timeout_seconds
+            ? mergeLimits(task.limits, evalConfig.limits)
+                .agent_timeout_seconds! * 1000
             : undefined,
           stdoutFile: path.join(layout.logs, 'agent.stdout.log'),
           stderrFile: path.join(layout.logs, 'agent.stderr.log')
         }),
         options.signal
       );
-      await writeArtifact(layout.root, 'logs/agent.stdout.log', agentResult.stdout);
-      await writeArtifact(layout.root, 'logs/agent.stderr.log', agentResult.stderr);
+      await writeArtifact(
+        layout.root,
+        'logs/agent.stdout.log',
+        agentResult.stdout
+      );
+      await writeArtifact(
+        layout.root,
+        'logs/agent.stderr.log',
+        agentResult.stderr
+      );
       if (agentResult.status !== 'pass') {
         const reportPath = await writeFailureReport({
           layout,
@@ -538,17 +663,41 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
           message: `agent failed: ${agentResult.stderr || agentResult.status}`,
           provenance: inputProvenance
         });
-        await writeLoopEvent(layout, events, 'decision_ready', 'agent failure report generated', logToStdout);
+        await writeLoopEvent(
+          layout,
+          events,
+          'decision_ready',
+          'agent failure report generated',
+          logToStdout
+        );
         await finalizeIfRunning(layout, 'failed', 'failed');
-        return { loopId, projectId, layout, status: 'failed', exitCode: EXIT_CODES.failed, reportPath, events };
+        return {
+          loopId,
+          projectId,
+          layout,
+          status: 'failed',
+          exitCode: EXIT_CODES.failed,
+          reportPath,
+          events
+        };
       }
     }
 
-    const gitMetadataAfter = await cancellable(snapshotGitMetadata(worktree.path), options.signal);
-    await writeJson(path.join(layout.integrity, 'git-metadata-after.json'), gitMetadataAfter);
+    const gitMetadataAfter = await cancellable(
+      snapshotGitMetadata(worktree.path),
+      options.signal
+    );
+    await writeJson(
+      path.join(layout.integrity, 'git-metadata-after.json'),
+      gitMetadataAfter
+    );
 
     const diff = await cancellable(
-      extractDiff({ repoPath: worktree.path, baseCommit, artifactRoot: layout.root }),
+      extractDiff({
+        repoPath: worktree.path,
+        baseCommit,
+        artifactRoot: layout.root
+      }),
       options.signal
     );
     const changedFiles = annotateScope(diff.changedFiles, {
@@ -560,14 +709,48 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
       'patches/changed-files.json',
       `${JSON.stringify(toAnnotatedChangedFilesArtifact(baseCommit, changedFiles), null, 2)}\n`
     );
-    await writeLoopEvent(layout, events, 'patch_created', `${changedFiles.length} changed file(s) detected`, logToStdout);
+    await writeLoopEvent(
+      layout,
+      events,
+      'patch_created',
+      `${changedFiles.length} changed file(s) detected`,
+      logToStdout
+    );
 
-    await writeLoopEvent(layout, events, 'guards_running', 'running builtin guards', logToStdout);
-    if (evalConfig.gates.some((gate) => ['hard', 'task_acceptance', 'regression', 'security', 'performance'].includes(gate.type))) {
-      await writeLoopEvent(layout, events, 'eval_running', 'running eval.yaml project gates', logToStdout);
+    await writeLoopEvent(
+      layout,
+      events,
+      'guards_running',
+      'running builtin guards',
+      logToStdout
+    );
+    if (
+      evalConfig.gates.some((gate) =>
+        [
+          'hard',
+          'task_acceptance',
+          'regression',
+          'security',
+          'performance'
+        ].includes(gate.type)
+      )
+    ) {
+      await writeLoopEvent(
+        layout,
+        events,
+        'eval_running',
+        'running eval.yaml project gates',
+        logToStdout
+      );
     }
     if (evalConfig.gates.some((gate) => gate.type === 'advisory')) {
-      await writeLoopEvent(layout, events, 'critic_running', 'running advisory gates', logToStdout);
+      await writeLoopEvent(
+        layout,
+        events,
+        'critic_running',
+        'running advisory gates',
+        logToStdout
+      );
     }
 
     const testOnBase = await maybeVerifyTestOnBase({
@@ -607,10 +790,23 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
         options.signal
       );
     } finally {
-      await Promise.all(hiddenCleanups.map((cleanup) => cleanup().catch(() => undefined)));
+      await Promise.all(
+        hiddenCleanups.map((cleanup) => cleanup().catch(() => undefined))
+      );
     }
 
-    const candidateMetrics = await collectCandidateMetrics(layout.root, gateResult.report.gates);
+    const candidate = await collectCandidateMetrics(
+      layout.root,
+      gateResult.report.gates
+    );
+    const candidateMetrics = candidate.metrics;
+    if (candidate.rejected.length > 0) {
+      await writeArtifact(
+        layout.root,
+        'reports/metrics-debug.json',
+        `${JSON.stringify({ rejected: candidate.rejected }, null, 2)}\n`
+      );
+    }
     const evidence = evaluateRequiredEvidence(task.required_evidence, {
       changedFiles,
       baseline,
@@ -647,11 +843,20 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
       verifierMismatch
     });
 
-    await writeLoopEvent(layout, events, 'decision_ready', `decision=${decision.decision}`, logToStdout);
+    await writeLoopEvent(
+      layout,
+      events,
+      'decision_ready',
+      `decision=${decision.decision}`,
+      logToStdout
+    );
     const gateArtifactHashes = await hashArtifactRefs(layout.root, [
       'reports/gate-report.json',
       'reports/evidence-summary.json',
-      ...gateResult.report.gates.flatMap((gate) => [gate.stdout_ref, gate.stderr_ref])
+      ...gateResult.report.gates.flatMap((gate) => [
+        gate.stdout_ref,
+        gate.stderr_ref
+      ])
     ]);
     const provenance: EvalReportProvenance = {
       ...inputProvenance,
@@ -679,10 +884,16 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
         human_approval_required:
           (task.human_approval_required ?? false) ||
           risk.unknown ||
-          risk.areas.some((area) => (evalConfig!.human_approval_risk_areas ?? []).includes(area)),
+          risk.areas.some((area) =>
+            (evalConfig!.human_approval_risk_areas ?? []).includes(area)
+          ),
         reason: risk.unknown ? 'unknown' : 'classified'
       },
-      advisoryFindings: advisoryFindingsFor({ gateRuns: gateResult.report.gates, agentSpec: options.agentSpec, evalConfig }),
+      advisoryFindings: advisoryFindingsFor({
+        gateRuns: gateResult.report.gates,
+        agentSpec: options.agentSpec,
+        evalConfig
+      }),
       provenance,
       provenanceVerified: true,
       verifier,
@@ -701,7 +912,13 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
     });
     const reportPath = await writeEvalReport(layout.root, report);
     const status = terminalStatusForDecision(decision.decision);
-    await writeLoopEvent(layout, events, statusToState(status), 'loop completed', logToStdout);
+    await writeLoopEvent(
+      layout,
+      events,
+      statusToState(status),
+      'loop completed',
+      logToStdout
+    );
     await finalizeIfRunning(layout, status, status);
     return {
       loopId,
@@ -728,7 +945,13 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
         message: error instanceof Error ? error.message : String(error)
       }).catch(() => undefined);
     }
-    await writeLoopEvent(layout, events, cancelled ? 'cancelled' : 'failed', error instanceof Error ? error.message : String(error), logToStdout).catch(() => undefined);
+    await writeLoopEvent(
+      layout,
+      events,
+      cancelled ? 'cancelled' : 'failed',
+      error instanceof Error ? error.message : String(error),
+      logToStdout
+    ).catch(() => undefined);
     await finalizeIfRunning(layout, status, status);
     if (!layout || !projectId) {
       throw error;
@@ -746,7 +969,9 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
     await Promise.all(
       cleanupRefs.reverse().map(async (ref) => {
         await removeWorktree(ref).catch(async () => {
-          await rm(ref.path, { recursive: true, force: true }).catch(() => undefined);
+          await rm(ref.path, { recursive: true, force: true }).catch(
+            () => undefined
+          );
         });
       })
     );
@@ -823,6 +1048,12 @@ export async function copyRetryInputs(options: {
   newTaskFile: string;
   newEvalFile: string;
 }): Promise<void> {
-  await copyFile(path.join(options.previousRunRoot, 'input', 'task.yaml'), options.newTaskFile);
-  await copyFile(path.join(options.previousRunRoot, 'input', 'eval.yaml'), options.newEvalFile);
+  await copyFile(
+    path.join(options.previousRunRoot, 'input', 'task.yaml'),
+    options.newTaskFile
+  );
+  await copyFile(
+    path.join(options.previousRunRoot, 'input', 'eval.yaml'),
+    options.newEvalFile
+  );
 }

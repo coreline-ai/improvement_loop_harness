@@ -174,17 +174,17 @@ export async function removeWorktree(
   ref: Pick<WorktreeRef, 'repoPath' | 'path' | 'lockPath'>
 ): Promise<void> {
   await withRepoLock(ref.lockPath, async () => {
-    await safeGit(
-      ref.repoPath,
-      [
-        'worktree',
-        'remove',
-        '--force',
-        ref.path
-      ],
-      { timeoutMs: 10_000 }
-    ).catch(async () => {
+    await safeGit(ref.repoPath, ['worktree', 'remove', '--force', ref.path], {
+      timeoutMs: 10_000
+    }).catch(async () => {
       await rm(ref.path, { recursive: true, force: true });
+      // The rm fallback leaves the .git/worktrees/<id> admin entry stale. Prune it
+      // directly here — we already hold the repo lock, so do NOT call pruneWorktrees()
+      // (it would re-acquire the same non-reentrant lock and time out). Pruning is
+      // best-effort cleanup hygiene and must never fail the removal.
+      await safeGit(ref.repoPath, ['worktree', 'prune'], {
+        timeoutMs: 10_000
+      }).catch(() => undefined);
     });
   });
 }

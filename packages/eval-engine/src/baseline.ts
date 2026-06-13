@@ -4,15 +4,15 @@ import path from 'node:path';
 import { runCommand } from '@vibeloop/shared';
 import type { EvalConfig, EvalGate } from '@vibeloop/task-protocol';
 import { interpolate, interpolationValues } from './interpolate.js';
+import {
+  BASELINE_METRICS_SCOPE,
+  collectMetricsForGates,
+  ensureStructuredMetricsDir,
+  structuredMetricsPath,
+  STRUCTURED_METRICS_ENV,
+  type BaselineMetrics
+} from './metrics.js';
 import type { GateReportEntry } from './types.js';
-
-export interface BaselineMetrics {
-  coverage_percent?: number | undefined;
-  latency_ms?: number | undefined;
-  security_findings?: number | undefined;
-  critical_security_findings?: number | undefined;
-  duplicate_score?: number | undefined;
-}
 
 export interface BaselineReport {
   schema_version: '1.0';
@@ -98,49 +98,6 @@ function isBaselineGate(gate: EvalGate): boolean {
   );
 }
 
-function parseMetric(stdout: string, names: string[]): number | undefined {
-  for (const name of names) {
-    const pattern = new RegExp(
-      `${name}\\s*[:=]\\s*([0-9]+(?:\\.[0-9]+)?)`,
-      'i'
-    );
-    const match = stdout.match(pattern);
-    if (match?.[1]) {
-      return Number(match[1]);
-    }
-  }
-  return undefined;
-}
-
-function collectMetrics(
-  gateRuns: readonly GateReportEntry[],
-  stdoutByGate: ReadonlyMap<string, string>
-): BaselineMetrics {
-  const metrics: BaselineMetrics = {};
-  for (const gate of gateRuns) {
-    const stdout = stdoutByGate.get(gate.name) ?? '';
-    const coverage = parseMetric(stdout, ['coverage', 'coverage_percent']);
-    const latency = parseMetric(stdout, ['latency', 'latency_ms', 'p95_ms']);
-    const findings = parseMetric(stdout, ['security_findings', 'findings']);
-    const critical = parseMetric(stdout, [
-      'critical_security_findings',
-      'critical'
-    ]);
-    const duplicate = parseMetric(stdout, [
-      'duplicate_score',
-      'duplication',
-      'duplicates'
-    ]);
-
-    if (coverage !== undefined) metrics.coverage_percent = coverage;
-    if (latency !== undefined) metrics.latency_ms = latency;
-    if (findings !== undefined) metrics.security_findings = findings;
-    if (critical !== undefined) metrics.critical_security_findings = critical;
-    if (duplicate !== undefined) metrics.duplicate_score = duplicate;
-  }
-  return metrics;
-}
-
 function collectBaseRedTests(gateRuns: readonly GateReportEntry[]): string[] {
   return gateRuns
     .filter((gate) => gate.status === 'fail' || gate.status === 'error')
@@ -197,6 +154,10 @@ export async function captureBaseline(
   const baselineGates = options.evalConfig.gates.filter(isBaselineGate);
   const stdoutByGate = new Map<string, string>();
   const gateRuns: GateReportEntry[] = [];
+  await ensureStructuredMetricsDir(
+    options.artifactRoot,
+    BASELINE_METRICS_SCOPE
+  );
 
   for (const gate of baselineGates) {
     const startedAt = new Date();
@@ -207,7 +168,14 @@ export async function captureBaseline(
     );
     const result = await runCommand(command, {
       cwd: options.worktreeRoot,
-      env: options.env ?? process.env,
+      env: {
+        ...(options.env ?? process.env),
+        [STRUCTURED_METRICS_ENV]: structuredMetricsPath(
+          options.artifactRoot,
+          BASELINE_METRICS_SCOPE,
+          gate.name
+        )
+      },
       ...(gate.timeout_seconds
         ? { timeoutMs: gate.timeout_seconds * 1000 }
         : {})
@@ -232,6 +200,15 @@ export async function captureBaseline(
     });
   }
 
+  const { metrics } = await collectMetricsForGates({
+    artifactRoot: options.artifactRoot,
+    scope: BASELINE_METRICS_SCOPE,
+    gates: gateRuns.map((gate) => ({
+      name: gate.name,
+      stdout: stdoutByGate.get(gate.name) ?? ''
+    }))
+  });
+
   const report: BaselineReport = {
     schema_version: '1.0',
     project: options.evalConfig.project,
@@ -243,7 +220,7 @@ export async function captureBaseline(
     generated_at: new Date().toISOString(),
     gate_runs: gateRuns,
     base_red_tests: collectBaseRedTests(gateRuns),
-    metrics: collectMetrics(gateRuns, stdoutByGate)
+    metrics
   };
 
   await mkdir(path.dirname(cachePath), { recursive: true });

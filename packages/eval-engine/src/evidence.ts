@@ -1,6 +1,7 @@
 import type { GuardChangedFile } from '@vibeloop/guards';
 import type { GateReportEntry } from './types.js';
-import type { BaselineMetrics, BaselineReport } from './baseline.js';
+import type { BaselineReport } from './baseline.js';
+import type { BaselineMetrics } from './metrics.js';
 import type { TestOnBaseReport } from './test-on-base.js';
 import { detectAddsRegressionTest } from './detectors/adds-regression-test.js';
 import { detectFixesReproducedFailure } from './detectors/fixes-reproduced-failure.js';
