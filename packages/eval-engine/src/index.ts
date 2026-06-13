@@ -12,5 +12,6 @@ export * from './adversary-filter.js';
 export * from './interpolate.js';
 export * from './metrics.js';
 export * from './quality.js';
+export * from './rulepack-shadow.js';
 export * from './orchestrator.js';
 export * from './types.js';
