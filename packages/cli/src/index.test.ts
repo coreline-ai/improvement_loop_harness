@@ -152,6 +152,7 @@ describe('createProgram', () => {
     expect(program.commands.map((command) => command.name()).sort()).toEqual([
       'discover',
       'gc',
+      'improve',
       'report',
       'retry',
       'run'

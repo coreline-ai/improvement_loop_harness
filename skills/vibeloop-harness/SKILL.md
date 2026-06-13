@@ -1,6 +1,6 @@
 ---
 name: vibeloop-harness
-description: Run VibeLoop Harness verification for one AI code change from Codex. Use when a user asks to fix one issue with guarded acceptance gates, verify an existing patch, run Codex OAuth UAT, create task/eval YAML, summarize eval-report.json, or prepare a PR candidate only after deterministic VibeLoop accept/ALL_PASS.
+description: Run VibeLoop Harness verification for one AI code change from Codex. Use when a user asks to fix one issue with guarded acceptance gates, verify an existing patch, run Codex OAuth UAT, run Skill real-user loop UAT, run adversarial failure UAT, create task/eval YAML, summarize eval-report.json, or prepare a PR candidate only after deterministic VibeLoop accept/ALL_PASS.
 ---
 
 # VibeLoop Harness
@@ -42,6 +42,23 @@ vibeloop run \
 
 Use `command:<shell command>` for local/Skill-provided commands, `mock:<scenario.json>` for tests, or `codex`/Codex OAuth command specs when configured.
 
+### fix-and-improve
+
+Run several builder candidates for one problem and let the harness deterministically select the best-known accepted candidate. Pass `--agent` once per candidate. Selection is done by the deterministic Arbiter (fixed score + tie-break), never by an LLM, and only candidates that are `accept` AND quality-`qualified` are considered.
+
+```bash
+vibeloop improve \
+  --repo <repo> \
+  --task <task.yaml> \
+  --eval <eval.yaml> \
+  --agent '<builder-spec-a>' \
+  --agent '<builder-spec-b>' \
+  --project-id <project> \
+  --loop-id <loop>
+```
+
+The command prints `selected_candidate_id` and a `selection_report` path. A PR candidate is only the `selected` candidate; if none is selected, nothing cleared the bar (no PR candidate). Do not override the selection with an LLM opinion. Quality thresholds live in `eval.yaml`'s `evaluator` block (fixed rules). See `docs/SELF_IMPROVEMENT_LOOP_DESIGN.md`.
+
 ### verify-only
 
 Verify a stored patch through SDK/CLI support. Do not ask the builder agent to edit again.
@@ -55,6 +72,26 @@ pnpm uat:codex-oauth
 ```
 
 This must use ChatGPT/Codex OAuth through a local or external compatible proxy. It records only auth-header presence, never token text.
+
+### loop-uat
+
+Use the project script to prove multiple isolated Skill invocations against a temporary git repo:
+
+```bash
+pnpm uat:skill-loop
+```
+
+This uses a deterministic issue queue, not autonomous discovery. Each accepted iteration must have `decision=accept`, first reason `ALL_PASS`, unique artifacts, and a local `pr-candidate/<task-id>` branch in the temporary repo.
+
+### adversarial-loop-uat
+
+Use the project script to prove bad candidates are blocked or surfaced before PR-candidate creation:
+
+```bash
+pnpm uat:skill-loop:adversarial
+```
+
+It intentionally exercises hidden-test bypass, protected path tampering, test-integrity cheating, and context leakage. The script passes only when all failures are detected and no PR candidate is created.
 
 ### discover
 
