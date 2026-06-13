@@ -1,3 +1,4 @@
+export * from './artifact-leak.js';
 export * from './diff.js';
 export * from './diff-scope.js';
 export * from './git-meta-integrity.js';

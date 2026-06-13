@@ -1,4 +1,4 @@
-import type { GuardChangedFile } from '@vibeloop/guards';
+import type { GuardChangedFile, GuardCheckResult } from '@vibeloop/guards';
 import type {
   EvalConfig,
   EvalGate,
@@ -28,6 +28,9 @@ export interface GateRunContext {
   changedFiles: GuardChangedFile[];
   gitMetadataBefore?: GitMetadataSnapshot | undefined;
   gitMetadataAfter?: GitMetadataSnapshot | undefined;
+  /** Precomputed artifact-leak scan result (the scan runs in the kernel where the
+   *  agent output is available; the builtin gate only surfaces this verdict). */
+  artifactLeak?: GuardCheckResult | undefined;
 }
 
 export interface GateReportEntry {
@@ -45,7 +48,6 @@ export interface GateReportEntry {
   summary: string | null;
   group?: EvalGate['group'] | undefined;
 }
-
 
 export interface GateReport {
   schema_version: '1.0';

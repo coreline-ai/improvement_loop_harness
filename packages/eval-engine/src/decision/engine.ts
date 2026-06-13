@@ -199,6 +199,23 @@ export function decide(input: DecideInput): DecisionResult {
     };
   }
 
+  const artifactLeakGate = failedSpecificGate(input, [
+    'artifact-leak',
+    'artifact_leak'
+  ]);
+  if (artifactLeakGate) {
+    return {
+      decision: 'reject',
+      reasons: [
+        reason(
+          REASON_CODES.GUARD_ARTIFACT_LEAK,
+          'Agent output leaked forbidden context/secret content.',
+          artifactLeakGate.stdout_ref
+        )
+      ]
+    };
+  }
+
   const limitsGate = failedSpecificGate(input, ['limits']);
   if (limitsGate) {
     return {

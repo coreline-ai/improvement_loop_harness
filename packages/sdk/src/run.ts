@@ -47,8 +47,10 @@ import {
   annotateScope,
   applyPatch,
   extractDiff,
+  scanArtifactLeak,
   type ChangedFilesArtifact,
-  type GuardChangedFile
+  type GuardChangedFile,
+  type GuardCheckResult
 } from '@vibeloop/guards';
 import type { Decision } from '@vibeloop/shared';
 import {
@@ -620,6 +622,7 @@ export async function runKernel(
     );
 
     let agentResult: AgentRunResult | undefined;
+    let artifactLeakResult: GuardCheckResult | undefined;
     if (options.evalOnlyPatch !== undefined) {
       await writeLoopEvent(
         layout,
@@ -667,21 +670,30 @@ export async function runKernel(
             .agent_timeout_seconds
             ? mergeLimits(task.limits, evalConfig.limits)
                 .agent_timeout_seconds! * 1000
-            : undefined,
-          stdoutFile: path.join(layout.logs, 'agent.stdout.log'),
-          stderrFile: path.join(layout.logs, 'agent.stderr.log')
+            : undefined
+          // No stdoutFile/stderrFile: capture in memory (bounded by the exec
+          // buffer) and scan/redact BEFORE persisting, so raw leaked content
+          // never lands on disk.
         }),
         options.signal
       );
+      // artifact-leak scan: redact agent output before it is written anywhere,
+      // and surface the verdict to the builtin artifact-leak gate.
+      const leakScan = scanArtifactLeak({
+        stdout: agentResult.stdout,
+        stderr: agentResult.stderr,
+        config: evalConfig.artifact_leak
+      });
+      artifactLeakResult = leakScan.result;
       await writeArtifact(
         layout.root,
         'logs/agent.stdout.log',
-        agentResult.stdout
+        leakScan.redactedStdout
       );
       await writeArtifact(
         layout.root,
         'logs/agent.stderr.log',
-        agentResult.stderr
+        leakScan.redactedStderr
       );
       if (agentResult.status !== 'pass') {
         const reportPath = await writeFailureReport({
@@ -691,7 +703,7 @@ export async function runKernel(
           task,
           baseCommit,
           code: 'AGENT_FAILED',
-          message: `agent failed: ${agentResult.stderr || agentResult.status}`,
+          message: `agent failed: ${leakScan.redactedStderr || agentResult.status}`,
           provenance: inputProvenance
         });
         await writeLoopEvent(
@@ -817,7 +829,8 @@ export async function runKernel(
           env: agentEnv,
           changedFiles,
           gitMetadataBefore,
-          gitMetadataAfter
+          gitMetadataAfter,
+          artifactLeak: artifactLeakResult
         }),
         options.signal
       );

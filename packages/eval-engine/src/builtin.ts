@@ -76,6 +76,16 @@ async function runBuiltinCheck(
         context.evalConfig.test_integrity ?? {},
         { baseCommit: context.baseCommit }
       );
+    case 'artifact-leak':
+      // Scan runs in the kernel (where agent stdout/stderr is available); this
+      // gate only surfaces the precomputed verdict.
+      return (
+        context.artifactLeak ?? {
+          status: 'pass',
+          summary: 'artifact-leak not evaluated',
+          violations: []
+        }
+      );
     default:
       throw new BuiltinGateError(
         `unsupported builtin gate command: ${gate.command}`

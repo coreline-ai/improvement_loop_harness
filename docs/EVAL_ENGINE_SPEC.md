@@ -169,22 +169,25 @@ Hidden acceptance 테스트의 보관 위치는 대상 repo 밖 하네스 설정
 
 decision engine은 아래 우선순위 표를 위에서부터 평가해 **첫 번째로 일치하는 규칙**으로 판정한다 (first-match-wins). 같은 입력은 항상 같은 출력을 내는 순수 함수여야 한다.
 
-| 순위 | 조건                                                                    | decision           | reason code                    |
-| ---: | ----------------------------------------------------------------------- | ------------------ | ------------------------------ |
-|    1 | changed files 없음                                                      | reject             | `NO_CHANGED_FILES`             |
-|    2 | git metadata 변조 감지                                                  | reject             | `GUARD_GIT_META_TAMPER`        |
-|    3 | protected path 변경 ∧ (meta-eval 비활성 ∨ task.risk_area ≠ eval_system) | reject             | `GUARD_PROTECTED_PATH`         |
-|    4 | protected path 변경 ∧ meta-eval 활성 ∧ task.risk_area = eval_system     | needs_human_review | `META_EVAL_REQUIRED`           |
-|    5 | write_scope 위반 또는 symlink 우회                                      | reject             | `GUARD_SCOPE_VIOLATION`        |
-|    6 | test integrity 실패                                                     | reject             | `GUARD_TEST_INTEGRITY`         |
-|    7 | limits 초과                                                             | reject             | `GUARD_LIMIT_EXCEEDED`         |
-|    8 | eval-report provenance hash 불일치                                      | reject             | `ARTIFACT_PROVENANCE_MISMATCH` |
-|    9 | required gate fail/error (`hidden_acceptance` 포함)                     | reject             | `GATE_REQUIRED_FAILED`         |
-|   10 | required evidence 전부 missing                                          | reject             | `EVIDENCE_MISSING`             |
-|   11 | evidence inconclusive                                                   | needs_more_tests   | `EVIDENCE_INCONCLUSIVE`        |
-|   12 | risk area가 human approval 대상 또는 unknown                            | needs_human_review | `RISK_HUMAN_APPROVAL`          |
-|   13 | verifier lane의 decision/required gate status가 local과 불일치          | needs_human_review | `VERIFIER_MISMATCH`            |
-|   14 | 위 어디에도 해당 없음 (전부 통과)                                       | accept             | `ALL_PASS`                     |
+| 순위 | 조건                                                                     | decision           | reason code                    |
+| ---: | ------------------------------------------------------------------------ | ------------------ | ------------------------------ |
+|    1 | changed files 없음                                                       | reject             | `NO_CHANGED_FILES`             |
+|    2 | git metadata 변조 감지                                                   | reject             | `GUARD_GIT_META_TAMPER`        |
+|    3 | protected path 변경 ∧ (meta-eval 비활성 ∨ task.risk_area ≠ eval_system)  | reject             | `GUARD_PROTECTED_PATH`         |
+|    4 | protected path 변경 ∧ meta-eval 활성 ∧ task.risk_area = eval_system      | needs_human_review | `META_EVAL_REQUIRED`           |
+|    5 | write_scope 위반 또는 symlink 우회                                       | reject             | `GUARD_SCOPE_VIOLATION`        |
+|    6 | test integrity 실패                                                      | reject             | `GUARD_TEST_INTEGRITY`         |
+|    7 | agent/artifact context·secret 누설 (forbidden literal 또는 opt-in token) | reject             | `GUARD_ARTIFACT_LEAK`          |
+|    8 | limits 초과                                                              | reject             | `GUARD_LIMIT_EXCEEDED`         |
+|    9 | eval-report provenance hash 불일치                                       | reject             | `ARTIFACT_PROVENANCE_MISMATCH` |
+|   10 | required gate fail/error (`hidden_acceptance` 포함)                      | reject             | `GATE_REQUIRED_FAILED`         |
+|   11 | required evidence 전부 missing                                           | reject             | `EVIDENCE_MISSING`             |
+|   12 | evidence inconclusive                                                    | needs_more_tests   | `EVIDENCE_INCONCLUSIVE`        |
+|   13 | risk area가 human approval 대상 또는 unknown                             | needs_human_review | `RISK_HUMAN_APPROVAL`          |
+|   14 | verifier lane의 decision/required gate status가 local과 불일치           | needs_human_review | `VERIFIER_MISMATCH`            |
+|   15 | 위 어디에도 해당 없음 (전부 통과)                                        | accept             | `ALL_PASS`                     |
+
+`artifact-leak`(builtin integrity guard)는 agent 실행 직후 커널이 (이미 절단된) stdout/stderr를 스캔해 forbidden literal/token을 redact한 뒤, 그 verdict를 게이트로 surface한다. raw 누설 내용은 redact 후에만 artifact/report에 저장된다. config(`eval.yaml` `artifact_leak`) 부재 시 스캔/게이트 미동작(하위호환). 상세는 [SELF_IMPROVEMENT_LOOP_DESIGN.md](./SELF_IMPROVEMENT_LOOP_DESIGN.md).
 
 - `decision_reasons`는 자유 문자열이 아니라 `{code, message, ref?}` 구조로 기록한다 ([../schemas/eval-report.schema.json](../schemas/eval-report.schema.json)).
 - LLM critic은 final authority가 아니다. critic output은 `advisory_findings`로만 들어가며 위 표의 어떤 조건에도 참여하지 않는다.

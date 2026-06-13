@@ -78,9 +78,9 @@ function input(overrides: Partial<DecideInput> = {}): DecideInput {
 }
 
 describe('decision rules', () => {
-  it('defines the 14 first-match-wins rules in order', () => {
+  it('defines the 15 first-match-wins rules in order', () => {
     expect(DECISION_RULES.map((rule) => rule.rank)).toEqual([
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
     ]);
     expect(DECISION_RULES.map((rule) => rule.code)).toEqual([
       REASON_CODES.NO_CHANGED_FILES,
@@ -89,6 +89,7 @@ describe('decision rules', () => {
       REASON_CODES.META_EVAL_REQUIRED,
       REASON_CODES.GUARD_SCOPE_VIOLATION,
       REASON_CODES.GUARD_TEST_INTEGRITY,
+      REASON_CODES.GUARD_ARTIFACT_LEAK,
       REASON_CODES.GUARD_LIMIT_EXCEEDED,
       REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH,
       REASON_CODES.GATE_REQUIRED_FAILED,
@@ -98,6 +99,32 @@ describe('decision rules', () => {
       REASON_CODES.VERIFIER_MISMATCH,
       REASON_CODES.ALL_PASS
     ]);
+  });
+
+  it('rejects with GUARD_ARTIFACT_LEAK when the artifact-leak gate fails', () => {
+    const result = decide({
+      changedFiles: [
+        {
+          path: 'src/a.ts',
+          status: 'modified',
+          isSymlink: false,
+          addedLines: 1,
+          deletedLines: 0
+        }
+      ],
+      gateRuns: [
+        gate({
+          name: 'artifact_leak',
+          type: 'integrity',
+          command: 'builtin:artifact-leak',
+          status: 'fail',
+          exit_code: 1
+        })
+      ],
+      improvementEvidence: []
+    });
+    expect(result.decision).toBe('reject');
+    expect(result.reasons[0]?.code).toBe(REASON_CODES.GUARD_ARTIFACT_LEAK);
   });
 
   it.each<[string, Partial<DecideInput>, string, ReasonCode]>([
@@ -315,10 +342,15 @@ describe('eval-report', () => {
       path.join(os.tmpdir(), 'vibeloop-provenance-')
     );
     await mkdir(path.join(artifactRoot, 'reports'), { recursive: true });
-    await writeFile(path.join(artifactRoot, 'reports', 'gate-report.json'), '{"ok":true}\n');
+    await writeFile(
+      path.join(artifactRoot, 'reports', 'gate-report.json'),
+      '{"ok":true}\n'
+    );
     const provenance = {
       ...fallbackProvenance(),
-      gate_artifact_hashes: await hashArtifactRefs(artifactRoot, ['reports/gate-report.json'])
+      gate_artifact_hashes: await hashArtifactRefs(artifactRoot, [
+        'reports/gate-report.json'
+      ])
     };
 
     await expect(
@@ -328,7 +360,10 @@ describe('eval-report', () => {
       })
     ).resolves.toBe(true);
 
-    await writeFile(path.join(artifactRoot, 'reports', 'gate-report.json'), '{"ok":false}\n');
+    await writeFile(
+      path.join(artifactRoot, 'reports', 'gate-report.json'),
+      '{"ok":false}\n'
+    );
 
     await expect(
       verifyEvalReportProvenance(artifactRoot, {
@@ -347,7 +382,11 @@ describe('eval-report', () => {
 
     expect(verifier.mismatch).toBe(true);
     expect(verifier.lanes).toEqual([
-      expect.objectContaining({ lane: 'local', status: 'pass', decision: 'accept' }),
+      expect.objectContaining({
+        lane: 'local',
+        status: 'pass',
+        decision: 'accept'
+      }),
       expect.objectContaining({ lane: 'ci', status: 'missing', decision: null })
     ]);
   });

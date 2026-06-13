@@ -23,6 +23,7 @@ export const BUILTIN_GUARD_COMMANDS = new Set([
   'diff-scope',
   'limits',
   'test-integrity',
+  'artifact-leak',
   'snapshot-delta'
 ]);
 
@@ -48,12 +49,16 @@ function assertBuiltinGuardCommand(gate: EvalGate): void {
   }
 
   if (!gate.command.startsWith('builtin:')) {
-    throw new EvalConfigError(`Guard gate '${gate.name}' must use builtin:<guard-name> command`);
+    throw new EvalConfigError(
+      `Guard gate '${gate.name}' must use builtin:<guard-name> command`
+    );
   }
 
   const builtinName = gate.command.slice('builtin:'.length);
   if (!BUILTIN_GUARD_COMMANDS.has(builtinName)) {
-    throw new EvalConfigError(`Guard gate '${gate.name}' uses unsupported builtin guard: ${builtinName}`);
+    throw new EvalConfigError(
+      `Guard gate '${gate.name}' uses unsupported builtin guard: ${builtinName}`
+    );
   }
 }
 
@@ -65,7 +70,10 @@ function normalizeRiskClassification(
   }
 
   return Object.fromEntries(
-    Object.entries(riskClassification).map(([area, paths]) => [area, normalizePathList(paths, `risk_classification.${area}`) ?? []])
+    Object.entries(riskClassification).map(([area, paths]) => [
+      area,
+      normalizePathList(paths, `risk_classification.${area}`) ?? []
+    ])
   );
 }
 
@@ -82,17 +90,28 @@ export async function loadEvalConfig(filePath: string): Promise<EvalConfig> {
       assertAllowedInterpolation(gate.cwd, `gate '${gate.name}' cwd`);
     }
     for (const [envName, envValue] of Object.entries(gate.env ?? {})) {
-      assertAllowedInterpolation(envValue, `gate '${gate.name}' env.${envName}`);
+      assertAllowedInterpolation(
+        envValue,
+        `gate '${gate.name}' env.${envName}`
+      );
     }
   }
 
-  const protectedPaths = normalizePathList(config.protected_paths, 'protected_paths');
-  const riskClassification = normalizeRiskClassification(config.risk_classification);
+  const protectedPaths = normalizePathList(
+    config.protected_paths,
+    'protected_paths'
+  );
+  const riskClassification = normalizeRiskClassification(
+    config.risk_classification
+  );
   const hiddenAcceptance = config.hidden_acceptance
     ? {
         tests: config.hidden_acceptance.tests.map((test, index) => ({
           ...test,
-          target_path: normalizeRepoPath(test.target_path, `hidden_acceptance.tests[${index}].target_path`)
+          target_path: normalizeRepoPath(
+            test.target_path,
+            `hidden_acceptance.tests[${index}].target_path`
+          )
         }))
       }
     : undefined;

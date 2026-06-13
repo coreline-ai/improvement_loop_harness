@@ -97,7 +97,41 @@ export interface EvalConfig {
    * docs/SELF_IMPROVEMENT_LOOP_DESIGN.md §8/§9.
    */
   evaluator?: EvaluatorConfig;
+  /**
+   * Deterministic agent/artifact context-leak guard. When configured, the harness
+   * scans the agent's (bounded) stdout/stderr, redacts matches before persisting,
+   * and the builtin `artifact-leak` gate rejects on a forbidden literal (precise)
+   * — and, only if opted in, on a token-like match. Absent ⇒ no scan/redaction/gate
+   * (backward compatible). See docs/SELF_IMPROVEMENT_LOOP_DESIGN.md.
+   */
+  artifact_leak?: ArtifactLeakConfig;
   gates: EvalGate[];
+}
+
+export interface ArtifactLeakLiteral {
+  /** Stable label recorded in logs/reports (the raw value is never persisted). */
+  label: string;
+  /** Forbidden literal to detect and redact. */
+  value: string;
+}
+
+export interface ArtifactLeakConfig {
+  /** Scan agent stdout. Default true when configured. */
+  scan_agent_stdout?: boolean;
+  /** Scan agent stderr. Default true when configured. */
+  scan_agent_stderr?: boolean;
+  /** Byte cap for scanning (≤ the exec buffer bound). Default 1 MiB. */
+  max_scan_bytes?: number;
+  /** Forbidden literals → REJECT (precise; e.g. prior issue id, hidden sentinel). */
+  forbidden_literals?: ArtifactLeakLiteral[];
+  builtins?: {
+    /**
+     * Built-in token-like detector (Bearer/sk-/access_token/...). Always REDACTED
+     * when configured; only REJECTS when this is true (opt-in, avoids false
+     * positives on example/test code).
+     */
+    token_like?: boolean;
+  };
 }
 
 export interface EvaluatorConfig {
