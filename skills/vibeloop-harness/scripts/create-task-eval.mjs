@@ -35,7 +35,18 @@ function templateName(kind) {
   if (kind === 'node') return 'eval-node.yaml';
   if (kind === 'python') return 'eval-python.yaml';
   if (kind === 'web') return 'eval-web.yaml';
-  throw new Error(`unsupported --template ${kind}; expected node, python, or web`);
+  throw new Error(
+    `unsupported --template ${kind}; expected node, python, or web`
+  );
+}
+
+function defaultTestCommand(kind) {
+  if (kind === 'python') return 'python -m pytest';
+  return 'npm test';
+}
+
+function yamlString(value) {
+  return JSON.stringify(value);
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -49,15 +60,47 @@ const objective = requireString(
 );
 const project = requireString(args, 'project', id);
 const template = requireString(args, 'template', 'node');
+const testCommand = requireString(
+  args,
+  'test_command',
+  defaultTestCommand(template)
+);
 
 await mkdir(outDir, { recursive: true });
-const taskTemplate = await readFile(path.join(skillRoot, 'templates/task-minimal.yaml'), 'utf8');
-const evalTemplate = await readFile(path.join(skillRoot, 'templates', templateName(template)), 'utf8');
+const taskTemplate = await readFile(
+  path.join(skillRoot, 'templates/task-minimal.yaml'),
+  'utf8'
+);
+const evalTemplate = await readFile(
+  path.join(skillRoot, 'templates', templateName(template)),
+  'utf8'
+);
 const task = taskTemplate
-  .replace(/^id: .+$/m, `id: ${id}`)
-  .replace(/^title: .+$/m, `title: ${title}`)
-  .replace(/^objective: .+$/m, `objective: ${objective}`);
-const evalYaml = evalTemplate.replace(/^project: .+$/m, `project: ${project}`);
+  .replace(/^id: .+$/m, `id: ${yamlString(id)}`)
+  .replace(/^title: .+$/m, `title: ${yamlString(title)}`)
+  .replace(/^objective: .+$/m, `objective: ${yamlString(objective)}`)
+  .replace(
+    /(acceptance:\n[ ]{2}required_tests:\n)[ ]{4}- .+$/m,
+    `$1    - ${yamlString(testCommand)}`
+  );
+const evalYaml = evalTemplate
+  .replace(/^project: .+$/m, `project: ${yamlString(project)}`)
+  .replace(
+    new RegExp(
+      `^(    command: )${defaultTestCommand(template).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`,
+      'm'
+    ),
+    `$1${yamlString(testCommand)}`
+  );
 await writeFile(path.join(outDir, 'task.yaml'), task);
 await writeFile(path.join(outDir, 'eval.yaml'), evalYaml);
-console.log(JSON.stringify({ task: path.join(outDir, 'task.yaml'), eval: path.join(outDir, 'eval.yaml') }, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      task: path.join(outDir, 'task.yaml'),
+      eval: path.join(outDir, 'eval.yaml')
+    },
+    null,
+    2
+  )
+);

@@ -29,19 +29,20 @@ VibeLoop Harness는 **Skill 전용 프로젝트가 아니다.** 핵심은 AI 코
 
 ### 현재 패키지 상태
 
-| 현재 패키지                    | 현재 책임                                        | 제품화 관점                               |
-| ------------------------------ | ------------------------------------------------ | ----------------------------------------- |
-| `@vibeloop/cli`                | `vibeloop run/discover/retry/report/gc` CLI      | 사용자 진입점이지만 core와 일부 결합 있음 |
-| `@vibeloop/task-protocol`      | `task.yaml`, `eval.yaml` 로딩/검증               | 독립 모듈 유지                            |
-| `@vibeloop/workspace-runner`   | git worktree, env scrub, dependency provisioning | 독립 모듈 유지                            |
-| `@vibeloop/agent-adapters`     | Codex/mock/command agent 실행, proxy helper      | adapter registry로 확장 필요              |
-| `@vibeloop/eval-engine`        | gate 실행, baseline, evidence, decision          | core 판정 모듈로 유지                     |
-| `@vibeloop/guards`             | diff/protected/scope/limits guard                | core guard 모듈로 유지                    |
-| `@vibeloop/artifacts`          | run layout, manifest, report artifact            | core persistence 모듈로 유지              |
-| `@vibeloop/discovery`          | 문제 후보 dry-run 발견                           | 자율 루프 입력 모듈                       |
-| `@vibeloop/github-integration` | branch/PR 생성                                   | PR 제품화 모듈                            |
-| `@vibeloop/report-html`        | report 렌더링                                    | UI/공유용 모듈                            |
-| `apps/server`, `apps/web`      | API/UI                                           | 관리 계층, core 밖                        |
+| 현재 패키지                    | 현재 책임                                        | 제품화 관점                                |
+| ------------------------------ | ------------------------------------------------ | ------------------------------------------ |
+| `@vibeloop/sdk`                | `runKernel`, `runOnce`, `verifyPatch` public API | CLI/Skill/Server/CI가 재사용할 core 진입점 |
+| `@vibeloop/cli`                | `vibeloop run/discover/retry/report/gc` CLI      | argument parsing 후 SDK 호출               |
+| `@vibeloop/task-protocol`      | `task.yaml`, `eval.yaml` 로딩/검증               | 독립 모듈 유지                             |
+| `@vibeloop/workspace-runner`   | git worktree, env scrub, dependency provisioning | 독립 모듈 유지                             |
+| `@vibeloop/agent-adapters`     | Codex/mock/command agent 실행, proxy helper      | adapter registry로 확장 필요               |
+| `@vibeloop/eval-engine`        | gate 실행, baseline, evidence, decision          | core 판정 모듈로 유지                      |
+| `@vibeloop/guards`             | diff/protected/scope/limits guard                | core guard 모듈로 유지                     |
+| `@vibeloop/artifacts`          | run layout, manifest, report artifact            | core persistence 모듈로 유지               |
+| `@vibeloop/discovery`          | 문제 후보 dry-run 발견                           | 자율 루프 입력 모듈                        |
+| `@vibeloop/github-integration` | branch/PR 생성                                   | PR 제품화 모듈                             |
+| `@vibeloop/report-html`        | report 렌더링                                    | UI/공유용 모듈                             |
+| `apps/server`, `apps/web`      | API/UI                                           | 관리 계층, core 밖                         |
 
 ### 목표 모듈 구조
 
@@ -66,10 +67,11 @@ VibeLoop Harness는 **Skill 전용 프로젝트가 아니다.** 핵심은 AI 코
   └─ future: claude/gemini/custom
 
 @vibeloop/sdk
-  ├─ runOnce()
-  ├─ verifyPatch()
-  ├─ discoverCandidates()
-  └─ createDraftPrIfAccepted()
+  ├─ runKernel()              # 현재 구현된 커널 API
+  ├─ runOnce()                # CLI/Skill/Server 공용 실행 API
+  ├─ verifyPatch()            # patch 검증 API 초안
+  ├─ discoverCandidates()     # backlog
+  └─ createDraftPrIfAccepted()# backlog
 
 @vibeloop/cli
   └─ SDK를 호출하는 thin CLI
@@ -319,3 +321,30 @@ Skill:
 ```
 
 따라서 **우선 Skill로 제품화하되, Skill 내부에는 core 로직을 넣지 않고 SDK/CLI를 호출하는 얇은 제품 wrapper로 만든다.** 이 구조가 되어야 이후 CLI, CI, PR bot, SaaS, autonomous worker로 자연스럽게 확장된다.
+
+## 10. 현재 구현 반영 상태 (2026-06-13)
+
+| 영역               | 현재 상태                                                                   | 증거 파일                                                         |
+| ------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| SDK/API            | `@vibeloop/sdk`가 `runKernel`, `runOnce`, `verifyPatch`, 공개 타입을 export | `packages/sdk/src/index.ts`, `packages/sdk/src/run-once.ts`       |
+| CLI thin wrapper   | `@vibeloop/cli`는 argument parsing 후 SDK를 호출                            | `packages/cli/src/commands/run.ts`, `packages/cli/src/run.ts`     |
+| Server reuse       | server runner가 CLI가 아니라 SDK를 import                                   | `apps/server/src/runner.ts`                                       |
+| OAuth proxy module | Codex OAuth proxy가 reusable adapter로 분리                                 | `packages/agent-adapters/src/oauth-proxy.ts`                      |
+| Skill package      | Codex Skill skeleton, templates, safety/usage reference 추가                | `skills/vibeloop-harness/SKILL.md`                                |
+| Skill scripts      | task/eval 생성, CLI wrapper, report summarizer 추가                         | `skills/vibeloop-harness/scripts/*.mjs`                           |
+| Skill-first e2e    | template 생성, wrapper 실행, summarizer redaction 검증                      | `tests/e2e/skill-productization/skill-productization.e2e.test.ts` |
+| Runbook            | 제품화 실행 절차와 다음 채널 backlog 문서화                                 | `docs/SKILL_PRODUCTIZATION_RUNBOOK.md`                            |
+
+현재 구현은 `@vibeloop/core`라는 별도 패키지를 새로 만들지 않고, 기존 커널을 `@vibeloop/sdk`의 public API로 먼저 고정한 상태다. 따라서 제품 채널은 아래처럼 연결한다.
+
+```text
+Codex Skill / CLI / Server / future CI
+        ↓
+@vibeloop/sdk
+        ↓
+workspace-runner + agent-adapters + guards + eval-engine + artifacts
+        ↓
+eval-report.json / deterministic decision
+```
+
+다음 확장은 새 판정 로직을 만들지 말고 `@vibeloop/sdk` 호출 wrapper만 추가해야 한다.

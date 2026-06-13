@@ -12,7 +12,9 @@ import {
   buildCodexProxyConfigArgs,
   CodexAgentAdapter
 } from './codex.js';
+import { CommandAgentAdapter } from './adapter.js';
 import { MockAgentAdapter } from './mock.js';
+import { resolveAgentAdapter } from './registry.js';
 import { startLlmProxy } from './proxy/server.js';
 
 async function tempDir(prefix: string): Promise<string> {
@@ -160,6 +162,30 @@ describe('MockAgentAdapter', () => {
       ['README.md', 'modified'],
       ['src/new.ts', 'added']
     ]);
+  });
+});
+
+describe('resolveAgentAdapter', () => {
+  it('resolves command, mock, and codex specs through the shared registry', () => {
+    expect(
+      resolveAgentAdapter('command:node -e "process.exit(0)"', {
+        loopId: 'loop-registry'
+      })
+    ).toBeInstanceOf(CommandAgentAdapter);
+    expect(
+      resolveAgentAdapter('mock:/tmp/scenario.json', {
+        loopId: 'loop-registry'
+      })
+    ).toBeInstanceOf(MockAgentAdapter);
+    expect(
+      resolveAgentAdapter('codex', {
+        loopId: 'loop-registry',
+        proxyBaseUrl: 'http://127.0.0.1:1234'
+      })
+    ).toBeInstanceOf(CodexAgentAdapter);
+    expect(() =>
+      resolveAgentAdapter('unknown', { loopId: 'loop-registry' })
+    ).toThrow('unsupported agent spec: unknown');
   });
 });
 

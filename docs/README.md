@@ -17,6 +17,7 @@
 9. [DB_SCHEMA.md](./DB_SCHEMA.md) — Prisma 모델 확장안
 10. [MVP_IMPLEMENTATION_PLAN.md](./MVP_IMPLEMENTATION_PLAN.md) — CLI 검증 커널 우선 구현 계획
 11. [AUTONOMOUS_LOOP_SPEC.md](./AUTONOMOUS_LOOP_SPEC.md) — MVP-4 자율 발견·연속 실행 바깥 루프, autonomy 모드, guardrails
+12. [SKILL_PRODUCTIZATION_RUNBOOK.md](./SKILL_PRODUCTIZATION_RUNBOOK.md) — `vibeloop-harness` Skill 제품화 실행 절차와 검증 gate
 
 ## 실제 계약 파일
 
@@ -35,6 +36,7 @@
 ## 실제 사용자 시나리오 테스트
 
 - [MODULARIZATION_AND_SKILL_PRODUCTIZATION_STRATEGY.md](./MODULARIZATION_AND_SKILL_PRODUCTIZATION_STRATEGY.md) — VibeLoop을 Skill 우선 제품으로 만들되 CLI/SDK/CI/API/PR Bot으로 확장 가능하게 하는 모듈 분리 전략
+- [SKILL_PRODUCTIZATION_RUNBOOK.md](./SKILL_PRODUCTIZATION_RUNBOOK.md) — Skill wrapper, task/eval 생성, report summarizer, Codex OAuth UAT 운영 runbook
 - [USER_SCENARIO_TESTING.md](./USER_SCENARIO_TESTING.md) — mock agent가 아닌 실제 CLI + command agent, Codex ChatGPT login, no-API-key OAuth proxy 기반 장바구니 수량 버그 수정 사용자 시나리오/UAT
 
 ## 검토 이력

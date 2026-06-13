@@ -1,9 +1,17 @@
 import { createServer } from 'node:http';
 import { describe, expect, it } from 'vitest';
-import { buildCodexOAuthCommand, preflightExternalOAuthProxy, startCodexOAuthProxy } from './oauth-proxy.js';
+import {
+  buildCodexOAuthCommand,
+  preflightExternalOAuthProxy,
+  startCodexOAuthProxy
+} from './oauth-proxy.js';
 
 async function withJsonServer(
-  handler: (request: { method?: string; url?: string; authorization?: string }) => unknown
+  handler: (request: {
+    method?: string;
+    url?: string;
+    authorization?: string;
+  }) => unknown
 ): Promise<{ baseUrl: string; close(): Promise<void> }> {
   const server = createServer((request, response) => {
     const body = handler({
@@ -22,10 +30,14 @@ async function withJsonServer(
     });
   });
   const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('failed to bind server');
+  if (!address || typeof address === 'string')
+    throw new Error('failed to bind server');
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+    close: () =>
+      new Promise((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      )
   };
 }
 
@@ -34,9 +46,13 @@ describe('codex oauth proxy helpers', () => {
     const proxy = await startCodexOAuthProxy({ model: 'gpt-test' });
     try {
       const response = await fetch(`${proxy.baseUrl}/v1/models`);
-      const body = (await response.json()) as { data: Array<{ id: string }> };
+      const body = (await response.json()) as {
+        data: Array<{ id: string }>;
+        models: Array<{ id: string }>;
+      };
       expect(response.status).toBe(200);
       expect(body.data[0]?.id).toBe('gpt-test');
+      expect(body.models[0]?.id).toBe('gpt-test');
       expect(proxy.stats.model_requests).toBe(1);
     } finally {
       await proxy.close();
@@ -51,7 +67,10 @@ describe('codex oauth proxy helpers', () => {
       saw_auth: request.authorization === token,
       usage: { input_tokens: 2, output_tokens: 3 }
     }));
-    const proxy = await startCodexOAuthProxy({ model: 'gpt-test', upstreamBaseUrl: upstream.baseUrl });
+    const proxy = await startCodexOAuthProxy({
+      model: 'gpt-test',
+      upstreamBaseUrl: upstream.baseUrl
+    });
     try {
       const response = await fetch(`${proxy.baseUrl}/v1/responses`, {
         method: 'POST',
@@ -74,7 +93,10 @@ describe('codex oauth proxy helpers', () => {
   it('requires an authorization header before forwarding responses', async () => {
     const proxy = await startCodexOAuthProxy({ model: 'gpt-test' });
     try {
-      const response = await fetch(`${proxy.baseUrl}/v1/responses`, { method: 'POST', body: '{}' });
+      const response = await fetch(`${proxy.baseUrl}/v1/responses`, {
+        method: 'POST',
+        body: '{}'
+      });
       expect(response.status).toBe(401);
       expect(proxy.stats.auth_header_missing).toBe(true);
       expect(proxy.stats.upstream_statuses).toEqual([]);

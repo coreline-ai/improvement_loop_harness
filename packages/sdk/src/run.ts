@@ -10,10 +10,7 @@ import {
   type TerminalRunStatus
 } from '@vibeloop/artifacts';
 import {
-  CodexAgentAdapter,
-  CommandAgentAdapter,
-  MockAgentAdapter,
-  type AgentAdapter,
+  resolveAgentAdapter,
   type AgentRunResult
 } from '@vibeloop/agent-adapters';
 import {
@@ -134,7 +131,6 @@ interface WorkspaceRefArtifact {
   retry_mode?: RetryMode | undefined;
 }
 
-const CODEX_AGENT_SPEC = 'codex';
 
 class CancelledError extends Error {
   constructor() {
@@ -218,34 +214,6 @@ async function cancellable<T>(promise: Promise<T>, signal: AbortSignal | undefin
       promise.finally(() => signal.removeEventListener('abort', onAbort)).catch(() => undefined);
     })
   ]);
-}
-
-function parseAgentSpec(
-  spec: string,
-  options: { loopId: string; taskFile: string; limits: TaskDefinition['limits']; proxyBaseUrl?: string | undefined }
-): AgentAdapter {
-  if (spec.startsWith('mock:')) {
-    const scenarioPath = spec.slice('mock:'.length);
-    if (!scenarioPath) {
-      throw new Error('mock agent requires mock:<scenario.json>');
-    }
-    return new MockAgentAdapter(scenarioPath);
-  }
-  if (spec === CODEX_AGENT_SPEC) {
-    return new CodexAgentAdapter({
-      loopId: options.loopId,
-      proxyBaseUrl: options.proxyBaseUrl ?? 'http://127.0.0.1:1',
-      limits: options.limits
-    });
-  }
-  if (spec.startsWith('command:')) {
-    const command = spec.slice('command:'.length).trim();
-    if (!command) {
-      throw new Error('command agent requires command:<shell command>');
-    }
-    return new CommandAgentAdapter(() => command);
-  }
-  throw new Error(`unsupported agent spec: ${spec}`);
 }
 
 function parseMetric(stdout: string, names: string[]): number | undefined {
@@ -532,9 +500,8 @@ export async function runKernel(options: RunKernelOptions): Promise<RunKernelRes
       await cancellable(applyPatch(worktree.path, options.evalOnlyPatch), options.signal);
     } else {
       await writeLoopEvent(layout, events, 'agent_running', 'running builder agent', logToStdout);
-      const adapter = parseAgentSpec(options.agentSpec, {
+      const adapter = resolveAgentAdapter(options.agentSpec, {
         loopId,
-        taskFile: path.join(layout.input, 'task.yaml'),
         limits: mergeLimits(task.limits, evalConfig.limits),
         proxyBaseUrl: options.proxyBaseUrl
       });

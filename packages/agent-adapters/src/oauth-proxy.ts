@@ -1,6 +1,11 @@
-import { createServer, type IncomingHttpHeaders, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type ServerResponse
+} from 'node:http';
 
-export const DEFAULT_CODEX_OAUTH_UPSTREAM_BASE_URL = 'https://chatgpt.com/backend-api/codex';
+export const DEFAULT_CODEX_OAUTH_UPSTREAM_BASE_URL =
+  'https://chatgpt.com/backend-api/codex';
 
 export interface CodexOAuthUsage {
   prompt_tokens: number;
@@ -81,7 +86,9 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-async function readRequestBody(request: NodeJS.ReadableStream): Promise<Buffer> {
+async function readRequestBody(
+  request: NodeJS.ReadableStream
+): Promise<Buffer> {
   const chunks: Buffer[] = [];
   for await (const chunk of request) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -89,9 +96,28 @@ async function readRequestBody(request: NodeJS.ReadableStream): Promise<Buffer> 
   return Buffer.concat(chunks);
 }
 
-function jsonResponse(response: ServerResponse, status: number, body: unknown): void {
+function jsonResponse(
+  response: ServerResponse,
+  status: number,
+  body: unknown
+): void {
   response.writeHead(status, { 'content-type': 'application/json' });
   response.end(`${JSON.stringify(body)}\n`);
+}
+
+function modelsResponse(model: string): unknown {
+  const modelEntry = {
+    id: model,
+    name: model,
+    object: 'model',
+    created: 0,
+    owned_by: 'openai'
+  };
+  return {
+    object: 'list',
+    data: [modelEntry],
+    models: [modelEntry]
+  };
 }
 
 function safePathName(urlPath: string): string {
@@ -132,7 +158,9 @@ function parseJsonBody(body: Buffer): unknown {
 }
 
 function valueOf(record: unknown, key: string): unknown {
-  return record && typeof record === 'object' ? (record as Record<string, unknown>)[key] : undefined;
+  return record && typeof record === 'object'
+    ? (record as Record<string, unknown>)[key]
+    : undefined;
 }
 
 function collectUsage(contentType: string | null, body: Buffer): unknown[] {
@@ -189,7 +217,8 @@ function addUsage(target: CodexOAuthUsage, usage: unknown): void {
   target.total_tokens +=
     typeof record.total_tokens === 'number'
       ? record.total_tokens
-      : typeof record.input_tokens === 'number' || typeof record.output_tokens === 'number'
+      : typeof record.input_tokens === 'number' ||
+          typeof record.output_tokens === 'number'
         ? (typeof record.input_tokens === 'number' ? record.input_tokens : 0) +
           (typeof record.output_tokens === 'number' ? record.output_tokens : 0)
         : 0;
@@ -200,7 +229,9 @@ export function normalizeOAuthProxyBaseUrl(proxyBaseUrl: string): string {
   return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
 }
 
-export function buildCodexOAuthCommand(options: BuildCodexOAuthCommandOptions): string {
+export function buildCodexOAuthCommand(
+  options: BuildCodexOAuthCommandOptions
+): string {
   const codexParts = [
     'CODEX_HOME=' + shellQuote(options.codeHome),
     'codex',
@@ -212,18 +243,29 @@ export function buildCodexOAuthCommand(options: BuildCodexOAuthCommandOptions): 
     '-c',
     shellQuote(`model_provider=${JSON.stringify(options.provider)}`),
     '-c',
-    shellQuote(`model_providers.${options.provider}.name=${JSON.stringify('VibeLoop OAuth Proxy')}`),
+    shellQuote(
+      `model_providers.${options.provider}.name=${JSON.stringify('VibeLoop OAuth Proxy')}`
+    ),
     '-c',
     shellQuote(
       `model_providers.${options.provider}.base_url=${JSON.stringify(normalizeOAuthProxyBaseUrl(options.proxyBaseUrl))}`
     ),
     '-c',
-    shellQuote(`model_providers.${options.provider}.wire_api=${JSON.stringify('responses')}`),
+    shellQuote(
+      `model_providers.${options.provider}.wire_api=${JSON.stringify('responses')}`
+    ),
     ...(options.requiresOpenaiAuth
-      ? ['-c', shellQuote(`model_providers.${options.provider}.requires_openai_auth=true`)]
+      ? [
+          '-c',
+          shellQuote(
+            `model_providers.${options.provider}.requires_openai_auth=true`
+          )
+        ]
       : []),
     '-c',
-    shellQuote(`model_reasoning_effort=${JSON.stringify(options.reasoningEffort)}`),
+    shellQuote(
+      `model_reasoning_effort=${JSON.stringify(options.reasoningEffort)}`
+    ),
     '-m',
     shellQuote(options.model),
     '-s',
@@ -238,8 +280,13 @@ export function buildCodexOAuthCommand(options: BuildCodexOAuthCommandOptions): 
   return `command:${codexParts.join(' ')}`;
 }
 
-export async function preflightExternalOAuthProxy(proxyUrl: string): Promise<OAuthProxyPreflightResult> {
-  const modelsUrl = new URL('models', normalizeOAuthProxyBaseUrl(proxyUrl) + '/');
+export async function preflightExternalOAuthProxy(
+  proxyUrl: string
+): Promise<OAuthProxyPreflightResult> {
+  const modelsUrl = new URL(
+    'models',
+    normalizeOAuthProxyBaseUrl(proxyUrl) + '/'
+  );
   try {
     const response = await fetch(modelsUrl);
     return {
@@ -256,9 +303,12 @@ export async function preflightExternalOAuthProxy(proxyUrl: string): Promise<OAu
   }
 }
 
-export async function startCodexOAuthProxy(options: CodexOAuthProxyOptions): Promise<CodexOAuthProxyServer> {
+export async function startCodexOAuthProxy(
+  options: CodexOAuthProxyOptions
+): Promise<CodexOAuthProxyServer> {
   const host = options.host ?? '127.0.0.1';
-  const upstreamBaseUrl = options.upstreamBaseUrl ?? DEFAULT_CODEX_OAUTH_UPSTREAM_BASE_URL;
+  const upstreamBaseUrl =
+    options.upstreamBaseUrl ?? DEFAULT_CODEX_OAUTH_UPSTREAM_BASE_URL;
   const logs: CodexOAuthProxyLogEntry[] = [];
   const stats: CodexOAuthProxyStats = {
     mode: 'internal-oauth-forwarder',
@@ -281,20 +331,25 @@ export async function startCodexOAuthProxy(options: CodexOAuthProxyOptions): Pro
       const requestUrl = new URL(request.url ?? '/', `http://${host}`);
       const pathname = safePathName(requestUrl.pathname);
 
-      if (request.method === 'GET' && ['/v1/models', '/models'].includes(pathname)) {
+      if (
+        request.method === 'GET' &&
+        ['/v1/models', '/models'].includes(pathname)
+      ) {
         stats.requests += 1;
         stats.model_requests += 1;
         logs.push({ direction: 'request', method: 'GET', path: pathname });
-        jsonResponse(response, 200, {
-          object: 'list',
-          data: [{ id: options.model, object: 'model', created: 0, owned_by: 'openai' }]
-        });
+        jsonResponse(response, 200, modelsResponse(options.model));
         return;
       }
 
       if (!['/v1/responses', '/responses'].includes(pathname)) {
         stats.requests += 1;
-        logs.push({ direction: 'request', method: request.method, path: pathname, status: 404 });
+        logs.push({
+          direction: 'request',
+          method: request.method,
+          path: pathname,
+          status: 404
+        });
         jsonResponse(response, 404, { error: `unsupported path: ${pathname}` });
         return;
       }
@@ -318,7 +373,9 @@ export async function startCodexOAuthProxy(options: CodexOAuthProxyOptions): Pro
       });
 
       if (!authorization) {
-        jsonResponse(response, 401, { error: 'Codex did not attach OpenAI OAuth authorization header' });
+        jsonResponse(response, 401, {
+          error: 'Codex did not attach OpenAI OAuth authorization header'
+        });
         return;
       }
 
@@ -349,7 +406,10 @@ export async function startCodexOAuthProxy(options: CodexOAuthProxyOptions): Pro
         body_bytes: upstreamBody.length
       });
 
-      response.writeHead(upstream.status, copyResponseHeaders(upstream.headers));
+      response.writeHead(
+        upstream.status,
+        copyResponseHeaders(upstream.headers)
+      );
       response.end(upstreamBody);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -377,7 +437,20 @@ export async function startCodexOAuthProxy(options: CodexOAuthProxyOptions): Pro
     logs,
     close(): Promise<void> {
       return new Promise((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
+        const timeout = setTimeout(() => {
+          server.closeAllConnections?.();
+          resolve();
+        }, 2000);
+        server.close((error) => {
+          clearTimeout(timeout);
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+        server.closeIdleConnections?.();
+        server.closeAllConnections?.();
       });
     }
   };

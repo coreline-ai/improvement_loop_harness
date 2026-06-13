@@ -62,7 +62,7 @@ Use discovery only to create candidate tasks. Do not auto-implement feature sugg
 
 ### report
 
-Summarize `eval-report.json` with `scripts/summarize-report.mjs` once Phase 5 is available, or read the report directly and redact secrets.
+Summarize `eval-report.json` with `scripts/summarize-report.mjs`; never infer acceptance without the deterministic report.
 
 ### pr-candidate
 
