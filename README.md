@@ -43,6 +43,27 @@ pnpm start:server
 curl -H "Authorization: Bearer $VIBELOOP_API_TOKEN" http://127.0.0.1:3001/api/projects
 ```
 
+## Skill 제품 사용 (vibeloop-harness)
+
+위 Quickstart는 개발 셋업이다. `skills/vibeloop-harness`는 단일 이슈를 결정론적 게이트로 **수정→검증→PR 후보화**하는 제품 채널이며, 모노레포 밖에서도 쓸 수 있다.
+
+```bash
+# 1) 단일 파일 CLI 번들 생성(자체 완결, 모노레포 불필요)
+pnpm bundle:skill            # → skills/vibeloop-harness/vendor/vibeloop.mjs
+
+# 2) skills/vibeloop-harness 폴더를 사용 환경(예: .claude/skills)에 복사.
+#    래퍼는 CLI를 VIBELOOP_CLI → 모노레포 dev bin → vendor/vibeloop.mjs → PATH 순으로 찾는다.
+
+# 3) task/eval 생성 후 한 이슈 실행
+node skills/vibeloop-harness/scripts/create-task-eval.mjs \
+  --template node --out /tmp/vt --id my-fix --title "Fix X" --objective "Fix X and add a regression test."
+node skills/vibeloop-harness/scripts/vibeloop-run.mjs run \
+  --repo /path/to/your-repo --task /tmp/vt/task.yaml --eval /tmp/vt/eval.yaml \
+  --agent 'command:<your-agent>' --project-id my --loop-id my-1
+```
+
+PR 후보는 `decision=accept ∧ qualified`(고정 품질 게이트 통과)일 때만이다. 여러 후보를 두고 더 나은 것을 고르려면 `vibeloop improve --agent ... --challenger ...`. 모드/계약 상세는 [SKILL.md](./skills/vibeloop-harness/SKILL.md), [usage.md](./skills/vibeloop-harness/references/usage.md).
+
 ## 검증 명령
 
 로컬 전체 검증:

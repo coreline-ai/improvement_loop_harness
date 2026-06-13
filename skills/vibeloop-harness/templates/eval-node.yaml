@@ -23,6 +23,25 @@ test_integrity:
     - describe.only
   suspicious_patterns:
     - expect(true).toBe(true)
+# Deterministic improvement-quality gate (M0). With `required: true`, a PR
+# candidate needs verified ∧ qualified (quality.met). Omit this block to treat
+# quality as always met. Fixed-rule thresholds — never an LLM judgment.
+evaluator:
+  required: true
+  min_evidence_present: 1
+  max_changed_files: 6
+  max_changed_lines: 200
+  forbid_protected: true
+  # target_paths:            # optional: restrict the accepted fix to these files
+  #   - src/your-module.ts
+# Optional: redact/reject context or secret leaks in agent stdout/stderr.
+# token_like reject is opt-in (false-positive risk); leave it off by default.
+# artifact_leak:
+#   scan_agent_stdout: true
+#   scan_agent_stderr: true
+#   forbidden_literals:
+#     - label: prior_issue_id
+#       value: REPLACE_WITH_A_RECOVERABLE_MARKER
 gates:
   - name: git_meta_integrity
     type: integrity

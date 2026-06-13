@@ -20,6 +20,17 @@ test_integrity:
     - unittest.skip
   suspicious_patterns:
     - assert True
+# Deterministic improvement-quality gate (M0). With `required: true`, a PR
+# candidate needs verified ∧ qualified (quality.met). Omit this block to treat
+# quality as always met. Fixed-rule thresholds — never an LLM judgment.
+evaluator:
+  required: true
+  min_evidence_present: 1
+  max_changed_files: 6
+  max_changed_lines: 200
+  forbid_protected: true
+  # target_paths:            # optional: restrict the accepted fix to these files
+  #   - src/your_module.py
 gates:
   - name: git_meta_integrity
     type: integrity
