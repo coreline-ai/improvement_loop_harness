@@ -98,11 +98,12 @@ export interface EvalConfig {
    */
   evaluator?: EvaluatorConfig;
   /**
-   * Deterministic agent/artifact context-leak guard. When configured, the harness
-   * scans the agent's (bounded) stdout/stderr, redacts matches before persisting,
-   * and the builtin `artifact-leak` gate rejects on a forbidden literal (precise)
-   * — and, only if opted in, on a token-like match. Absent ⇒ no scan/redaction/gate
-   * (backward compatible). See docs/SELF_IMPROVEMENT_LOOP_DESIGN.md.
+   * Deterministic agent stdout/stderr context-leak guard. When configured, the
+   * harness scans the agent's (bounded) stdout/stderr and redacts matches before
+   * persisting. Add the builtin `artifact-leak` gate to make the verdict reject on
+   * a forbidden literal (precise) — and, only if opted in, on a token-like match.
+   * Absent ⇒ no scan/redaction (backward compatible). See
+   * docs/EVAL_ENGINE_SPEC.md.
    */
   artifact_leak?: ArtifactLeakConfig;
   gates: EvalGate[];
@@ -120,6 +121,12 @@ export interface ArtifactLeakConfig {
   scan_agent_stdout?: boolean;
   /** Scan agent stderr. Default true when configured. */
   scan_agent_stderr?: boolean;
+  /**
+   * v2: scan the candidate patch (the PR deliverable) for the same forbidden
+   * literals / opted-in tokens. The patch is never redacted; a match REJECTS
+   * the candidate (GUARD_ARTIFACT_LEAK). Opt-in; default off.
+   */
+  scan_patch?: boolean;
   /** Byte cap for scanning (≤ the exec buffer bound). Default 1 MiB. */
   max_scan_bytes?: number;
   /** Forbidden literals → REJECT (precise; e.g. prior issue id, hidden sentinel). */

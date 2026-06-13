@@ -258,12 +258,17 @@
       }
     },
     "artifact_leak": {
-      "description": "Deterministic agent/artifact context-leak guard. When present, the harness scans the bounded agent stdout/stderr, redacts matches before persisting, and the builtin artifact-leak gate rejects on a forbidden literal (and, if opted in, a token-like match). Absent = no scan/redaction/gate.",
+      "description": "Deterministic agent stdout/stderr context-leak guard. When present, the harness scans the bounded agent stdout/stderr and redacts matches before persisting. Add a builtin:artifact-leak gate to make the verdict reject on a forbidden literal (and, if opted in, a token-like match). Absent = no scan/redaction.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "scan_agent_stdout": { "type": "boolean", "default": true },
         "scan_agent_stderr": { "type": "boolean", "default": true },
+        "scan_patch": {
+          "type": "boolean",
+          "default": false,
+          "description": "v2: scan the candidate patch (PR deliverable) for forbidden literals / opted-in tokens. The patch is never redacted; a match rejects the candidate."
+        },
         "max_scan_bytes": {
           "type": "integer",
           "minimum": 1,

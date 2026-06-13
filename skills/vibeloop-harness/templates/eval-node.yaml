@@ -36,9 +36,13 @@ evaluator:
   #   - src/your-module.ts
 # Optional: redact/reject context or secret leaks in agent stdout/stderr.
 # token_like reject is opt-in (false-positive risk); leave it off by default.
+# scan_patch also rejects (no redaction) when the candidate patch contains a
+# forbidden literal — the patch is the PR deliverable. Add a builtin:artifact-leak
+# gate to make any of these reject.
 # artifact_leak:
 #   scan_agent_stdout: true
 #   scan_agent_stderr: true
+#   scan_patch: true
 #   forbidden_literals:
 #     - label: prior_issue_id
 #       value: REPLACE_WITH_A_RECOVERABLE_MARKER

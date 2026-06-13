@@ -148,7 +148,7 @@ Draft PR 후보 생성
 9. 새 평가 룰은 현재 loop에 즉시 편입하지 않는다. shadow/replay 후 다음 loop부터 적용한다.
 10. 자동 merge는 금지한다. 산출물은 draft PR 후보까지다.
 
-> 잔여 리스크(누설면): `artifact-leak` v1은 **agent stdout/stderr만** 스캔한다. project gate stdout/stderr·candidate patch·`input/eval.yaml` 원본 config는 v1 미스캔이다(상세·v2 우선순위는 [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md)의 artifact-leak 커버리지 표 참조).
+> 잔여 리스크(누설면): `artifact-leak`는 기본적으로 **agent stdout/stderr**를 스캔하고, candidate patch는 `scan_patch` opt-in으로 추가 차단한다(reject only). project gate stdout/stderr·`input/eval.yaml` 원본 config는 아직 미스캔이다(상세·잔여 v2는 [EVAL_ENGINE_SPEC.md](./EVAL_ENGINE_SPEC.md)의 artifact-leak 커버리지 표 참조).
 
 ## 7. 독립성 등급
 

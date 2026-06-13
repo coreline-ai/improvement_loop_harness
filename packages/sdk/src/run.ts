@@ -47,7 +47,9 @@ import {
   annotateScope,
   applyPatch,
   extractDiff,
+  mergeArtifactLeakResults,
   scanArtifactLeak,
+  scanPatchForLeak,
   type ChangedFilesArtifact,
   type GuardChangedFile,
   type GuardCheckResult
@@ -764,6 +766,20 @@ export async function runKernel(
       writeScope: task.write_scope,
       protectedPaths: evalConfig.protected_paths
     });
+    // artifact-leak v2: scan the candidate patch (the PR deliverable). The patch
+    // is never redacted (that would corrupt the diff); a forbidden literal or
+    // opted-in token in the patch rejects the candidate. Fold into the existing
+    // artifact-leak verdict so the single gate surfaces both surfaces.
+    if (evalConfig.artifact_leak?.scan_patch) {
+      const patchScan = scanPatchForLeak(
+        diff.candidatePatch,
+        evalConfig.artifact_leak
+      );
+      artifactLeakResult = mergeArtifactLeakResults(
+        artifactLeakResult,
+        patchScan.result
+      );
+    }
     await writeArtifact(
       layout.root,
       'patches/changed-files.json',

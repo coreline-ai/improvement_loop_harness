@@ -5,6 +5,12 @@ import type { GuardCheckResult } from './types.js';
 export interface ArtifactLeakConfig {
   scan_agent_stdout?: boolean | undefined;
   scan_agent_stderr?: boolean | undefined;
+  /**
+   * v2: scan the candidate patch (the PR deliverable) for the same forbidden
+   * literals / opted-in tokens. The patch is never redacted (that would corrupt
+   * the diff) — a match REJECTS the candidate. Opt-in; default off.
+   */
+  scan_patch?: boolean | undefined;
   max_scan_bytes?: number | undefined;
   forbidden_literals?:
     | ReadonlyArray<{ label: string; value: string }>
@@ -13,7 +19,7 @@ export interface ArtifactLeakConfig {
 }
 
 /**
- * Deterministic agent/artifact context-leak guard.
+ * Deterministic agent stdout/stderr context-leak guard.
  *
  * Scans the agent's (already-bounded) stdout/stderr and ALWAYS redacts matches
  * before the caller persists them. It REJECTS (gate fail → GUARD_ARTIFACT_LEAK)
@@ -37,7 +43,7 @@ const TOKEN_PATTERNS: ReadonlyArray<{ label: string; source: string }> = [
 ];
 
 export interface ArtifactLeakFinding {
-  source: 'stdout' | 'stderr';
+  source: 'stdout' | 'stderr' | 'patch';
   kind: 'forbidden_literal' | 'token_like';
   label: string;
   count: number;
@@ -63,7 +69,7 @@ function escapeRegex(value: string): string {
 
 function scanSource(
   text: string,
-  source: 'stdout' | 'stderr',
+  source: 'stdout' | 'stderr' | 'patch',
   config: ArtifactLeakConfig
 ): { redacted: string; findings: ArtifactLeakFinding[] } {
   const maxScan = config.max_scan_bytes ?? DEFAULT_MAX_SCAN_BYTES;
@@ -168,5 +174,78 @@ export function scanArtifactLeak(
     redactedStdout,
     redactedStderr,
     findings
+  };
+}
+
+export interface PatchLeakScanResult {
+  result: GuardCheckResult;
+  findings: ArtifactLeakFinding[];
+}
+
+/**
+ * v2 artifact-leak: scan the candidate patch (the PR deliverable) for forbidden
+ * literals and opted-in tokens. DETECT-ONLY — the patch is never redacted (that
+ * would corrupt the diff), so a rejecting match fails the candidate. forbidden
+ * literals always reject; token-like matches reject only when
+ * `builtins.token_like` is opted in (same false-positive policy as v1). Raw
+ * values never appear in the result (label + count only).
+ */
+export function scanPatchForLeak(
+  patchText: string,
+  config: ArtifactLeakConfig | undefined
+): PatchLeakScanResult {
+  if (!config || config.scan_patch !== true) {
+    return {
+      result: {
+        status: 'pass',
+        summary: 'artifact-leak patch scan not configured',
+        violations: []
+      },
+      findings: []
+    };
+  }
+
+  // Reuse the matcher; the redacted text is discarded (patch stays verbatim).
+  const { findings } = scanSource(patchText ?? '', 'patch', config);
+  const rejecting = findings.filter((finding) => finding.rejecting);
+  const status = rejecting.length > 0 ? 'fail' : 'pass';
+  const violations = rejecting.map((finding) => ({
+    code: 'GUARD_ARTIFACT_LEAK',
+    message: `${finding.kind} '${finding.label}' x${finding.count} detected in candidate patch`
+  }));
+
+  return {
+    result: {
+      status,
+      ...(status === 'fail' ? { code: 'GUARD_ARTIFACT_LEAK' } : {}),
+      summary:
+        status === 'fail'
+          ? `${rejecting.length} artifact-leak violation(s) in candidate patch`
+          : `artifact-leak patch clean (${findings.length} detected, 0 rejecting)`,
+      violations
+    },
+    findings
+  };
+}
+
+/**
+ * Merge two artifact-leak verdicts (e.g. agent stdout/stderr + candidate patch)
+ * into one: fail if either fails; violations concatenated. Used so a single
+ * `artifact-leak` gate surfaces both surfaces.
+ */
+export function mergeArtifactLeakResults(
+  base: GuardCheckResult | undefined,
+  extra: GuardCheckResult
+): GuardCheckResult {
+  if (!base) return extra;
+  const failed = base.status === 'fail' || extra.status === 'fail';
+  const violations = [...base.violations, ...extra.violations];
+  return {
+    status: failed ? 'fail' : base.status,
+    ...(failed ? { code: 'GUARD_ARTIFACT_LEAK' } : {}),
+    summary: failed
+      ? `${violations.length} artifact-leak violation(s) across agent output and patch`
+      : base.summary,
+    violations
   };
 }

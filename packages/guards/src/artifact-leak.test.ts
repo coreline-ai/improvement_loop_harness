@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { scanArtifactLeak } from './artifact-leak.js';
+import {
+  mergeArtifactLeakResults,
+  scanArtifactLeak,
+  scanPatchForLeak
+} from './artifact-leak.js';
 
 describe('scanArtifactLeak', () => {
   it('is a pass no-op when not configured', () => {
@@ -102,5 +106,74 @@ describe('scanArtifactLeak', () => {
     });
     expect(out.redactedStdout).not.toContain('skill-loop-cart-quantity');
     expect(out.redactedStdout).toContain('scan truncated');
+  });
+});
+
+describe('scanPatchForLeak (v2 candidate.patch scan)', () => {
+  it('passes when scan_patch is not opted in', () => {
+    const out = scanPatchForLeak('+ const x = "skill-loop-cart-quantity";', {
+      forbidden_literals: [
+        { label: 'prior_issue', value: 'skill-loop-cart-quantity' }
+      ]
+      // scan_patch omitted → off
+    });
+    expect(out.result.status).toBe('pass');
+    expect(out.findings).toEqual([]);
+  });
+
+  it('rejects a forbidden literal in the patch without exposing the raw value', () => {
+    const out = scanPatchForLeak(
+      '+++ b/src/a.ts\n+ // leaked skill-loop-cart-quantity from prior issue\n',
+      {
+        scan_patch: true,
+        forbidden_literals: [
+          { label: 'prior_issue', value: 'skill-loop-cart-quantity' }
+        ]
+      }
+    );
+    expect(out.result.status).toBe('fail');
+    expect(out.result.code).toBe('GUARD_ARTIFACT_LEAK');
+    expect(out.findings[0]).toMatchObject({
+      source: 'patch',
+      kind: 'forbidden_literal',
+      label: 'prior_issue',
+      rejecting: true
+    });
+    // raw value never appears in the verdict
+    expect(JSON.stringify(out.result)).not.toContain(
+      'skill-loop-cart-quantity'
+    );
+  });
+
+  it('does NOT reject a token-like patch line by default (opt-in), but does when token_like is on', () => {
+    const patch = '+ const apiKey = "sk-supersecretvalue1234";\n';
+    const off = scanPatchForLeak(patch, { scan_patch: true });
+    expect(off.result.status).toBe('pass'); // detect-only, not rejecting
+    const on = scanPatchForLeak(patch, {
+      scan_patch: true,
+      builtins: { token_like: true }
+    });
+    expect(on.result.status).toBe('fail');
+  });
+});
+
+describe('mergeArtifactLeakResults', () => {
+  it('fails if either side fails and concatenates violations', () => {
+    const pass = scanArtifactLeak({ stdout: 'clean', config: {} }).result;
+    const patchFail = scanPatchForLeak('+ skill-loop-cart-quantity', {
+      scan_patch: true,
+      forbidden_literals: [
+        { label: 'prior_issue', value: 'skill-loop-cart-quantity' }
+      ]
+    }).result;
+    const merged = mergeArtifactLeakResults(pass, patchFail);
+    expect(merged.status).toBe('fail');
+    expect(merged.code).toBe('GUARD_ARTIFACT_LEAK');
+    expect(merged.violations.length).toBe(patchFail.violations.length);
+  });
+
+  it('returns the extra verdict when base is undefined', () => {
+    const extra = scanPatchForLeak('+ clean line', { scan_patch: true }).result;
+    expect(mergeArtifactLeakResults(undefined, extra)).toBe(extra);
   });
 });
