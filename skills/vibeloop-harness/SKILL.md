@@ -101,7 +101,7 @@ Use the project script to prove the loop selects a measurably-better candidate e
 pnpm uat:skill-loop:self-improvement
 ```
 
-For each issue it runs a verbose builder and a tight challenger; the deterministic Arbiter must select the challenger with a strictly higher fixed score (smaller, cleaner diff at equal correctness). It advances issue-by-issue, and a final fully-bad pool must yield no selection and no PR candidate. Selection is never an LLM opinion. With `VIBELOOP_UAT_GITHUB=1` it also publishes each selected patch as a draft PR against a throwaway private GitHub repo and then deletes (or archives, if the token lacks `delete_repo`) it; the default run is hermetic. See `docs/SKILL_SELF_IMPROVEMENT_LOOP_UAT.md`.
+For each issue it runs a verbose builder and a tight challenger; the deterministic Arbiter must select the challenger with a strictly higher fixed score (smaller, cleaner diff at equal correctness). It advances issue-by-issue, and a final fully-bad pool must yield no selection and no PR candidate. Selection is never an LLM opinion. With `VIBELOOP_UAT_GITHUB=1` it also publishes each selected patch as a draft PR against a throwaway private GitHub repo and then deletes (or archives, if the token lacks `delete_repo`) it; the default run is hermetic. See `docs/SKILL_SELF_IMPROVEMENT_LOOP_UAT.md` for the scenario and `docs/SELF_IMPROVEMENT_LOOP_RUNBOOK.md` for the step-by-step reproduce-and-verify runbook.
 
 ### discover
 

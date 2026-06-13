@@ -1,6 +1,6 @@
 # Skill Self-Improvement Loop UAT
 
-이 문서는 `pnpm uat:skill-loop:self-improvement`가 검증하는 실사용형 self-improvement loop 시나리오를 설명한다.
+이 문서는 `pnpm uat:skill-loop:self-improvement`가 검증하는 실사용형 self-improvement loop 시나리오를 설명한다. 이 시나리오를 **직접 다시 실행하고 산출물을 손으로 검증**하는 단계별 절차는 [SELF_IMPROVEMENT_LOOP_RUNBOOK.md](SELF_IMPROVEMENT_LOOP_RUNBOOK.md)를 본다.
 
 ## 목적
 
