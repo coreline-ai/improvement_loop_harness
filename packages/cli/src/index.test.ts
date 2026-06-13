@@ -196,6 +196,75 @@ it('runs discover dry-run and prints structured candidates without saving them',
   });
 });
 
+it('improve --challenger runs the challenger and selects the better candidate via the CLI', async () => {
+  const repo = await createValueRepo();
+  const dataDir = await tempDir('vibeloop-cli-challenger-data-');
+  const fixtureDir = await tempDir('vibeloop-cli-challenger-fixture-');
+  const { taskFile, evalFile } = await writeFixtureTaskEval({
+    dir: fixtureDir,
+    taskId: 'cli-challenger'
+  });
+  const regressionTest =
+    "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+  const larger = await writeScenario(fixtureDir, 'cli-larger', [
+    { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
+    { type: 'create', path: 'tests/regression.test.js', content: regressionTest },
+    {
+      type: 'create',
+      path: 'src/extra.cjs',
+      content: 'module.exports = { extra: true };\n'
+    }
+  ]);
+  const smaller = await writeScenario(fixtureDir, 'cli-smaller', [
+    { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
+    { type: 'create', path: 'tests/regression.test.js', content: regressionTest }
+  ]);
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'improve',
+      '--repo',
+      repo.repoPath,
+      '--task',
+      taskFile,
+      '--eval',
+      evalFile,
+      '--agent',
+      `mock:${larger}`,
+      '--challenger',
+      `mock:${smaller}`,
+      '--out',
+      dataDir,
+      '--loop-id',
+      'cli-challenger-1',
+      '--skip-dependency-install'
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    candidate_count: number;
+    accepted_count: number;
+    selected_candidate_id: string | null;
+    selected_patch: string | null;
+  };
+  // The challenger (c1) ran despite the builder passing, and the Arbiter picked
+  // the smaller-diff challenger through the real --challenger CLI wiring.
+  expect(output.candidate_count).toBe(2);
+  expect(output.accepted_count).toBe(2);
+  expect(output.selected_candidate_id).toBe('cli-challenger-1-c1');
+  expect(output.selected_patch).toContain('cli-challenger-1-c1');
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+});
+
 describe('resolveSameModelReview', () => {
   it.each([
     ['mock:scenario.json', undefined, false],

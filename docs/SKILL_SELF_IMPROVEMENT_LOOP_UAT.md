@@ -132,6 +132,23 @@ VIBELOOP_UAT_GITHUB=1 pnpm uat:skill-loop:self-improvement
 VIBELOOP_UAT_GITHUB=1 VIBELOOP_UAT_KEEP_REMOTE=1 pnpm uat:skill-loop:self-improvement
 ```
 
+owner는 `VIBELOOP_UAT_GITHUB_OWNER`(기본 `coreline-ai`)로 바꿀 수 있다.
+
+### 실측 GitHub 실행 (2026-06-13)
+
+`coreline-ai` 계정(토큰 스코프: `gist, read:org, repo, workflow`)으로 실제 실행한 결과:
+
+```text
+github.published        = true
+github.repo             = coreline-ai/vibeloop-selfimprove-uat-<runTag> (private)
+github.pullRequests     = pull/1 (cart-quantity), pull/2 (sku-normalization)  # 둘 다 draft
+github.openDraftPrCount = 2
+github.remoteDeleted    = false   # 토큰에 delete_repo 스코프 없음
+github.remoteArchived   = true    # archive 폴백으로 read-only 중화
+```
+
+> 완전 삭제를 원하면 `gh auth refresh -s delete_repo` 후 `gh repo delete <owner>/<repo> --yes`. 스코프가 있으면 UAT가 자동으로 hard delete한다.
+
 ## 지식 축적 (다음 개선에 활용)
 
 각 issue의 `improve` 실행은 결정론적 selection report를 남긴다.
