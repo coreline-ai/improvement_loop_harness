@@ -451,26 +451,30 @@ describe('baseline, test-on-base, and evidence detection', () => {
   it('captures only comparative baseline gates and excludes ordinary hard test gates', async () => {
     const dataDir = await tempDir('vibeloop-baseline-selection-cache-');
     const worktreeRoot = await tempDir('vibeloop-baseline-selection-worktree-');
-    const artifactRoot = await tempDir('vibeloop-baseline-selection-artifacts-');
+    const artifactRoot = await tempDir(
+      'vibeloop-baseline-selection-artifacts-'
+    );
     const hardMarker = path.join(worktreeRoot, 'hard-ran.txt');
     const coverageMarker = path.join(worktreeRoot, 'coverage-ran.txt');
     const evalConfig = baseConfig([
       {
         name: 'unit_tests',
         type: 'hard',
-        command: "node -e \"require('node:fs').writeFileSync('hard-ran.txt', 'yes')\"",
+        command:
+          "node -e \"require('node:fs').writeFileSync('hard-ran.txt', 'yes')\"",
         required: true
       },
       {
         name: 'coverage_report',
         type: 'regression',
-        command: "node -e \"require('node:fs').writeFileSync('coverage-ran.txt', 'yes'); console.log('coverage_percent=81')\"",
+        command:
+          "node -e \"require('node:fs').writeFileSync('coverage-ran.txt', 'yes'); console.log('coverage_percent=81')\"",
         required: false
       },
       {
         name: 'security_scan',
         type: 'security',
-        command: "node -e \"console.log('security_findings=0')\"",
+        command: 'node -e "console.log(\'security_findings=0\')"',
         required: false
       }
     ]);
@@ -487,7 +491,10 @@ describe('baseline, test-on-base, and evidence detection', () => {
 
     await expect(access(hardMarker)).rejects.toThrow();
     await expect(access(coverageMarker)).resolves.toBeUndefined();
-    expect(baseline.gate_runs.map((gate) => gate.name)).toEqual(['coverage_report', 'security_scan']);
+    expect(baseline.gate_runs.map((gate) => gate.name)).toEqual([
+      'coverage_report',
+      'security_scan'
+    ]);
     expect(baseline.metrics.coverage_percent).toBe(81);
   });
 

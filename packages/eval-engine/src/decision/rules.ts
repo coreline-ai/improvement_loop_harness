@@ -71,7 +71,7 @@ export const DECISION_RULES: readonly DecisionRuleDefinition[] = [
     code: REASON_CODES.GUARD_ARTIFACT_LEAK,
     decision: 'reject',
     description:
-      'agent/artifact context·secret 누설 (forbidden literal 또는 opt-in token)'
+      'agent stdout/stderr context·secret 누설 (forbidden literal 또는 opt-in token)'
   },
   {
     rank: 8,

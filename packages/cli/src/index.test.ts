@@ -208,7 +208,11 @@ it('improve --challenger runs the challenger and selects the better candidate vi
     "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
   const larger = await writeScenario(fixtureDir, 'cli-larger', [
     { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
-    { type: 'create', path: 'tests/regression.test.js', content: regressionTest },
+    {
+      type: 'create',
+      path: 'tests/regression.test.js',
+      content: regressionTest
+    },
     {
       type: 'create',
       path: 'src/extra.cjs',
@@ -217,7 +221,11 @@ it('improve --challenger runs the challenger and selects the better candidate vi
   ]);
   const smaller = await writeScenario(fixtureDir, 'cli-smaller', [
     { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
-    { type: 'create', path: 'tests/regression.test.js', content: regressionTest }
+    {
+      type: 'create',
+      path: 'tests/regression.test.js',
+      content: regressionTest
+    }
   ]);
 
   const logs: string[] = [];
