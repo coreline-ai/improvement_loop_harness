@@ -320,7 +320,12 @@
           "enum": ["none", "default"],
           "default": "none"
         }
-      }
+      },
+      "if": {
+        "properties": { "isolation": { "const": "container" } },
+        "required": ["isolation"]
+      },
+      "then": { "required": ["image"] }
     }
   }
 }

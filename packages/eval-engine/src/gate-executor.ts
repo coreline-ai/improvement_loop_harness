@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { redactForLeak } from '@vibeloop/guards';
 import {
@@ -43,6 +43,9 @@ export async function executeCommandGate(
     : context.worktreeRoot;
   const gateEnv = interpolateRecord(gate.env, values);
   const logPaths = gateLogPaths(context.artifactRoot, gate.name);
+  // Ensure the gate log dir exists for branches that write logs directly
+  // (isolated / redact / config-error); the host runCommand path mkdirs itself.
+  await mkdir(path.dirname(logPaths.stdoutFile), { recursive: true });
 
   // N4: hand the gate a harness-controlled structured metrics path (outside the
   // worktree/write_scope) so it can emit trustworthy metrics instead of stdout text.
