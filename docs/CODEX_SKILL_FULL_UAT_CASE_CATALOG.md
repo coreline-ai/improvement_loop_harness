@@ -6,24 +6,24 @@
 
 ## 0. 목적
 
-이 문서는 `vibeloop-harness` Skill을 제품처럼 배포/사용하기 전에 **항상 1회씩 실행해야 하는 고정 검증 케이스 목록**이다.
+이 문서는 `vibeloop-harness` Skill을 제품처럼 배포/사용하기 전에 **항상 1회씩 실행해야 하는 고정 검증 케이스 목록**이다. 여기의 `FULL_UAT_PASS`는 외부 설치본 + fixture command agent 기반 baseline 상태명이며, 실 Codex/LLM·실 GitHub PR 후보 검증은 `SKILL_REAL_USER_SCENARIO.md`의 RU lane에서 별도로 판단한다.
 
 핵심 원칙:
 
 - 기존 in-repo UAT wrapper 재사용이 아니라, 매 실행마다 외부 사용자 환경을 새로 만든다.
-- 모든 후보는 실제 command agent로 생성한다.
+- 모든 후보는 실제 프로세스로 실행되는 fixture command agent로 생성한다. 실 Codex/LLM 후보 생성은 이 카탈로그의 증명 범위가 아니다.
 - 통과/실패 판정은 `eval-report`, `quality-report`, `selection-report`만 신뢰한다.
 - PR 후보는 `selected + accept + ALL_PASS + qualified`일 때만 인정한다.
 - negative case의 false pass 허용치는 항상 `0`이다.
 
 ## 1. 실행 프로파일
 
-| 프로파일         | 명령                                                   | 목적                                      | 합격 기준                                 |
-| ---------------- | ------------------------------------------------------ | ----------------------------------------- | ----------------------------------------- |
-| One-shot catalog | `VIBELOOP_FULL_UAT_ROUNDS=0 pnpm uat:skill-loop:full`  | 아래 필수 케이스를 각각 1회씩 실행        | `FULL_UAT_PASS`, required cases 전부 pass |
-| Default full UAT | `pnpm uat:skill-loop:full`                             | 필수 케이스 + seed 기반 random stress 3회 | `FULL_UAT_PASS`, total cases 전부 pass    |
-| Random stress    | `VIBELOOP_FULL_UAT_ROUNDS=20 pnpm uat:skill-loop:full` | 실패 확률/false-pass 반복 관찰            | `unexpectedAcceptRate=0/N`                |
-| Debug artifacts  | `VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:full`     | 외부 설치본/repo/report 보존              | temp path에서 report 직접 확인 가능       |
+| 프로파일         | 명령                                                   | 목적                                      | 합격 기준                                                   |
+| ---------------- | ------------------------------------------------------ | ----------------------------------------- | ----------------------------------------------------------- |
+| One-shot catalog | `VIBELOOP_FULL_UAT_ROUNDS=0 pnpm uat:skill-loop:full`  | 아래 필수 케이스를 각각 1회씩 실행        | `FULL_UAT_PASS`(fixture baseline), required cases 전부 pass |
+| Default full UAT | `pnpm uat:skill-loop:full`                             | 필수 케이스 + seed 기반 random stress 3회 | `FULL_UAT_PASS`(fixture baseline), total cases 전부 pass    |
+| Random stress    | `VIBELOOP_FULL_UAT_ROUNDS=20 pnpm uat:skill-loop:full` | 실패 확률/false-pass 반복 관찰            | `unexpectedAcceptRate=0/N`                                  |
+| Debug artifacts  | `VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:full`     | 외부 설치본/repo/report 보존              | temp path에서 report 직접 확인 가능                         |
 
 ## 2. 공통 실사용 환경 불변식
 
@@ -125,19 +125,19 @@
 
 상시 검증 후 아래 값이 모두 맞아야 한다.
 
-| 출력 필드                            | 기대                 |
-| ------------------------------------ | -------------------- |
-| `status`                             | `FULL_UAT_PASS`      |
-| `required_cases`                     | `24` 이상            |
-| `passed_cases`                       | `total_cases`와 동일 |
-| `positive.accepted_issue_count`      | `2`                  |
-| `positive.pr_candidate_branch_count` | `2`                  |
-| `negative.unexpected_accept`         | `0`                  |
-| `self_improvement.case_count`        | `5`                  |
-| `failure_rate.unexpectedAcceptRate`  | `0/N`                |
-| `failure_rate.unexpectedRejectRate`  | `0/N`                |
-| `failure_rate.hiddenLeakRate`        | `0/N`                |
-| `failure_rate.stderrLeakRate`        | `0/N`                |
+| 출력 필드                            | 기대                                   |
+| ------------------------------------ | -------------------------------------- |
+| `status`                             | `FULL_UAT_PASS`(fixture baseline only) |
+| `required_cases`                     | `24` 이상                              |
+| `passed_cases`                       | `total_cases`와 동일                   |
+| `positive.accepted_issue_count`      | `2`                                    |
+| `positive.pr_candidate_branch_count` | `2`                                    |
+| `negative.unexpected_accept`         | `0`                                    |
+| `self_improvement.case_count`        | `5`                                    |
+| `failure_rate.unexpectedAcceptRate`  | `0/N`                                  |
+| `failure_rate.unexpectedRejectRate`  | `0/N`                                  |
+| `failure_rate.hiddenLeakRate`        | `0/N`                                  |
+| `failure_rate.stderrLeakRate`        | `0/N`                                  |
 
 ## 9. 케이스 추가/변경 규칙
 

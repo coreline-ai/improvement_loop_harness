@@ -43,6 +43,31 @@ export function buildSafeGitEnv(
   };
 }
 
+export interface WorktreeStatus {
+  /** True when there are tracked modifications and/or untracked files. */
+  dirty: boolean;
+  /** Raw `git status --porcelain` lines (trimmed, empty lines dropped). */
+  entries: string[];
+}
+
+/**
+ * Working-tree cleanliness of a repo via `git status --porcelain`. Captures both
+ * tracked modifications and untracked files; empty output means clean. Used by
+ * the improvement loop's dirty-source guard so a run does not silently fix only
+ * the committed state while the user has uncommitted work.
+ */
+export async function worktreeStatus(
+  repoPath: string,
+  options: SafeGitOptions = {}
+): Promise<WorktreeStatus> {
+  const result = await safeGit(repoPath, ['status', '--porcelain'], options);
+  const entries = result.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  return { dirty: entries.length > 0, entries };
+}
+
 export async function safeGit(
   cwd: string,
   args: readonly string[],

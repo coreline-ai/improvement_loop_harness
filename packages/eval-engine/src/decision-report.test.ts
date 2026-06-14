@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { GuardChangedFile } from '@vibeloop/guards';
@@ -15,6 +15,8 @@ import {
   fallbackProvenance,
   hashArtifactRefs,
   localVerifierFromDecision,
+  sha256Text,
+  verifyCandidatePatchHash,
   verifyEvalReportProvenance,
   verifierLaneMatchesLocal,
   writeEvalReport
@@ -371,6 +373,56 @@ describe('eval-report', () => {
         provenance
       })
     ).resolves.toBe(false);
+  });
+
+  it('verifyCandidatePatchHash binds the report to the on-disk patch and detects tampering (B3)', async () => {
+    const artifactRoot = await mkdtemp(
+      path.join(os.tmpdir(), 'vibeloop-patchhash-')
+    );
+    await mkdir(path.join(artifactRoot, 'patches'), { recursive: true });
+    const patchPath = path.join(artifactRoot, 'patches', 'candidate.patch');
+    const patch =
+      'diff --git a/src/value.cjs b/src/value.cjs\n@@ -1 +1 @@\n-module.exports = 1;\n+module.exports = 2;\n';
+    await writeFile(patchPath, patch);
+
+    const provenance = {
+      ...fallbackProvenance(),
+      candidate_patch_hash: sha256Text(patch)
+    };
+
+    // intact patch → recorded hash matches the on-disk bytes.
+    await expect(
+      verifyCandidatePatchHash(artifactRoot, {
+        schema_version: '1.1',
+        provenance
+      })
+    ).resolves.toBe(true);
+
+    // tampered patch → hash diverges → fail closed (drives ARTIFACT_PROVENANCE_MISMATCH).
+    await writeFile(patchPath, `${patch}// sneaky extra line\n`);
+    await expect(
+      verifyCandidatePatchHash(artifactRoot, {
+        schema_version: '1.1',
+        provenance
+      })
+    ).resolves.toBe(false);
+
+    // missing patch file → fail closed.
+    await rm(patchPath);
+    await expect(
+      verifyCandidatePatchHash(artifactRoot, {
+        schema_version: '1.1',
+        provenance
+      })
+    ).resolves.toBe(false);
+
+    // 1.1 without provenance cannot bind (fail closed); legacy 1.0 has no hash to bind.
+    await expect(
+      verifyCandidatePatchHash(artifactRoot, { schema_version: '1.1' })
+    ).resolves.toBe(false);
+    await expect(
+      verifyCandidatePatchHash(artifactRoot, { schema_version: '1.0' })
+    ).resolves.toBe(true);
   });
 
   it('marks strict verifier policy as missing CI evidence until a CI lane is attached', () => {

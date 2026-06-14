@@ -5,13 +5,13 @@
 
 ## 0. 목적
 
-이 문서의 목적은 기존 runbook을 참고하는 것이 아니라, **실제 사용자가 Skill을 설치해서 외부 프로젝트에 적용하는 환경과 동일한 방식으로 full UAT를 실행**하는 것이다.
+이 문서의 목적은 기존 runbook을 참고하는 것이 아니라, **실제 사용자가 Skill을 설치해서 외부 프로젝트에 적용하는 환경과 유사한 외부 설치본 UAT를 실행**하는 것이다. 단, 여기서의 `FULL_UAT_PASS`는 **fixture/command-agent 기반 deterministic baseline**이며, 실 Codex/LLM + 실 GitHub draft PR lane의 PASS가 아니다. 실사용자 live 증거는 [`SKILL_REAL_USER_SCENARIO.md`](./SKILL_REAL_USER_SCENARIO.md)의 RU-1/RU-2 Ledger로 분리한다.
 
 검증해야 하는 핵심은 다음 4가지다.
 
 1. Skill이 monorepo 내부 경로가 아니라 **복사된 외부 Skill 설치본 + bundled vendor CLI**로 동작한다.
 2. Task/Eval은 사용자가 직접 손으로 만든 fixture가 아니라 **복사된 Skill의 template/script**로 생성된다.
-3. 후보 생성은 mock이 아니라 **실제 command agent exec**로 수행된다.
+3. 후보 생성은 in-memory mock이 아니라 **실제 command agent exec(fixture agent)** 로 수행된다. 실 Codex/LLM은 이 문서의 범위 밖이다.
 4. PR 후보는 `selected + decision=accept + reason=ALL_PASS + qualified=true`일 때만 만들어진다.
 
 ## 1. 실행 명령
@@ -51,7 +51,7 @@ VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:full
 | 2    | `vibeloop-harness/vendor/vibeloop.mjs` 사용                  | bundled vendor CLI 동작                       |
 | 3    | `/tmp/.../real-user-project-*` 외부 git repo 생성            | 실제 사용자가 보유한 프로젝트 역할            |
 | 4    | 복사된 Skill의 `scripts/create-task-eval.mjs` 실행           | template 기반 `task.yaml`/`eval.yaml` 생성    |
-| 5    | real command agent 실행                                      | mock 없이 candidate patch 생성                |
+| 5    | fixture command agent 실행                                   | mock 없이 candidate patch 생성                |
 | 6    | eval report / quality report / selection report 검증         | 고정 Verifier + 고정 Evaluator + Arbiter 증명 |
 | 7    | 통과 후보만 `pr-candidate/*` branch 생성                     | PR 후보 생성 조건 검증                        |
 
@@ -71,10 +71,10 @@ ENOENT: no such file or directory, open '/tmp/.../schemas/task.schema.json'
 - task-protocol schema loader는 monorepo schema 경로와 bundled Skill schema 경로를 모두 지원해야 한다.
 - full UAT는 이 vendor/schema 경로를 매번 외부 설치본에서 검증한다.
 
-## 4. 최종 통과 공식
+## 4. 최종 통과 공식 — fixture baseline 한정
 
 ```text
-FULL_UAT_PASS =
+FIXTURE_FULL_UAT_PASS =
   copied_skill_vendor_cli_ok
   ∧ positive_queue_all_selected_and_qualified
   ∧ negative_false_pass_count == 0
@@ -132,7 +132,7 @@ PR_CANDIDATE = selected_candidate_id != null
 
 ```jsonc
 {
-  "status": "FULL_UAT_PASS",
+  "status": "FULL_UAT_PASS", // fixture baseline status; not real Codex/GitHub PASS
   "scenario": "skill-real-user-full-uat",
   "actual_user_environment": {
     "copied_skill_install": true,

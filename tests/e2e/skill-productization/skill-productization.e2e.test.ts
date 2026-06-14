@@ -29,6 +29,10 @@ const CREATE_TASK_EVAL_SCRIPT = path.join(
   SKILL_ROOT,
   'scripts/create-task-eval.mjs'
 );
+const CLASSIFY_INTENT_SCRIPT = path.join(
+  SKILL_ROOT,
+  'scripts/classify-intent.mjs'
+);
 const SUMMARIZE_REPORT_SCRIPT = path.join(
   SKILL_ROOT,
   'scripts/summarize-report.mjs'
@@ -174,6 +178,58 @@ describe.sequential('vibeloop-harness skill productization', () => {
       );
     } finally {
       await rm(outDir, { recursive: true, force: true });
+    }
+  });
+
+  it('classifies natural-language Skill prompts into safe VibeLoop modes', async () => {
+    const cases = [
+      {
+        prompt: '자동으로 문제 찾아서 하나씩 수정하고 검증 PR 후보 만들어줘',
+        mode: 'auto_discovery',
+        singleIssue: true
+      },
+      {
+        prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
+        mode: 'user_issue',
+        singleIssue: true
+      },
+      {
+        prompt: '이 candidate.patch는 수정하지 말고 검증만 해줘',
+        mode: 'verify_only',
+        singleIssue: true
+      },
+      {
+        prompt: '적대적 실패 케이스 UAT로 hidden leak과 tamper를 깨보기',
+        mode: 'adversarial_uat',
+        singleIssue: false
+      },
+      {
+        prompt: 'FULL UAT fixture baseline 한번 실행',
+        mode: 'fixture_full_uat',
+        singleIssue: false
+      }
+    ];
+
+    for (const entry of cases) {
+      const result = await runNode([
+        CLASSIFY_INTENT_SCRIPT,
+        '--prompt',
+        entry.prompt
+      ]);
+      expect(result.stderr).toBe('');
+      expect(result.code).toBe(0);
+      const output = JSON.parse(result.stdout) as {
+        mode: string;
+        single_issue_policy: boolean;
+        accept_authority: string;
+        full_improvement_pass_rule: string;
+      };
+      expect(output.mode).toBe(entry.mode);
+      expect(output.single_issue_policy).toBe(entry.singleIssue);
+      expect(output.accept_authority).toBe('deterministic_harness_only');
+      expect(output.full_improvement_pass_rule).toContain(
+        'strict_score_improvement_every_issue=false'
+      );
     }
   });
 

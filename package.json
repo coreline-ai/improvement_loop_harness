@@ -29,7 +29,8 @@
     "test:skill-loop:self-improvement": "pnpm build && vitest run --passWithNoTests tests/e2e/skill-productization/skill-self-improvement-loop.e2e.test.ts",
     "bundle:skill": "pnpm build && node scripts/bundle-skill.mjs",
     "uat:skill-loop:full": "pnpm bundle:skill && node scripts/uat/skill-real-user-full-uat.mjs",
-    "uat:skill-loop:codex-live": "pnpm build && node scripts/uat/skill-real-user-codex-live-uat.mjs"
+    "uat:skill-loop:codex-live": "pnpm build && node scripts/uat/skill-real-user-codex-live-uat.mjs",
+    "uat:skill-loop:codex-live:multi": "pnpm build && node scripts/uat/skill-real-user-codex-multi-issue-uat.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

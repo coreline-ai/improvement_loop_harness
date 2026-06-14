@@ -1,4 +1,5 @@
 import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -8,9 +9,11 @@ import { createProgram, VERSION } from './index.js';
 import { renderLoopHtmlReport } from './commands/report.js';
 import { retryLoop } from './commands/retry.js';
 import {
+  commandQualityJudge,
   resolveSameModelReview,
   runImprovementLoop,
-  runKernel
+  runKernel,
+  verifySelectedCandidate
 } from './run.js';
 
 async function tempDir(prefix: string): Promise<string> {
@@ -153,6 +156,7 @@ describe('createProgram', () => {
       'discover',
       'gc',
       'improve',
+      'orchestrate',
       'report',
       'retry',
       'run'
@@ -273,6 +277,81 @@ it('improve --challenger runs the challenger and selects the better candidate vi
   process.exitCode = 0;
 });
 
+it('improve can promote the selected final-verified patch to a local PR-candidate branch', async () => {
+  const repo = await createValueRepo();
+  const dataDir = await tempDir('vibeloop-cli-promote-data-');
+  const fixtureDir = await tempDir('vibeloop-cli-promote-fixture-');
+  const { taskFile, evalFile } = await writeFixtureTaskEval({
+    dir: fixtureDir,
+    taskId: 'cli-promote'
+  });
+  const regressionTest =
+    "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+  const scenario = await writeScenario(fixtureDir, 'cli-promote-agent', [
+    { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
+    {
+      type: 'create',
+      path: 'tests/regression.test.js',
+      content: regressionTest
+    }
+  ]);
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'improve',
+      '--repo',
+      repo.repoPath,
+      '--task',
+      taskFile,
+      '--eval',
+      evalFile,
+      '--agent',
+      `mock:${scenario}`,
+      '--out',
+      dataDir,
+      '--loop-id',
+      'cli-promote-1',
+      '--promote-branch',
+      'pr-candidate/cli-promote-1',
+      '--skip-dependency-install'
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    pr_candidate: boolean;
+    promotion: {
+      branch_name: string;
+      head_sha: string;
+      pushed: boolean;
+    } | null;
+  };
+  expect(output.pr_candidate).toBe(true);
+  expect(output.promotion).toMatchObject({
+    branch_name: 'pr-candidate/cli-promote-1',
+    pushed: false
+  });
+  expect(output.promotion?.head_sha).toMatch(/^[a-f0-9]{40}$/);
+  await expect(repo.git(['show', 'main:src/value.cjs'])).resolves.toBe(
+    'module.exports = 1;\n'
+  );
+  await expect(
+    repo.git(['show', 'pr-candidate/cli-promote-1:src/value.cjs'])
+  ).resolves.toBe('module.exports = 2;\n');
+  await expect(
+    repo.git(['show', 'pr-candidate/cli-promote-1:tests/regression.test.js'])
+  ).resolves.toContain('value !== 2');
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+});
+
 describe('resolveSameModelReview', () => {
   it.each([
     ['mock:scenario.json', undefined, false],
@@ -372,6 +451,523 @@ describe('runImprovementLoop', () => {
     ) as { selected_candidate_id: string; accepted_count: number };
     expect(report.selected_candidate_id).toBe('iloop-1-c1');
     expect(report.accepted_count).toBe(2);
+  });
+
+  it('enforces the maxCandidates cost ceiling (B4) and records cap_hit', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-cap-data-');
+    const fixtureDir = await tempDir('vibeloop-cap-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'cap'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const fix = await writeScenario(fixtureDir, 'cap-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'cap-1',
+      skipDependencyInstall: true,
+      // three builders requested, but the ceiling is two → the third never runs.
+      builders: [`mock:${fix}`, `mock:${fix}`, `mock:${fix}`],
+      maxCandidates: 2
+    });
+
+    expect(result.candidates).toHaveLength(2);
+    expect(result.limits?.cap_hit).toBe(true);
+    expect(result.limits?.candidates_run).toBe(2);
+    expect(result.limits?.max_candidates).toBe(2);
+
+    const report = JSON.parse(
+      await readFile(result.selectionReportPath!, 'utf8')
+    ) as { limits: { cap_hit: boolean; candidates_run: number } };
+    expect(report.limits.cap_hit).toBe(true);
+    expect(report.limits.candidates_run).toBe(2);
+  });
+
+  it('re-verifies the selected patch on a fresh worktree before PR candidacy (B2/B3)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-reverify-data-');
+    const fixtureDir = await tempDir('vibeloop-reverify-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'reverify'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const fix = await writeScenario(fixtureDir, 'rv-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'reverify-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`]
+    });
+
+    expect(result.selected?.candidateId).toBe('reverify-1-c0');
+    const fv = result.finalVerification;
+    expect(fv?.passed).toBe(true);
+    expect(fv?.provenance_ok).toBe(true);
+    expect(fv?.reverified).toBe(true);
+    expect(fv?.reverify_decision).toBe('accept');
+    expect(fv?.reverify_qualified).toBe(true);
+
+    const report = JSON.parse(
+      await readFile(result.selectionReportPath!, 'utf8')
+    ) as {
+      pr_candidate: boolean;
+      final_verification: { passed: boolean; reverified: boolean };
+    };
+    expect(report.pr_candidate).toBe(true);
+    expect(report.final_verification.passed).toBe(true);
+    expect(report.final_verification.reverified).toBe(true);
+  });
+
+  it('skipFinalReverify keeps the provenance binding but skips re-execution', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-skiprv-data-');
+    const fixtureDir = await tempDir('vibeloop-skiprv-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'skiprv'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const fix = await writeScenario(fixtureDir, 'sr-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'skiprv-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`],
+      skipFinalReverify: true
+    });
+
+    expect(result.selected?.candidateId).toBe('skiprv-1-c0');
+    expect(result.finalVerification?.provenance_ok).toBe(true);
+    expect(result.finalVerification?.reverified).toBe(false);
+    expect(result.finalVerification?.passed).toBe(true);
+  });
+
+  it('refuses a dirty source repo (auto base) but proceeds with allowDirty or a pinned base (#1)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-dirty-data-');
+    const fixtureDir = await tempDir('vibeloop-dirty-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'dirty'
+    });
+    const fix = await writeScenario(fixtureDir, 'd-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+      }
+    ]);
+    // Dirty the SOURCE repo with an untracked file (does not touch the fix).
+    await writeFile(path.join(repo.repoPath, 'UNCOMMITTED.txt'), 'wip\n');
+
+    // auto base + dirty → refuse.
+    await expect(
+      runImprovementLoop({
+        repoPath: repo.repoPath,
+        taskFile,
+        evalFile,
+        dataDir,
+        loopId: 'dirty-1',
+        skipDependencyInstall: true,
+        builders: [`mock:${fix}`]
+      })
+    ).rejects.toThrow(/uncommitted change/i);
+
+    // allowDirty → proceed (caller opted in).
+    const allowed = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'dirty-2',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`],
+      allowDirty: true
+    });
+    expect(allowed.selected?.candidateId).toBe('dirty-2-c0');
+
+    // pinned base commit → guard skipped → proceed.
+    const head = (await repo.git(['rev-parse', 'HEAD'])).trim();
+    const pinned = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'dirty-3',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`],
+      baseCommit: head
+    });
+    expect(pinned.selected?.candidateId).toBe('dirty-3-c0');
+  });
+
+  it('rejects a selected patch whose hash no longer matches the report (B3 PROVENANCE_MISMATCH → no PR)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-prov-data-');
+    const fixtureDir = await tempDir('vibeloop-prov-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'prov'
+    });
+    const fix = await writeScenario(fixtureDir, 'p-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+      }
+    ]);
+    // Produce a real accepted candidate (provenance-only mode keeps artifacts intact).
+    const produced = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'prov-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`],
+      skipFinalReverify: true
+    });
+    const cand = produced.selected!;
+    expect(cand.candidateId).toBe('prov-1-c0');
+
+    // Tamper the on-disk patch WITHOUT updating the recorded hash → binding breaks.
+    const patchPath = path.join(cand.artifactRoot, 'patches/candidate.patch');
+    await writeFile(
+      patchPath,
+      `${await readFile(patchPath, 'utf8')}\n// tamper\n`
+    );
+
+    const fv = await verifySelectedCandidate(cand, {
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      baseCommit: produced.baseCommit,
+      baseLoopId: 'prov-1',
+      skipDependencyInstall: true,
+      skipFinalReverify: false
+    });
+    expect(fv.provenance_ok).toBe(false);
+    expect(fv.passed).toBe(false);
+    expect(fv.reason).toBe('PROVENANCE_MISMATCH');
+    expect(fv.reverified).toBe(false); // never re-executed once provenance fails
+  });
+
+  it('rejects a selected patch that no longer applies on a clean base (B2 reverify → no PR)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-applyfail-data-');
+    const fixtureDir = await tempDir('vibeloop-applyfail-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'applyfail'
+    });
+    const fix = await writeScenario(fixtureDir, 'af-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+      }
+    ]);
+    const produced = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'applyfail-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`],
+      skipFinalReverify: true
+    });
+    const cand = produced.selected!;
+
+    // Replace the patch with one that cannot apply on the clean base, and update
+    // the recorded hash so provenance PASSES — the failure must surface at
+    // re-execution (B2), not at the hash binding (B3).
+    const badPatch =
+      'diff --git a/src/value.cjs b/src/value.cjs\n' +
+      '--- a/src/value.cjs\n' +
+      '+++ b/src/value.cjs\n' +
+      '@@ -1,1 +1,1 @@\n' +
+      '-this line does not match the real file\n' +
+      '+replacement\n';
+    const patchPath = path.join(cand.artifactRoot, 'patches/candidate.patch');
+    await writeFile(patchPath, badPatch);
+    const reportPath = cand.reportPath!;
+    const report = JSON.parse(await readFile(reportPath, 'utf8')) as {
+      provenance: { candidate_patch_hash: string };
+    };
+    report.provenance.candidate_patch_hash = createHash('sha256')
+      .update(badPatch)
+      .digest('hex');
+    await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+
+    const fv = await verifySelectedCandidate(cand, {
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      baseCommit: produced.baseCommit,
+      baseLoopId: 'applyfail-1',
+      skipDependencyInstall: true,
+      skipFinalReverify: false
+    });
+    expect(fv.provenance_ok).toBe(true); // hash now matches the (bad) patch
+    expect(fv.passed).toBe(false); // but it does not reproduce on a clean base
+    expect(fv.reason).toMatch(/REVERIFY/);
+  });
+
+  it('advisory judge reorders a score tie but the result is still verified (B1)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-tie-data-');
+    const fixtureDir = await tempDir('vibeloop-tie-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'tie'
+    });
+    // Two builders with the IDENTICAL fix → identical diffs → identical score → tie.
+    const fix = await writeScenario(fixtureDir, 't-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+      }
+    ]);
+
+    let judgeCalls = 0;
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'tie-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`, `mock:${fix}`],
+      // Deterministic pick would be c0 (lexicographic); the judge prefers the last.
+      qualityJudge: async (input) => {
+        judgeCalls += 1;
+        const last = input.tied[input.tied.length - 1]!;
+        return {
+          winner_candidate_id: last.candidate_id,
+          rationale: 'mock: last'
+        };
+      }
+    });
+
+    expect(judgeCalls).toBe(1);
+    expect(result.advisoryTieBreak?.ran).toBe(true);
+    expect(result.advisoryTieBreak?.tied_candidate_ids.sort()).toEqual([
+      'tie-1-c0',
+      'tie-1-c1'
+    ]);
+    expect(result.advisoryTieBreak?.deterministic_pick).toBe('tie-1-c0');
+    expect(result.advisoryTieBreak?.winner_candidate_id).toBe('tie-1-c1');
+    expect(result.advisoryTieBreak?.changed_pick).toBe(true);
+    // Advisory moved the pick, but it is STILL gated by final verification.
+    expect(result.selected?.candidateId).toBe('tie-1-c1');
+    expect(result.finalVerification?.passed).toBe(true);
+
+    const report = JSON.parse(
+      await readFile(result.selectionReportPath!, 'utf8')
+    ) as { advisory_tie_break: { changed_pick: boolean } | null };
+    expect(report.advisory_tie_break?.changed_pick).toBe(true);
+  });
+
+  it('advisory judge cannot promote a non-tied (e.g. rejected) candidate (B1 safety)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-tiesafe-data-');
+    const fixtureDir = await tempDir('vibeloop-tiesafe-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'tiesafe'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const fix = await writeScenario(fixtureDir, 'ts-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+    const failing = await writeScenario(fixtureDir, 'ts-failing', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+      // no regression test → rejected
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'tiesafe-1',
+      skipDependencyInstall: true,
+      // c0,c1 accepted+tied; c2 rejected.
+      builders: [`mock:${fix}`, `mock:${fix}`, `mock:${failing}`],
+      // Judge tries to crown the REJECTED candidate → must be ignored.
+      qualityJudge: async () => ({ winner_candidate_id: 'tiesafe-1-c2' })
+    });
+
+    expect(result.advisoryTieBreak?.invalid).toBe(true);
+    expect(result.advisoryTieBreak?.changed_pick).toBe(false);
+    // Deterministic pick (c0) stands; the rejected candidate was never promotable.
+    expect(result.selected?.candidateId).toBe('tiesafe-1-c0');
+  });
+
+  it('does not consult the judge when there is no score tie at the top (B1 no-op)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-notie-data-');
+    const fixtureDir = await tempDir('vibeloop-notie-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'notie'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const large = await writeScenario(fixtureDir, 'n-large', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      },
+      {
+        type: 'create',
+        path: 'src/extra.cjs',
+        content: 'module.exports = { extra: true };\n'
+      }
+    ]);
+    const small = await writeScenario(fixtureDir, 'n-small', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+
+    let judgeCalls = 0;
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'notie-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${large}`, `mock:${small}`],
+      qualityJudge: async () => {
+        judgeCalls += 1;
+        return { winner_candidate_id: 'notie-1-c0' };
+      }
+    });
+
+    expect(judgeCalls).toBe(0); // unique top score → no tie → judge untouched
+    expect(result.advisoryTieBreak).toBeUndefined();
+    expect(result.selected?.candidateId).toBe('notie-1-c1'); // smaller diff wins
+  });
+
+  it('commandQualityJudge runs a separate process and parses its JSON verdict', async () => {
+    const judge = commandQualityJudge(
+      `node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{const i=JSON.parse(d);const w=i.tied[i.tied.length-1].candidate_id;process.stdout.write(JSON.stringify({winner_candidate_id:w,rationale:'sep-context'}))})"`
+    );
+    const res = await judge({
+      tied: [
+        { candidate_id: 'a', artifact_root: '/x', patch_ref: '/x/p' },
+        { candidate_id: 'b', artifact_root: '/y', patch_ref: '/y/p' }
+      ]
+    });
+    expect(res.winner_candidate_id).toBe('b');
+    expect(res.rationale).toBe('sep-context');
   });
 
   it('runs a bounded refinement round only when round 0 produced no accepted candidate', async () => {
@@ -787,5 +1383,374 @@ describe('runKernel', () => {
     expect(result.status).toBe('cancelled');
     await expect(fileExists(result.reportPath!)).resolves.toBe(true);
     expect(worktreeList).not.toContain('loop-cli-cancel');
+  });
+});
+
+describe('orchestrate (auto mode)', () => {
+  async function seedRepoWithFailingTest(): Promise<{
+    repoPath: string;
+    evalFile: string;
+    git: (args: readonly string[]) => Promise<string>;
+  }> {
+    const repo = await createTempGitRepo();
+    await repo.write('src/value.cjs', 'module.exports = 1;\n');
+    // A committed test that FAILS on base with a generic message (no file path),
+    // so discovery's filePath falls back to 'project' → write_scope '.' (the fix
+    // touches src, which a test-file-only scope would forbid).
+    await repo.write(
+      'tests/value.test.cjs',
+      // Name the source file in the failure so discovery scopes the task to it
+      // (a generic message would fall back to 'project' → write_scope '.').
+      "const v = require('../src/value.cjs');\nif (v !== 2) { console.error('FAIL src/value.cjs: expected 2 got ' + v); process.exit(1); }\n"
+    );
+    await repo.write(
+      'eval.yaml',
+      [
+        'schema_version: "1.0"',
+        'project: orchestrate-fixture',
+        'protected_paths:',
+        '  - .env',
+        '  - eval.yaml',
+        'risk_classification:',
+        '  none:',
+        '    - src/',
+        '    - tests/',
+        'limits:',
+        '  max_changed_files: 10',
+        '  max_changed_lines: 200',
+        'gates:',
+        '  - name: protected_files',
+        '    type: scope',
+        '    command: builtin:protected-files',
+        '    required: true',
+        '  - name: diff_scope',
+        '    type: scope',
+        '    command: builtin:diff-scope',
+        '    required: true',
+        '  - name: limits',
+        '    type: integrity',
+        '    command: builtin:limits',
+        '    required: true',
+        '  - name: unit_tests',
+        '    type: task_acceptance',
+        '    command: node tests/value.test.cjs',
+        '    required: true',
+        ''
+      ].join('\n')
+    );
+    await repo.git(['add', '-A']);
+    await repo.git(['commit', '-m', 'seed bug + failing test + eval']);
+    return {
+      repoPath: repo.repoPath,
+      evalFile: path.join(repo.repoPath, 'eval.yaml'),
+      git: repo.git
+    };
+  }
+
+  it('discovers a failing test, auto-generates a task, and runs the loop to a PR candidate', async () => {
+    const repo = await seedRepoWithFailingTest();
+    const fixtureDir = await tempDir('vibeloop-orch-fixture-');
+    const fix = await writeScenario(fixtureDir, 'orch-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+    ]);
+    const dataDir = await tempDir('vibeloop-orch-data-');
+
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        '--data-dir',
+        dataDir,
+        'orchestrate',
+        '--repo',
+        repo.repoPath,
+        '--eval',
+        repo.evalFile,
+        '--agent',
+        `mock:${fix}`,
+        '--skip-dependency-install'
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const output = JSON.parse(logs[logs.length - 1]!) as {
+      mode: string;
+      discovered: number;
+      processed: number;
+      pr_candidates: number;
+      discovery_report: string;
+      issues: Array<{
+        source: string;
+        task_id: string;
+        pr_candidate: boolean;
+        selected_candidate_id: string | null;
+        final_verification: { passed: boolean } | null;
+      }>;
+    };
+
+    expect(output.mode).toBe('auto');
+    expect(output.discovered).toBeGreaterThanOrEqual(1);
+    expect(output.processed).toBe(1);
+    expect(output.issues).toHaveLength(1);
+    expect(output.issues[0]?.source).toBe('test_failure');
+    expect(output.issues[0]?.pr_candidate).toBe(true);
+    expect(output.issues[0]?.final_verification?.passed).toBe(true);
+    expect(output.pr_candidates).toBe(1);
+    // discovery report persisted to disk (step 6).
+    await expect(fileExists(output.discovery_report)).resolves.toBe(true);
+    expect(process.exitCode).toBe(EXIT_CODES.accept);
+  });
+
+  it('can cumulatively promote selected patches and rediscover the next issue on a local branch (RU-3 substrate)', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write('src/a.cjs', 'module.exports = 1;\n');
+    await repo.write('src/b.cjs', 'module.exports = 1;\n');
+    await repo.write(
+      'tests/a.test.cjs',
+      "const v = require('../src/a.cjs');\nif (v !== 2) { console.error('FAIL src/a.cjs: expected 2 got ' + v); process.exit(1); }\n"
+    );
+    await repo.write(
+      'tests/b.test.cjs',
+      "const v = require('../src/b.cjs');\nif (v !== 2) { console.error('FAIL src/b.cjs: expected 2 got ' + v); process.exit(1); }\n"
+    );
+    await repo.write(
+      'eval.yaml',
+      [
+        'schema_version: "1.0"',
+        'project: orchestrate-ru3-fixture',
+        'protected_paths:',
+        '  - .env',
+        '  - eval.yaml',
+        'risk_classification:',
+        '  none:',
+        '    - src/',
+        '    - tests/',
+        'limits:',
+        '  max_changed_files: 10',
+        '  max_changed_lines: 200',
+        'gates:',
+        '  - name: protected_files',
+        '    type: scope',
+        '    command: builtin:protected-files',
+        '    required: true',
+        '  - name: diff_scope',
+        '    type: scope',
+        '    command: builtin:diff-scope',
+        '    required: true',
+        '  - name: limits',
+        '    type: integrity',
+        '    command: builtin:limits',
+        '    required: true',
+        '  - name: a_tests',
+        '    type: task_acceptance',
+        '    command: node tests/a.test.cjs',
+        '    required: false',
+        '  - name: b_tests',
+        '    type: task_acceptance',
+        '    command: node tests/b.test.cjs',
+        '    required: false',
+        ''
+      ].join('\n')
+    );
+    await repo.git(['add', '-A']);
+    await repo.git(['commit', '-m', 'seed two independent failing tests']);
+
+    const fixtureDir = await tempDir('vibeloop-orch-ru3-fixture-');
+    const agent = path.join(fixtureDir, 'ru3-agent.cjs');
+    await writeFile(
+      agent,
+      [
+        "const fs = require('node:fs');",
+        "const task = fs.readFileSync(process.env.VIBELOOP_TASK_FILE, 'utf8');",
+        "if (task.includes('src/a.cjs')) {",
+        "  fs.writeFileSync('src/a.cjs', 'module.exports = 2;\\n');",
+        "  process.exit(0);",
+        '}',
+        "if (task.includes('src/b.cjs')) {",
+        "  fs.writeFileSync('src/b.cjs', 'module.exports = 2;\\n');",
+        "  process.exit(0);",
+        '}',
+        "throw new Error('unknown generated task: ' + task);",
+        ''
+      ].join('\n')
+    );
+    const dataDir = await tempDir('vibeloop-orch-ru3-data-');
+
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        '--data-dir',
+        dataDir,
+        'orchestrate',
+        '--repo',
+        repo.repoPath,
+        '--eval',
+        path.join(repo.repoPath, 'eval.yaml'),
+        '--agent',
+        `command:node ${agent}`,
+        '--max-issues',
+        '2',
+        '--promote-branch',
+        'pr-candidate/orchestrate-ru3',
+        '--skip-dependency-install'
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const output = JSON.parse(logs[logs.length - 1]!) as {
+      processed: number;
+      pr_candidates: number;
+      discovery_reports: string[];
+      cumulative_promotion: {
+        branch_name: string;
+        applied_issue_count: number;
+        rediscovery_after_each_fix: boolean;
+      } | null;
+      issues: Array<{
+        title: string;
+        pr_candidate: boolean;
+        promotion: { head_sha: string } | null;
+      }>;
+    };
+    const firstDiscovery = JSON.parse(
+      await readFile(output.discovery_reports[0]!, 'utf8')
+    ) as { candidates: Array<{ location: { filePath: string } }> };
+    const secondDiscovery = JSON.parse(
+      await readFile(output.discovery_reports[1]!, 'utf8')
+    ) as { candidates: Array<{ location: { filePath: string } }> };
+
+    expect(output.processed).toBe(2);
+    expect(output.pr_candidates).toBe(2);
+    expect(output.cumulative_promotion).toMatchObject({
+      branch_name: 'pr-candidate/orchestrate-ru3',
+      applied_issue_count: 2,
+      rediscovery_after_each_fix: true
+    });
+    expect(output.issues.map((issue) => issue.pr_candidate)).toEqual([
+      true,
+      true
+    ]);
+    expect(firstDiscovery.candidates[0]?.location.filePath).toBe('src/a.cjs');
+    expect(secondDiscovery.candidates[0]?.location.filePath).toBe('src/b.cjs');
+    await expect(
+      repo.git(['show', 'pr-candidate/orchestrate-ru3:src/a.cjs'])
+    ).resolves.toBe('module.exports = 2;\n');
+    await expect(
+      repo.git(['show', 'pr-candidate/orchestrate-ru3:src/b.cjs'])
+    ).resolves.toBe('module.exports = 2;\n');
+    await expect(
+      repo.git(['rev-list', '--count', 'main..pr-candidate/orchestrate-ru3'])
+    ).resolves.toBe('2\n');
+    expect(process.exitCode).toBe(EXIT_CODES.accept);
+  });
+
+  it('can generate a minimal visible-test eval contract when no eval.yaml exists', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write('src/value.cjs', 'module.exports = 1;\n');
+    await repo.write(
+      'tests/value.test.cjs',
+      "const v = require('../src/value.cjs');\nif (v !== 2) { console.error('FAIL src/value.cjs: expected 2 got ' + v); process.exit(1); }\n"
+    );
+    await repo.write(
+      'package.json',
+      `${JSON.stringify({ scripts: { test: 'node tests/value.test.cjs' } }, null, 2)}\n`
+    );
+    await repo.git(['add', '-A']);
+    await repo.git(['commit', '-m', 'seed package test bug']);
+
+    const fixtureDir = await tempDir('vibeloop-orch-geneval-fixture-');
+    const fix = await writeScenario(fixtureDir, 'orch-geneval-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+    ]);
+    const dataDir = await tempDir('vibeloop-orch-geneval-data-');
+
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        '--data-dir',
+        dataDir,
+        'orchestrate',
+        '--repo',
+        repo.repoPath,
+        '--generate-eval',
+        '--agent',
+        `mock:${fix}`,
+        '--skip-dependency-install'
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const output = JSON.parse(logs[logs.length - 1]!) as {
+      generated_eval: boolean;
+      eval_file: string;
+      pr_candidates: number;
+      issues: Array<{ pr_candidate: boolean }>;
+    };
+    const generatedEval = JSON.parse(
+      await readFile(output.eval_file, 'utf8')
+    ) as {
+      gates: Array<{ name: string; command: string }>;
+      evaluator: { require_test_on_base_pass: boolean };
+    };
+
+    expect(output.generated_eval).toBe(true);
+    expect(output.pr_candidates).toBe(1);
+    expect(output.issues[0]?.pr_candidate).toBe(true);
+    expect(generatedEval.gates.map((gate) => gate.name)).toContain(
+      'unit_tests'
+    );
+    expect(
+      generatedEval.gates.find((gate) => gate.name === 'unit_tests')?.command
+    ).toBe('npm test');
+    expect(generatedEval.evaluator.require_test_on_base_pass).toBe(true);
+    expect(process.exitCode).toBe(EXIT_CODES.accept);
+  });
+
+  it('errors when no eval contract is available', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write('src/value.cjs', 'module.exports = 1;\n');
+    await repo.git(['add', '-A']);
+    await repo.git(['commit', '-m', 'seed']);
+    const dataDir = await tempDir('vibeloop-orch-noeval-');
+
+    await expect(
+      createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        '--data-dir',
+        dataDir,
+        'orchestrate',
+        '--repo',
+        repo.repoPath,
+        '--agent',
+        'mock:does-not-matter.json',
+        '--skip-dependency-install'
+      ])
+    ).rejects.toThrow(/eval\.yaml/i);
   });
 });

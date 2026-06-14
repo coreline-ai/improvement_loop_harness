@@ -174,6 +174,31 @@ export async function verifyEvalReportProvenance(
   return true;
 }
 
+/**
+ * Verify the on-disk candidate patch still matches the `candidate_patch_hash`
+ * recorded in the report's provenance. This binds "what the gates verified" to
+ * "what gets turned into a PR": if the patch file is altered or swapped between
+ * the verifying run and PR promotion, the hashes diverge and this returns false.
+ *
+ * Separate from {@link verifyEvalReportProvenance} (which only re-hashes gate
+ * artifacts) so each binding is checked independently and a caller can require
+ * one without the other. A report without provenance can only be trusted on the
+ * legacy 1.0 schema (no hash to bind); 1.1 without provenance fails closed.
+ */
+export async function verifyCandidatePatchHash(
+  artifactRoot: string,
+  report: Pick<EvalReport, 'schema_version' | 'provenance'>,
+  patchRef = 'patches/candidate.patch'
+): Promise<boolean> {
+  if (!report.provenance) {
+    return report.schema_version === '1.0';
+  }
+  const actual = await sha256File(path.join(artifactRoot, patchRef)).catch(
+    () => 'missing'
+  );
+  return actual === report.provenance.candidate_patch_hash;
+}
+
 export function localVerifierFromDecision(options: {
   policy?: 'local' | 'strict' | undefined;
   decision: Decision;

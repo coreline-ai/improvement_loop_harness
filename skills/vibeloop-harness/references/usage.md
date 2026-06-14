@@ -7,6 +7,24 @@
 - Use `templates/eval-python.yaml` for Python projects with `python -m pytest`.
 - Use `templates/eval-web.yaml` for web projects that need unit tests plus build checks.
 
+## Classify a natural-language Skill prompt
+
+Use this before running a builder when the user's request is free-form:
+
+```bash
+node skills/vibeloop-harness/scripts/classify-intent.mjs \
+  --prompt "자동으로 문제 찾아서 하나씩 수정하고 검증 PR 후보 만들어줘"
+```
+
+The output is routing metadata only. It never decides accept/reject. Important modes:
+
+- `user_issue`: create one task/eval, then run `vibeloop improve`.
+- `auto_discovery`: run `vibeloop orchestrate`; add `--promote-branch` for local cumulative rediscovery. GitHub/live RU-3 remains unproven.
+- `verify_only`: verify an existing patch; do not run builder edits.
+- `fixture_full_uat`: fixture baseline only, not live Codex/GitHub proof.
+- `codex_live_uat`: requires real Codex/GitHub evidence.
+- `adversarial_uat`: negative/adversarial lane.
+
 ## Generate task/eval from templates
 
 ```bash
@@ -35,6 +53,29 @@ node packages/cli/bin/vibeloop --data-dir .vibeloop run \
   --loop-id <loop>
 ```
 
+## Auto-discovery substrate
+
+```bash
+node packages/cli/bin/vibeloop --data-dir .vibeloop orchestrate \
+  --repo /path/to/repo \
+  --eval /path/to/eval.yaml \
+  --agent 'command:<builder>' \
+  --max-issues 1 \
+  --promote-branch pr-candidate/vibeloop-auto
+```
+
+If `eval.yaml` is absent, a minimal visible-test eval can be generated:
+
+```bash
+node packages/cli/bin/vibeloop --data-dir .vibeloop orchestrate \
+  --repo /path/to/repo \
+  --generate-eval \
+  --eval-command "npm test" \
+  --agent 'command:<builder>'
+```
+
+`--promote-branch` gives local cumulative apply + rediscovery. Do not call this full live RU-3 yet: GitHub draft PR/push evidence and real Codex RU-3 UAT are still missing.
+
 ## Multi-candidate run (fix-and-improve)
 
 Run several builder candidates for one problem; the deterministic Arbiter selects
@@ -54,9 +95,22 @@ node packages/cli/bin/vibeloop --data-dir .vibeloop improve \
   --loop-id <loop>
 ```
 
-Outputs `selected_candidate_id`, `selected_patch`, and a `selection_report` path.
-A PR candidate is only the `selected` candidate; if none is selected, nothing
-cleared the bar.
+Outputs `selected_candidate_id`, `selected_patch`, `final_verification`, `advisory_tie_break`, `limits`, and a `selection_report` path.
+A PR candidate is only the `selected` candidate after final reverify/provenance pass; if none is selected, nothing cleared the bar.
+
+Optional quality tie-break among score-equal accepted candidates:
+
+```bash
+node packages/cli/bin/vibeloop --data-dir .vibeloop improve \
+  --repo /path/to/repo \
+  --task task.yaml \
+  --eval eval.yaml \
+  --agent 'command:<builder-a>' \
+  --challenger 'command:<builder-b>' \
+  --quality-judge "node scripts/uat/quality-judge-best-patch.mjs"
+```
+
+`--quality-judge` is advisory only and cannot promote rejected candidates or change accept/reject.
 
 ## Quality gate and PR candidate
 
@@ -117,6 +171,15 @@ Optional environment:
 
 - `VIBELOOP_UAT_KEEP_TMP=1`
 - `VIBELOOP_UAT_GITHUB=1` (self-improvement UAT only: publish selected patches as draft PRs to a throwaway private repo, then clean up)
+
+Real Codex live UAT lanes:
+
+```bash
+pnpm uat:skill-loop:codex-live
+pnpm uat:skill-loop:codex-live:multi
+```
+
+The multi lane separates `verification_status` from `full_autonomous_improvement_pass`; if `strict_score_improvement_every_issue=false`, never call it full autonomous improvement PASS.
 
 ## Report summarizer
 

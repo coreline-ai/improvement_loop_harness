@@ -1,6 +1,11 @@
 import path from 'node:path';
 import type { Command } from 'commander';
-import { EXIT_CODES, runImprovementLoop } from '@vibeloop/sdk';
+import {
+  EXIT_CODES,
+  commandQualityJudge,
+  promoteSelectedPatch,
+  runImprovementLoop
+} from '@vibeloop/sdk';
 
 interface ImproveCommandOptions {
   repo: string;
@@ -14,6 +19,12 @@ interface ImproveCommandOptions {
   baseCommit?: string | undefined;
   llmProxyUrl?: string | undefined;
   skipDependencyInstall?: boolean | undefined;
+  maxCandidates?: string | undefined;
+  skipFinalReverify?: boolean | undefined;
+  allowDirty?: boolean | undefined;
+  qualityJudge?: string | undefined;
+  promoteBranch?: string | undefined;
+  promoteCommitMessage?: string | undefined;
 }
 
 function collect(value: string, previous: string[]): string[] {
@@ -59,9 +70,41 @@ export function registerImproveCommand(program: Command): void {
       'skip dependency provisioning (test/debug only)',
       false
     )
+    .option(
+      '--max-candidates <n>',
+      'hard ceiling on total candidate runs across all rounds (cost backstop)',
+      '24'
+    )
+    .option(
+      '--skip-final-reverify',
+      'skip re-executing the selected patch (keep only provenance hash binding)',
+      false
+    )
+    .option(
+      '--allow-dirty',
+      'proceed even if the source repo has uncommitted changes (auto base only)',
+      false
+    )
+    .option(
+      '--quality-judge <command>',
+      'advisory tie-break: shell command (separate context) that ranks score-tied candidates (reads JSON on stdin, prints {winner_candidate_id} JSON)'
+    )
+    .option(
+      '--promote-branch <name>',
+      'create a local PR-candidate branch from the selected, final-verified patch (no push, no merge)'
+    )
+    .option(
+      '--promote-commit-message <message>',
+      'commit message for --promote-branch',
+      'vibeloop: apply selected patch'
+    )
     .action(async (options: ImproveCommandOptions, command: Command) => {
       if (options.agent.length === 0) {
         throw new Error('improve requires at least one --agent <spec>');
+      }
+      const maxCandidates = Number(options.maxCandidates ?? '24');
+      if (!Number.isInteger(maxCandidates) || maxCandidates < 1) {
+        throw new Error('--max-candidates must be a positive integer');
       }
       const controller = new AbortController();
       let sigintCount = 0;
@@ -89,10 +132,31 @@ export function registerImproveCommand(program: Command): void {
           baseCommit: options.baseCommit,
           proxyBaseUrl: options.llmProxyUrl,
           signal: controller.signal,
-          skipDependencyInstall: options.skipDependencyInstall
+          skipDependencyInstall: options.skipDependencyInstall,
+          maxCandidates,
+          skipFinalReverify: options.skipFinalReverify,
+          allowDirty: options.allowDirty,
+          ...(options.qualityJudge
+            ? { qualityJudge: commandQualityJudge(options.qualityJudge) }
+            : {})
         });
         // A selected (accepted ∧ qualified) candidate is a PR candidate; otherwise
         // nothing cleared the bar (no PR candidate from this pool).
+        const selectedPatch = result.selected
+          ? path.join(result.selected.artifactRoot, 'patches/candidate.patch')
+          : null;
+        const promotion =
+          result.selected && options.promoteBranch && selectedPatch
+            ? await promoteSelectedPatch({
+                repoPath: options.repo,
+                baseCommit: result.baseCommit,
+                branchName: options.promoteBranch,
+                patchPath: selectedPatch,
+                commitMessage:
+                  options.promoteCommitMessage ??
+                  'vibeloop: apply selected patch'
+              })
+            : null;
         process.exitCode = result.selected
           ? EXIT_CODES.accept
           : EXIT_CODES.reject;
@@ -108,12 +172,12 @@ export function registerImproveCommand(program: Command): void {
               selected_candidate_id: result.selected?.candidateId ?? null,
               selected_artifact_root: result.selected?.artifactRoot ?? null,
               selected_report: result.selected?.reportPath ?? null,
-              selected_patch: result.selected
-                ? path.join(
-                    result.selected.artifactRoot,
-                    'patches/candidate.patch'
-                  )
-                : null,
+              selected_patch: selectedPatch,
+              pr_candidate: !!result.selected,
+              promotion,
+              final_verification: result.finalVerification ?? null,
+              advisory_tie_break: result.advisoryTieBreak ?? null,
+              limits: result.limits ?? null,
               selection_report: result.selectionReportPath ?? null
             },
             null,

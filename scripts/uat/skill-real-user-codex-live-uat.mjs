@@ -216,6 +216,12 @@ async function main() {
       selected_reason: selectedReason,
       quality_met: qualityMet,
       pr_candidate: prCandidate,
+      // trust-floor evidence from the core CLI (B2/B3/B4 + B1): the selected
+      // real-codex patch was re-verified on a fresh worktree, provenance-bound,
+      // bounded by the candidate cap, and the advisory tie-break (if any).
+      final_verification: out.final_verification ?? null,
+      limits: out.limits ?? null,
+      advisory_tie_break: out.advisory_tie_break ?? null,
       false_pass: 0,
       leak: leak ? 1 : 0,
       cli_exit: cli.code,

@@ -1,6 +1,6 @@
 ---
 name: vibeloop-harness
-description: Run VibeLoop Harness verification for one AI code change from Codex. Use when a user asks to fix one issue with guarded acceptance gates, verify an existing patch, run Codex OAuth UAT, run Skill real-user loop UAT, run adversarial failure UAT, run the self-improvement loop UAT (candidate pool + challenger selection across an issue queue), create task/eval YAML, summarize eval-report.json, or prepare a PR candidate only after deterministic VibeLoop accept/ALL_PASS.
+description: Run VibeLoop Harness verification for one AI code change from Codex. Use when a user asks to route a natural-language VibeLoop request, fix one issue with guarded acceptance gates, auto-discover one issue, verify an existing patch, run Codex OAuth UAT, run Skill real-user loop UAT, run adversarial failure UAT, run the self-improvement loop UAT (candidate pool + challenger selection across an issue queue), create task/eval YAML, summarize eval-report.json, or prepare a PR candidate only after deterministic VibeLoop accept/ALL_PASS.
 ---
 
 # VibeLoop Harness
@@ -18,11 +18,32 @@ Use this skill to run VibeLoop as a thin wrapper around the project SDK/CLI. Do 
 
 ## Workflow
 
-1. Identify the target repo, single objective, base branch, write scope, and fixed acceptance commands.
-2. Create or reuse `task.yaml` and `eval.yaml`. Use templates in `templates/` when starting from scratch.
-3. Run one of the modes below.
-4. Summarize only from `eval-report.json`; include report path and failed gates.
-5. Prepare a PR candidate only when the report is accepted or the user explicitly approves human-review output.
+1. Classify the user's natural-language intent before running anything. Use the routing table below or `scripts/classify-intent.mjs --prompt "<user prompt>"`.
+2. Identify the target repo, single objective, base branch, write scope, and fixed acceptance commands.
+3. Create or reuse `task.yaml` and `eval.yaml`. Use templates in `templates/` when starting from scratch; use generated eval only as minimal visible-test baseline.
+4. Run one of the modes below.
+5. Summarize only from `eval-report.json`; include report path and failed gates.
+6. Prepare a PR candidate only when deterministic reports say it is a PR candidate.
+
+## Intent routing
+
+The Skill may interpret the user's prompt, but it must not invent acceptance criteria or decide pass/fail. Intent routing only selects the safest command path.
+
+```bash
+node skills/vibeloop-harness/scripts/classify-intent.mjs --prompt "<user prompt>"
+```
+
+| User intent signal | Route | Hard rule |
+| --- | --- | --- |
+| Specific bug/path/symptom: "fix this", "src/... fails", "quantity bug" | `user_issue` → create one task/eval then `vibeloop improve` | Exactly one issue per task/eval |
+| "auto-discover", "자율 개선", "문제 찾아서 하나씩" | `auto_discovery` → `vibeloop orchestrate` | Default is substrate; add `--promote-branch` for local cumulative rediscovery, still no GitHub/live RU-3 |
+| "verify only", "패치 검증만" | `verify_only` | Do not run builder edits |
+| "FULL UAT", fixture baseline/catalog | `fixture_full_uat` | `FULL_UAT_PASS` is fixture baseline only |
+| "real Codex", "실사용자", GitHub draft PR UAT | `codex_live_uat` | Requires real auth/repo evidence; no auto-merge |
+| "적대적", "failure case", "hidden leak/tamper" | `adversarial_uat` | Fixture/advisarial lane unless live adversary is explicitly configured |
+| eval-report/report summary | `report` | Summarize deterministic report only |
+
+If classification is `unknown`, ask for: repo path, one issue vs auto-discovery, and the fixed acceptance command.
 
 ## Modes
 
@@ -57,7 +78,7 @@ vibeloop improve \
   --loop-id <loop>
 ```
 
-The command prints `selected_candidate_id` and a `selection_report` path. A PR candidate is only the `selected` candidate; if none is selected, nothing cleared the bar (no PR candidate). Do not override the selection with an LLM opinion. Quality thresholds live in `eval.yaml`'s `evaluator` block (fixed rules).
+The command prints `selected_candidate_id` and a `selection_report` path. A PR candidate is only the `selected` candidate; if none is selected, nothing cleared the bar (no PR candidate). Do not override the selection with an LLM opinion. Quality thresholds live in `eval.yaml`'s `evaluator` block (fixed rules). If `--quality-judge` is configured, it is advisory only: it may choose among already accepted, score-tied candidates, never override accept/reject, and never makes `strict_score_improvement_every_issue=true`.
 
 ### verify-only
 
@@ -103,9 +124,20 @@ pnpm uat:skill-loop:self-improvement
 
 For each issue it runs a verbose builder and a tight challenger; the deterministic Arbiter must select the challenger with a strictly higher fixed score (smaller, cleaner diff at equal correctness). It advances issue-by-issue, and a final fully-bad pool must yield no selection and no PR candidate. Selection is never an LLM opinion. With `VIBELOOP_UAT_GITHUB=1` it also publishes each selected patch as a draft PR against a throwaway private GitHub repo and then deletes (or archives, if the token lacks `delete_repo`) it; the default run is hermetic.
 
-### discover
+### discover / auto-discovery
 
-Use discovery only to create candidate tasks. Do not auto-implement feature suggestions without human approval.
+Use discovery only to create candidate tasks. `vibeloop orchestrate` can discover failures, create a task, and run `improve` for bounded issues. With `--promote-branch`, it commits each selected/final-verified patch to a local integration branch and rediscovers on the updated branch. It is still not full live RU-3 until GitHub draft PR/push evidence and live Codex run are added.
+
+```bash
+vibeloop orchestrate \
+  --repo <repo> \
+  --eval <eval.yaml> \
+  --agent <builder-spec> \
+  --max-issues 1 \
+  --promote-branch pr-candidate/vibeloop-auto
+```
+
+If no `eval.yaml` exists, `--generate-eval` may create a minimal visible-test eval from package scripts or `--eval-command`; do not call that hidden/adversary/policy-rich eval.
 
 ### report
 
@@ -119,6 +151,7 @@ Create a PR candidate only when ALL hold (the summarizer's `prCandidate` is true
 - first decision reason is `ALL_PASS`
 - `quality-report.json` `status` is not `fail` (i.e. `qualified` / quality gate met)
 - hidden acceptance did not leak
+- `final_verification.passed` is true when using `improve`/selection flows
 - protected file, diff-scope, and (when configured) `artifact-leak` gates passed
 - the decision reason is not `GUARD_ARTIFACT_LEAK` (agent/artifact context·secret leak rejects at the kernel; surface as `remove_leaked_context_then_rerun`)
 - human review is not required, or the user explicitly approved it
@@ -128,5 +161,5 @@ An accepted-but-unqualified run (correctness passed, quality gate failed) is NOT
 ## References
 
 - Read `references/safety.md` before handling hidden tests, OAuth, API keys, protected files, or PR candidates.
-- Read `references/usage.md` for exact command patterns and template selection.
+- Read `references/usage.md` for exact command patterns, intent routing examples, and template selection.
 - Read `references/agents.md` for the agent-spec contract (command/mock/codex), the env/write-scope the harness gives an agent, provider independence, and Codex OAuth setup.

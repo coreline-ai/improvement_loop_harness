@@ -3,6 +3,7 @@ import { getDataDir } from '@vibeloop/shared';
 import { registerDiscoverCommand } from './commands/discover.js';
 import { registerGcCommand } from './commands/gc.js';
 import { registerImproveCommand } from './commands/improve.js';
+import { registerOrchestrateCommand } from './commands/orchestrate.js';
 import { registerReportCommand } from './commands/report.js';
 import { registerRetryCommand } from './commands/retry.js';
 import { registerRunCommand } from './commands/run.js';
@@ -22,6 +23,7 @@ export function createProgram(): Command {
   registerDiscoverCommand(program);
   registerRunCommand(program);
   registerImproveCommand(program);
+  registerOrchestrateCommand(program);
   registerRetryCommand(program);
   registerReportCommand(program);
   registerGcCommand(program);

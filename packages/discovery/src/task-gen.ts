@@ -72,6 +72,12 @@ export function generateTaskFromCandidate(candidate: DiscoveryCandidate, options
       human_approval_required: humanApprovalRequired(riskArea, options.evalConfig),
       write_scope: scope,
       required_evidence: evidence,
+      // The failing command becomes the acceptance test so the harness can
+      // verify the required evidence (e.g. fixes_reproduced_failure via
+      // test-on-base: failed on base, passes on candidate).
+      ...(candidate.reproCommand
+        ? { acceptance: { required_tests: [candidate.reproCommand] } }
+        : {}),
       ...(options.evalConfig?.limits ? { limits: options.evalConfig.limits } : {}),
       metadata: {
         candidate_fingerprint: candidate.fingerprint,
