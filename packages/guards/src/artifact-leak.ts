@@ -11,6 +11,8 @@ export interface ArtifactLeakConfig {
    * the diff) — a match REJECTS the candidate. Opt-in; default off.
    */
   scan_patch?: boolean | undefined;
+  /** v2: redact-only the project gate stdout/stderr logs before persisting. */
+  redact_gate_logs?: boolean | undefined;
   max_scan_bytes?: number | undefined;
   forbidden_literals?:
     | ReadonlyArray<{ label: string; value: string }>
@@ -248,4 +250,33 @@ export function mergeArtifactLeakResults(
       : base.summary,
     violations
   };
+}
+
+/**
+ * Redact-only helper for project gate stdout/stderr logs (no reject, no
+ * truncation). Forbidden literals and token-like matches are replaced before the
+ * log is persisted; the gate's pass/fail (from exit code) is unaffected. Used
+ * for opt-in `artifact_leak.redact_gate_logs`. Raw values never reach disk.
+ */
+export function redactForLeak(
+  text: string | undefined,
+  config: ArtifactLeakConfig | undefined
+): string {
+  let redacted = text ?? '';
+  if (!config) return redacted;
+  for (const literal of config.forbidden_literals ?? []) {
+    redacted = redacted.replace(
+      new RegExp(escapeRegex(literal.value), 'g'),
+      `[REDACTED:${literal.label}]`
+    );
+  }
+  for (const pattern of TOKEN_PATTERNS) {
+    redacted = redacted.replace(
+      new RegExp(pattern.source, 'gi'),
+      pattern.label === 'token_assignment'
+        ? '$1$2[REDACTED]'
+        : `[REDACTED:${pattern.label}]`
+    );
+  }
+  return redacted;
 }

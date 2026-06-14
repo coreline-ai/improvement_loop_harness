@@ -1,4 +1,6 @@
+import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { redactForLeak } from '@vibeloop/guards';
 import { runCommand } from '@vibeloop/shared';
 import type { EvalGate } from '@vibeloop/task-protocol';
 import {
@@ -50,6 +52,14 @@ export async function executeCommandGate(
     gate.name
   );
 
+  // v2 redact-only: when opted in, capture gate stdout/stderr in memory (omit
+  // the file targets so runCommand never writes raw output to disk), redact
+  // forbidden literals / tokens, then persist the redacted logs. Gate pass/fail
+  // (from exit code) is unaffected. Structured metrics use a separate JSON
+  // channel; the stdout-regex fallback reads the (redacted) log but metric keys
+  // never match leak patterns.
+  const redactLogs =
+    context.evalConfig.artifact_leak?.redact_gate_logs === true;
   const result = await runCommand(command, {
     cwd,
     env: {
@@ -58,9 +68,15 @@ export async function executeCommandGate(
       ...gateEnv
     },
     ...(gate.timeout_seconds ? { timeoutMs: gate.timeout_seconds * 1000 } : {}),
-    stdoutFile: logPaths.stdoutFile,
-    stderrFile: logPaths.stderrFile
+    ...(redactLogs
+      ? {}
+      : { stdoutFile: logPaths.stdoutFile, stderrFile: logPaths.stderrFile })
   });
+  if (redactLogs) {
+    const config = context.evalConfig.artifact_leak;
+    await writeFile(logPaths.stdoutFile, redactForLeak(result.stdout, config));
+    await writeFile(logPaths.stderrFile, redactForLeak(result.stderr, config));
+  }
   const finishedAt = new Date();
 
   return createGateResult({

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   mergeArtifactLeakResults,
+  redactForLeak,
   scanArtifactLeak,
   scanPatchForLeak
 } from './artifact-leak.js';
@@ -175,5 +176,24 @@ describe('mergeArtifactLeakResults', () => {
   it('returns the extra verdict when base is undefined', () => {
     const extra = scanPatchForLeak('+ clean line', { scan_patch: true }).result;
     expect(mergeArtifactLeakResults(undefined, extra)).toBe(extra);
+  });
+});
+
+describe('redactForLeak (gate-log redact-only)', () => {
+  it('redacts forbidden literals and tokens without rejecting or truncating', () => {
+    const big = 'x'.repeat(2_000_000); // > default 1 MiB scan cap
+    const text = `coverage_percent=81 LEAK_MARKER_ABC Bearer abcdefgh12345 ${big}END`;
+    const out = redactForLeak(text, {
+      forbidden_literals: [{ label: 'marker', value: 'LEAK_MARKER_ABC' }]
+    });
+    expect(out).not.toContain('LEAK_MARKER_ABC');
+    expect(out).toContain('[REDACTED:marker]');
+    expect(out).not.toContain('abcdefgh12345'); // token redacted regardless of opt-in
+    expect(out).toContain('coverage_percent=81'); // metric line untouched
+    expect(out.endsWith('END')).toBe(true); // no truncation marker
+  });
+
+  it('returns the text unchanged when config is undefined', () => {
+    expect(redactForLeak('LEAK_MARKER_ABC', undefined)).toBe('LEAK_MARKER_ABC');
   });
 });

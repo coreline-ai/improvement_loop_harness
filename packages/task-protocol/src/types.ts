@@ -127,6 +127,11 @@ export interface ArtifactLeakConfig {
    * the candidate (GUARD_ARTIFACT_LEAK). Opt-in; default off.
    */
   scan_patch?: boolean;
+  /**
+   * v2: redact-only the project gate stdout/stderr logs before persisting (no
+   * reject; gate pass/fail unaffected). Opt-in; default off.
+   */
+  redact_gate_logs?: boolean;
   /** Byte cap for scanning (≤ the exec buffer bound). Default 1 MiB. */
   max_scan_bytes?: number;
   /** Forbidden literals → REJECT (precise; e.g. prior issue id, hidden sentinel). */

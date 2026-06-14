@@ -42,7 +42,8 @@ evaluator:
 # artifact_leak:
 #   scan_agent_stdout: true
 #   scan_agent_stderr: true
-#   scan_patch: true
+#   scan_patch: true          # reject if the patch leaks a marker/secret
+#   redact_gate_logs: true    # redact-only the project gate stdout/stderr logs
 #   forbidden_literals:
 #     - label: prior_issue_id
 #       value: REPLACE_WITH_A_RECOVERABLE_MARKER

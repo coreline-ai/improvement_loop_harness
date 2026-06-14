@@ -269,6 +269,11 @@
           "default": false,
           "description": "v2: scan the candidate patch (PR deliverable) for forbidden literals / opted-in tokens. The patch is never redacted; a match rejects the candidate."
         },
+        "redact_gate_logs": {
+          "type": "boolean",
+          "default": false,
+          "description": "v2: redact-only the project gate stdout/stderr logs before persisting (no reject; gate pass/fail unaffected)."
+        },
         "max_scan_bytes": {
           "type": "integer",
           "minimum": 1,

@@ -129,3 +129,4 @@ An accepted-but-unqualified run (correctness passed, quality gate failed) is NOT
 
 - Read `references/safety.md` before handling hidden tests, OAuth, API keys, protected files, or PR candidates.
 - Read `references/usage.md` for exact command patterns and template selection.
+- Read `references/agents.md` for the agent-spec contract (command/mock/codex), the env/write-scope the harness gives an agent, provider independence, and Codex OAuth setup.
