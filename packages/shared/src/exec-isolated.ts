@@ -42,10 +42,17 @@ export async function isContainerRuntimeAvailable(): Promise<boolean> {
   return probe.status === 'pass';
 }
 
-export async function runCommandInContainer(
+/**
+ * Build the host `docker run` invocation (pure, no I/O) so its security-critical
+ * properties are unit-testable without a daemon: network isolation, the
+ * worktree mount, and that the untrusted command is passed via env (`-e`) — it
+ * is NEVER interpolated into the docker argv. The command value lives only in
+ * the returned `env` map.
+ */
+export function buildContainerInvocation(
   command: string,
   options: ContainerRunOptions
-): Promise<RunCommandResult> {
+): { dockerCommand: string; env: Record<string, string> } {
   const network = options.network ?? 'none';
   const passThroughKeys = Object.keys(options.env ?? {});
   const envFlags = [CONTAINER_CMD_ENV, ...passThroughKeys]
@@ -67,12 +74,23 @@ export async function runCommandInContainer(
     .filter(Boolean)
     .join(' ');
 
-  const runOptions: RunCommandOptions = {
+  return {
+    dockerCommand,
     env: {
-      ...process.env,
       ...(options.env ?? {}),
       [CONTAINER_CMD_ENV]: command
     }
+  };
+}
+
+export async function runCommandInContainer(
+  command: string,
+  options: ContainerRunOptions
+): Promise<RunCommandResult> {
+  const { dockerCommand, env } = buildContainerInvocation(command, options);
+
+  const runOptions: RunCommandOptions = {
+    env: { ...process.env, ...env }
   };
   if (options.timeoutMs) runOptions.timeoutMs = options.timeoutMs;
   if (options.maxBufferBytes)
