@@ -12,16 +12,27 @@ import {
 // shared. The inner command is passed via env (never on any argv), so a leaked
 // value cannot land in the host or container process table.
 
+export interface ContainerMount {
+  /**
+   * Host path to bind-mount. Must be on a path the container runtime exposes to
+   * its VM — e.g. under $HOME for colima (macOS `/var/folders` tmpdirs are NOT
+   * mounted). VibeLoop worktrees/artifacts live under the data dir (default
+   * ~/.vibeloop), which satisfies this.
+   */
+  hostPath: string;
+  /** Mount point inside the container. Mounting at the SAME absolute path keeps
+   * host-absolute paths (cwd, ${WORKTREE_ROOT}, metrics file) valid in-container. */
+  containerPath: string;
+  readonly?: boolean;
+}
+
 export interface ContainerRunOptions {
   /** Container image to run the command in (e.g. 'node:22-alpine'). */
   image: string;
-  /**
-   * Host directory mounted read-write at /work (the candidate worktree). Must be
-   * on a path the container runtime exposes to its VM — e.g. under $HOME for
-   * colima (macOS `/var/folders` tmpdirs are NOT mounted). VibeLoop worktrees
-   * live under the data dir (default ~/.vibeloop), which satisfies this.
-   */
-  mountDir: string;
+  /** Bind mounts (worktree, artifact/metrics dir, ...). */
+  mounts: ContainerMount[];
+  /** Working directory inside the container (a container path under a mount). */
+  workdir: string;
   /** Network policy. Default 'none' — untrusted code gets no network. */
   network?: 'none' | 'default';
   /** Env keys/values passed THROUGH to the container (via -e KEY, value in env). */
@@ -49,8 +60,8 @@ export async function isContainerRuntimeAvailable(): Promise<boolean> {
 
 /**
  * Build the host `docker run` invocation (pure, no I/O) so its security-critical
- * properties are unit-testable without a daemon: network isolation, the
- * worktree mount, and that the untrusted command is passed via env (`-e`) — it
+ * properties are unit-testable without a daemon: network isolation, the bind
+ * mounts/workdir, and that the untrusted command is passed via env (`-e`) — it
  * is NEVER interpolated into the docker argv. The command value lives only in
  * the returned `env` map.
  */
@@ -63,6 +74,12 @@ export function buildContainerInvocation(
   const envFlags = [CONTAINER_CMD_ENV, ...passThroughKeys]
     .map((key) => `-e ${key}`)
     .join(' ');
+  const mountFlags = options.mounts
+    .map(
+      (m) =>
+        `-v ${shSingleQuote(`${m.hostPath}:${m.containerPath}${m.readonly ? ':ro' : ''}`)}`
+    )
+    .join(' ');
 
   // Container entrypoint: `sh -c 'sh -c "$VIBELOOP_CONTAINER_CMD"'`.
   // - Host single-quotes the script so the HOST shell never expands the var.
@@ -73,8 +90,8 @@ export function buildContainerInvocation(
   const dockerCommand = [
     'docker run --rm',
     `--network ${network}`,
-    '-w /work',
-    `-v ${shSingleQuote(`${options.mountDir}:/work`)}`,
+    `-w ${shSingleQuote(options.workdir)}`,
+    mountFlags,
     envFlags,
     shSingleQuote(options.image),
     `sh -c ${shSingleQuote(`sh -c "$${CONTAINER_CMD_ENV}"`)}`

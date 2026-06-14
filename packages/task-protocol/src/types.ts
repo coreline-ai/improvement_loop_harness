@@ -106,7 +106,24 @@ export interface EvalConfig {
    * docs/EVAL_ENGINE_SPEC.md.
    */
   artifact_leak?: ArtifactLeakConfig;
+  /**
+   * R1: OS-level isolation for project command gates (which run agent-modified
+   * code == arbitrary code execution). When `isolation: container`, project
+   * command gates run inside a throwaway container (default `--network none`).
+   * Absent ⇒ host execution with worktree/env-scrub/guard-first (backward
+   * compatible). See SECURITY_MODEL.md §2/§6.
+   */
+  execution?: ExecutionConfig;
   gates: EvalGate[];
+}
+
+export interface ExecutionConfig {
+  /** 'none' (host; default) or 'container' (isolated project command gates). */
+  isolation?: 'none' | 'container';
+  /** Container image for isolated gates (required when isolation=container). */
+  image?: string;
+  /** Container network policy. Default 'none' (no network for untrusted code). */
+  network?: 'none' | 'default';
 }
 
 export interface ArtifactLeakLiteral {

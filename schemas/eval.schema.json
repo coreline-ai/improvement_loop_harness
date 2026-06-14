@@ -299,6 +299,28 @@
           }
         }
       }
+    },
+    "execution": {
+      "description": "R1: OS-level isolation for project command gates. isolation=container runs them in a throwaway container (default --network none). Absent = host execution (backward compatible). See SECURITY_MODEL.md §2/§6.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "isolation": {
+          "type": "string",
+          "enum": ["none", "container"],
+          "default": "none"
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Container image for isolated gates (required when isolation=container)."
+        },
+        "network": {
+          "type": "string",
+          "enum": ["none", "default"],
+          "default": "none"
+        }
+      }
     }
   }
 }
