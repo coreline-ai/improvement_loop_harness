@@ -1,5 +1,7 @@
 <div align="center">
 
+<img width="2752" height="1536" alt="AI 코드 검증 도구 바이브루프" src="https://github.com/user-attachments/assets/1405515b-14ff-41e9-9e47-7353fad3ce3e" />
+
 # 🔁 VibeLoop Harness
 
 **AI가 만든 코드 변경을 한 번에 하나씩 격리 실행하고, 고정된 결정론 게이트로만 검증해, 통과한 것만 draft PR 후보로 올리는 자율 개선 루프 하네스**
