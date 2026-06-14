@@ -15,7 +15,12 @@ import {
 export interface ContainerRunOptions {
   /** Container image to run the command in (e.g. 'node:22-alpine'). */
   image: string;
-  /** Host directory mounted read-write at /work (the candidate worktree). */
+  /**
+   * Host directory mounted read-write at /work (the candidate worktree). Must be
+   * on a path the container runtime exposes to its VM — e.g. under $HOME for
+   * colima (macOS `/var/folders` tmpdirs are NOT mounted). VibeLoop worktrees
+   * live under the data dir (default ~/.vibeloop), which satisfies this.
+   */
   mountDir: string;
   /** Network policy. Default 'none' — untrusted code gets no network. */
   network?: 'none' | 'default';
@@ -59,9 +64,12 @@ export function buildContainerInvocation(
     .map((key) => `-e ${key}`)
     .join(' ');
 
-  // The container command is `sh -lc "$VIBELOOP_CONTAINER_CMD"`, single-quoted on
-  // the host so the host shell does NOT expand it; docker passes the var in via
-  // -e and the container's shell expands it.
+  // Container entrypoint: `sh -c 'sh -c "$VIBELOOP_CONTAINER_CMD"'`.
+  // - Host single-quotes the script so the HOST shell never expands the var.
+  // - The OUTER container sh expands "$VAR" (passed via -e) into a single arg.
+  // - The INNER sh -c parses that arg as a full script, so shell operators
+  //   (&&, ||, |, >) in the command work. (A flat `sh -c "$VAR"` would make the
+  //   whole expansion one command word → "command not found".)
   const dockerCommand = [
     'docker run --rm',
     `--network ${network}`,
@@ -69,7 +77,7 @@ export function buildContainerInvocation(
     `-v ${shSingleQuote(`${options.mountDir}:/work`)}`,
     envFlags,
     shSingleQuote(options.image),
-    `sh -lc ${shSingleQuote(`"$${CONTAINER_CMD_ENV}"`)}`
+    `sh -c ${shSingleQuote(`sh -c "$${CONTAINER_CMD_ENV}"`)}`
   ]
     .filter(Boolean)
     .join(' ');

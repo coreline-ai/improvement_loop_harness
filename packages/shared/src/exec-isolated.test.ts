@@ -1,7 +1,7 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import {
   buildContainerInvocation,
   isContainerRuntimeAvailable,
@@ -13,6 +13,22 @@ import {
 // daemon is reachable — they are NOT silently passed.
 const dockerUp = await isContainerRuntimeAvailable();
 const IMAGE = process.env.VIBELOOP_TEST_CONTAINER_IMAGE ?? 'alpine:3.20';
+
+// Bind mounts must live on a path the container runtime exposes to its VM. macOS
+// `os.tmpdir()` (/var/folders/...) is NOT mounted into colima; $HOME is. Real
+// VibeLoop worktrees live under the data dir (default ~/.vibeloop), so use a
+// home-based temp dir here too.
+const mountRoots: string[] = [];
+async function makeMountDir(): Promise<string> {
+  const dir = await mkdtemp(path.join(os.homedir(), '.vibeloop-iso-test-'));
+  mountRoots.push(dir);
+  return dir;
+}
+afterAll(async () => {
+  await Promise.all(
+    mountRoots.map((dir) => rm(dir, { recursive: true, force: true }))
+  );
+});
 
 describe('isContainerRuntimeAvailable', () => {
   it('returns a boolean for the current environment', async () => {
@@ -51,7 +67,7 @@ describe('buildContainerInvocation', () => {
     expect(built.dockerCommand).not.toContain('curl http://evil');
     expect(built.dockerCommand).not.toContain('/etc/passwd');
     expect(built.dockerCommand).toContain('-e VIBELOOP_CONTAINER_CMD');
-    expect(built.dockerCommand).toContain('sh -lc');
+    expect(built.dockerCommand).toContain('sh -c');
     expect(built.env.VIBELOOP_CONTAINER_CMD).toBe(SECRET_CMD);
   });
 
@@ -66,7 +82,7 @@ describe.skipIf(!dockerUp)(
   'runCommandInContainer (needs docker daemon)',
   () => {
     it('runs a command in the container and captures stdout', async () => {
-      const dir = await mkdtemp(path.join(os.tmpdir(), 'vibeloop-iso-'));
+      const dir = await makeMountDir();
       const result = await runCommandInContainer('echo hi-from-container', {
         image: IMAGE,
         mountDir: dir,
@@ -78,7 +94,7 @@ describe.skipIf(!dockerUp)(
     }, 120_000);
 
     it('isolates the network with --network none', async () => {
-      const dir = await mkdtemp(path.join(os.tmpdir(), 'vibeloop-iso-'));
+      const dir = await makeMountDir();
       // busybox wget with no network must fail; we convert that to a marker.
       const result = await runCommandInContainer(
         'wget -T 3 -q -O- http://1.1.1.1 >/dev/null 2>&1 && echo NET_OK || echo NET_BLOCKED',
@@ -89,7 +105,7 @@ describe.skipIf(!dockerUp)(
     }, 120_000);
 
     it('mounts the host directory read-write at /work', async () => {
-      const dir = await mkdtemp(path.join(os.tmpdir(), 'vibeloop-iso-'));
+      const dir = await makeMountDir();
       await writeFile(path.join(dir, 'marker.txt'), 'mounted-ok');
       const result = await runCommandInContainer('cat /work/marker.txt', {
         image: IMAGE,
@@ -102,7 +118,7 @@ describe.skipIf(!dockerUp)(
     }, 120_000);
 
     it('passes env through without putting the value on any argv', async () => {
-      const dir = await mkdtemp(path.join(os.tmpdir(), 'vibeloop-iso-'));
+      const dir = await makeMountDir();
       const result = await runCommandInContainer('echo "$SECRET_ECHO"', {
         image: IMAGE,
         mountDir: dir,
