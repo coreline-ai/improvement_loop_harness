@@ -47,12 +47,14 @@ describe('codex oauth proxy helpers', () => {
     try {
       const response = await fetch(`${proxy.baseUrl}/v1/models`);
       const body = (await response.json()) as {
-        data: Array<{ id: string }>;
-        models: Array<{ id: string }>;
+        data: Array<{ id: string; slug: string }>;
+        models: Array<{ id: string; slug: string }>;
       };
       expect(response.status).toBe(200);
       expect(body.data[0]?.id).toBe('gpt-test');
+      expect(body.data[0]?.slug).toBe('gpt-test');
       expect(body.models[0]?.id).toBe('gpt-test');
+      expect(body.models[0]?.slug).toBe('gpt-test');
       expect(proxy.stats.model_requests).toBe(1);
     } finally {
       await proxy.close();

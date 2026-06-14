@@ -905,7 +905,9 @@ export async function runKernel(
       changedFiles,
       evidence: evidence.evidence,
       testOnBase,
-      requiredTestCount: task.acceptance?.required_tests?.length ?? 0
+      requiredTestCount: task.acceptance?.required_tests?.length ?? 0,
+      baselineMetrics: baseline.metrics,
+      candidateMetrics
     });
     await writeArtifact(
       layout.root,

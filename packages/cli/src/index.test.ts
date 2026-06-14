@@ -1,5 +1,6 @@
 import { access, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { createServer, type IncomingMessage } from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -10,6 +11,9 @@ import { renderLoopHtmlReport } from './commands/report.js';
 import { retryLoop } from './commands/retry.js';
 import {
   commandQualityJudge,
+  FIXED_ADVERSARY_REVIEW_PROMPT,
+  FIXED_ADVERSARY_REVIEW_PROMPT_VERSION,
+  resolveAdversaryReviewIndependence,
   resolveSameModelReview,
   runImprovementLoop,
   runKernel,
@@ -146,6 +150,53 @@ async function writeScenario(
   return scenario;
 }
 
+async function readRequestBody(req: IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function sha256(value: unknown): string {
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex')}`;
+}
+
+function frozenRulepackFixture(): Record<string, unknown> {
+  const lockInput = {
+    source_candidate_ref: 'adversary-rulepack-candidate.json',
+    source_replay_ref: 'm4-replay-result.json',
+    rules: [
+      { id: 'baseline:rule', hash: 'sha256:base' },
+      { id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }
+    ],
+    added_rules: [{ id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }],
+    diff: {
+      added: ['adversary:p-fixed-edge'],
+      removed: [],
+      changed: [],
+      appendOnly: true
+    },
+    replay: {
+      replaySafe: true,
+      total: 2,
+      matched: 2,
+      mismatches: []
+    }
+  };
+  return {
+    schema_version: '1.0',
+    kind: 'frozen_rulepack',
+    authority: 'fixed_next_loop_gate',
+    decision_impact: 'next_loop_only',
+    ...lockInput,
+    frozen_at: new Date(0).toISOString(),
+    lock_hash: sha256(lockInput)
+  };
+}
+
 describe('createProgram', () => {
   it('configures the vibeloop CLI version and Phase 10 commands', () => {
     const program = createProgram();
@@ -153,6 +204,11 @@ describe('createProgram', () => {
     expect(program.name()).toBe('vibeloop');
     expect(program.version()).toBe(VERSION);
     expect(program.commands.map((command) => command.name()).sort()).toEqual([
+      'adversary-confirm',
+      'adversary-rulepack-candidate',
+      'adversary-rulepack-freeze',
+      'adversary-rulepack-replay',
+      'adversary-rulepack-replay-corpus',
       'discover',
       'gc',
       'improve',
@@ -162,6 +218,691 @@ describe('createProgram', () => {
       'run'
     ]);
   });
+});
+
+it('adversary-rulepack-replay-corpus builds replay cases from M2-confirmed proposals', async () => {
+  const dir = await tempDir('vibeloop-adversary-replay-corpus-');
+  const handoffFile = path.join(dir, 'adversary-m2-handoff.json');
+  const candidateFile = path.join(dir, 'rulepack-candidate.json');
+  const outFile = path.join(dir, 'adversary-replay-corpus.json');
+  await writeFile(
+    handoffFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_m2_handoff',
+        authority: 'advisory_only',
+        decision_impact: 'none',
+        loop_id: 'handoff-loop',
+        base_commit: 'abc123',
+        selected_candidate_id: 'handoff-c0',
+        selected_patch: '/tmp/candidate.patch',
+        next_step: 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop',
+        proposals: [
+          {
+            proposal: {
+              id: 'p-fixed-edge',
+              targetPath: 'tests/adversary/fixed-edge.test.cjs',
+              body: '// fixed edge guard\nprocess.exit(0);\n',
+              expectation: 'pass_to_pass'
+            },
+            next_step: 'm2_execution_required'
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+  await writeFile(
+    candidateFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_rulepack_candidate',
+        authority: 'candidate_only',
+        decision_impact: 'none',
+        candidate_created: true,
+        status: 'candidate_created_m4_required',
+        reasons: [],
+        selected_candidate_id: 'handoff-c0',
+        source_handoff_ref: handoffFile,
+        source_confirmation_ref: path.join(dir, 'm2-confirmation.json'),
+        current_rules: [{ id: 'baseline:rule', hash: 'sha256:base' }],
+        proposed_rules: [
+          { id: 'baseline:rule', hash: 'sha256:base' },
+          { id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }
+        ],
+        added_rules: [{ id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }],
+        diff: {
+          added: ['adversary:p-fixed-edge'],
+          removed: [],
+          changed: [],
+          appendOnly: true
+        },
+        next_step: 'm4_replay_freeze_required'
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'adversary-rulepack-replay-corpus',
+      '--handoff',
+      handoffFile,
+      '--candidate',
+      candidateFile,
+      '--test-command',
+      'node tests/adversary/fixed-edge.test.cjs',
+      '--out',
+      outFile
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+  const output = JSON.parse(logs.join('\n')) as {
+    kind: string;
+    authority: string;
+    decision_impact: string;
+    case_count: number;
+    cases: Array<{ id: string; command: string; expect: string }>;
+    next_step: string;
+  };
+  const persisted = JSON.parse(
+    await readFile(outFile, 'utf8')
+  ) as typeof output;
+  expect(output).toMatchObject({
+    kind: 'adversary_replay_corpus',
+    authority: 'm2_confirmed_proposal_replay_corpus',
+    decision_impact: 'none',
+    case_count: 1,
+    cases: [
+      expect.objectContaining({
+        id: 'adversary:p-fixed-edge',
+        expect: 'pass'
+      })
+    ],
+    next_step: 'run_adversary_rulepack_replay'
+  });
+  expect(output.cases[0].command).toContain(
+    "cat > 'tests/adversary/fixed-edge.test.cjs'"
+  );
+  expect(output.cases[0].command).toContain(
+    'node tests/adversary/fixed-edge.test.cjs'
+  );
+  expect(persisted).toMatchObject(output);
+});
+
+it('adversary-rulepack-replay validates a replay corpus without changing accept authority', async () => {
+  const dir = await tempDir('vibeloop-adversary-rulepack-replay-');
+  const corpusFile = path.join(dir, 'adversary-replay-corpus.json');
+  const outFile = path.join(dir, 'm4-replay.json');
+  await writeFile(
+    corpusFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_replay_corpus',
+        cases: [
+          {
+            id: 'known-good',
+            command: 'npm test',
+            expect: 'pass'
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  await createProgram().parseAsync([
+    'node',
+    'vibeloop',
+    'adversary-rulepack-replay',
+    '--corpus',
+    corpusFile,
+    '--out',
+    outFile
+  ]);
+
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+  const output = JSON.parse(await readFile(outFile, 'utf8')) as {
+    kind: string;
+    authority: string;
+    decision_impact: string;
+    execute_requested: boolean;
+    executed: boolean;
+    replaySafe: boolean;
+    total: number;
+    next_step: string;
+  };
+  expect(output).toMatchObject({
+    kind: 'adversary_rulepack_replay',
+    authority: 'deterministic_m4_replay',
+    decision_impact: 'none',
+    execute_requested: false,
+    executed: false,
+    replaySafe: false,
+    total: 1,
+    next_step: 'execute_required'
+  });
+});
+
+it('adversary-confirm consumes an M2 handoff in dry-run mode without changing accept authority', async () => {
+  const dir = await tempDir('vibeloop-adversary-confirm-');
+  const handoffFile = path.join(dir, 'adversary-m2-handoff.json');
+  const outFile = path.join(dir, 'm2-confirmation.json');
+  await writeFile(
+    handoffFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_m2_handoff',
+        authority: 'advisory_only',
+        decision_impact: 'none',
+        loop_id: 'handoff-loop',
+        base_commit: 'abc123',
+        selected_candidate_id: 'handoff-c0',
+        selected_patch: '/tmp/candidate.patch',
+        next_step: 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop',
+        proposals: [
+          {
+            proposal: {
+              id: 'p-fixed-edge',
+              targetPath: 'tests/adversary/fixed-edge.test.cjs',
+              body: '// fixed edge guard\nprocess.exit(0);\n',
+              expectation: 'pass_to_pass'
+            },
+            next_step: 'm2_execution_required'
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'adversary-confirm',
+      '--handoff',
+      handoffFile,
+      '--objective-term',
+      'fixed',
+      '--out',
+      outFile
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    kind: string;
+    authority: string;
+    decision_impact: string;
+    executed: boolean;
+    next_step: string;
+    confirmations: Array<{ executed: boolean; confirmed: boolean }>;
+  };
+  const persisted = JSON.parse(
+    await readFile(outFile, 'utf8')
+  ) as typeof output;
+  expect(output).toMatchObject({
+    kind: 'adversary_m2_confirmation',
+    authority: 'deterministic_isolated_execution',
+    decision_impact: 'none',
+    executed: false,
+    next_step: 'execute_required'
+  });
+  expect(output.confirmations).toEqual([
+    expect.objectContaining({ executed: false, confirmed: false })
+  ]);
+  expect(persisted).toMatchObject(output);
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+});
+
+it('adversary-rulepack-candidate emits candidate-only rules after confirmed M2 execution', async () => {
+  const dir = await tempDir('vibeloop-adversary-rulepack-candidate-');
+  const handoffFile = path.join(dir, 'adversary-m2-handoff.json');
+  const confirmationFile = path.join(dir, 'm2-confirmation.json');
+  const outFile = path.join(dir, 'rulepack-candidate.json');
+  const currentRulepackFile = path.join(dir, 'current-rulepack.json');
+  await writeFile(
+    handoffFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_m2_handoff',
+        authority: 'advisory_only',
+        decision_impact: 'none',
+        loop_id: 'handoff-loop',
+        base_commit: 'abc123',
+        selected_candidate_id: 'handoff-c0',
+        selected_patch: '/tmp/candidate.patch',
+        next_step: 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop',
+        proposals: [
+          {
+            proposal: {
+              id: 'p-fixed-edge',
+              targetPath: 'tests/adversary/fixed-edge.test.cjs',
+              body: '// fixed edge guard\nprocess.exit(0);\n',
+              expectation: 'pass_to_pass'
+            },
+            next_step: 'm2_execution_required'
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+  await writeFile(
+    confirmationFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_m2_confirmation',
+        handoff_ref: handoffFile,
+        authority: 'deterministic_isolated_execution',
+        decision_impact: 'none',
+        execute_requested: true,
+        executed: true,
+        runtime_available: true,
+        selected_candidate_id: 'handoff-c0',
+        proposal_count: 1,
+        confirmed_count: 1,
+        all_confirmed: true,
+        next_step: 'm4_replay_freeze_required',
+        confirmations: [
+          {
+            proposalId: 'p-fixed-edge',
+            executed: true,
+            confirmed: true,
+            reason: 'confirmed in isolated fixture'
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+  await writeFile(
+    currentRulepackFile,
+    `${JSON.stringify({ rules: [{ id: 'baseline:rule', hash: 'sha256:base' }] })}\n`
+  );
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'adversary-rulepack-candidate',
+      '--handoff',
+      handoffFile,
+      '--confirmation',
+      confirmationFile,
+      '--current-rulepack',
+      currentRulepackFile,
+      '--out',
+      outFile
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    kind: string;
+    authority: string;
+    decision_impact: string;
+    candidate_created: boolean;
+    next_step: string;
+    added_rules: Array<{ id: string; hash: string }>;
+    diff: { added: string[]; removed: string[]; changed: string[] };
+  };
+  const persisted = JSON.parse(
+    await readFile(outFile, 'utf8')
+  ) as typeof output;
+  expect(output).toMatchObject({
+    kind: 'adversary_rulepack_candidate',
+    authority: 'candidate_only',
+    decision_impact: 'none',
+    candidate_created: true,
+    next_step: 'm4_replay_freeze_required',
+    diff: {
+      added: ['adversary:p-fixed-edge'],
+      removed: [],
+      changed: []
+    }
+  });
+  expect(output.added_rules).toEqual([
+    expect.objectContaining({
+      id: 'adversary:p-fixed-edge',
+      hash: expect.stringMatching(/^sha256:/)
+    })
+  ]);
+  expect(persisted).toMatchObject(output);
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+});
+
+it('adversary-rulepack-candidate rejects dry-run M2 reports and keeps them out of fixed gates', async () => {
+  const dir = await tempDir('vibeloop-adversary-rulepack-reject-');
+  const handoffFile = path.join(dir, 'adversary-m2-handoff.json');
+  const confirmationFile = path.join(dir, 'm2-confirmation.json');
+  await writeFile(
+    handoffFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_m2_handoff',
+        authority: 'advisory_only',
+        decision_impact: 'none',
+        loop_id: 'handoff-loop',
+        base_commit: 'abc123',
+        selected_candidate_id: 'handoff-c0',
+        selected_patch: '/tmp/candidate.patch',
+        next_step: 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop',
+        proposals: [
+          {
+            proposal: {
+              id: 'p-fixed-edge',
+              targetPath: 'tests/adversary/fixed-edge.test.cjs',
+              body: '// fixed edge guard\nprocess.exit(0);\n',
+              expectation: 'pass_to_pass'
+            },
+            next_step: 'm2_execution_required'
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+  await writeFile(
+    confirmationFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_m2_confirmation',
+        handoff_ref: handoffFile,
+        authority: 'deterministic_isolated_execution',
+        decision_impact: 'none',
+        execute_requested: false,
+        executed: false,
+        runtime_available: null,
+        selected_candidate_id: 'handoff-c0',
+        proposal_count: 1,
+        confirmed_count: 0,
+        all_confirmed: false,
+        next_step: 'execute_required',
+        confirmations: [
+          {
+            proposalId: 'p-fixed-edge',
+            executed: false,
+            confirmed: false,
+            reason: 'dry-run'
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'adversary-rulepack-candidate',
+      '--handoff',
+      handoffFile,
+      '--confirmation',
+      confirmationFile
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    authority: string;
+    decision_impact: string;
+    candidate_created: boolean;
+    reasons: string[];
+    next_step: string;
+  };
+  expect(output).toMatchObject({
+    authority: 'candidate_only',
+    decision_impact: 'none',
+    candidate_created: false,
+    next_step: 'discard_or_revise_proposals'
+  });
+  expect(output.reasons).toContain('m2_not_executed');
+  expect(output.reasons).toContain('m2_not_confirmed');
+  expect(output.reasons).toContain('no_confirmed_proposals');
+  expect(process.exitCode).toBe(EXIT_CODES.reject);
+  process.exitCode = 0;
+});
+
+it('adversary-rulepack-freeze freezes replay-safe candidates as next-loop-only fixed gate artifacts', async () => {
+  const dir = await tempDir('vibeloop-adversary-rulepack-freeze-');
+  const candidateFile = path.join(dir, 'rulepack-candidate.json');
+  const replayFile = path.join(dir, 'm4-replay.json');
+  const outFile = path.join(dir, 'freeze-report.json');
+  const rulepackOutFile = path.join(dir, 'rulepack.lock.json');
+  await writeFile(
+    candidateFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_rulepack_candidate',
+        authority: 'candidate_only',
+        decision_impact: 'none',
+        candidate_created: true,
+        status: 'candidate_created_m4_required',
+        reasons: [],
+        selected_candidate_id: 'handoff-c0',
+        source_handoff_ref: '/tmp/handoff.json',
+        source_confirmation_ref: '/tmp/confirmation.json',
+        current_rules: [{ id: 'baseline:rule', hash: 'sha256:base' }],
+        proposed_rules: [
+          { id: 'baseline:rule', hash: 'sha256:base' },
+          { id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }
+        ],
+        added_rules: [{ id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }],
+        diff: {
+          added: ['adversary:p-fixed-edge'],
+          removed: [],
+          changed: [],
+          appendOnly: true
+        },
+        next_step: 'm4_replay_freeze_required'
+      },
+      null,
+      2
+    )}\n`
+  );
+  await writeFile(
+    replayFile,
+    `${JSON.stringify(
+      { replaySafe: true, total: 2, matched: 2, mismatches: [] },
+      null,
+      2
+    )}\n`
+  );
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'adversary-rulepack-freeze',
+      '--candidate',
+      candidateFile,
+      '--replay',
+      replayFile,
+      '--rulepack-out',
+      rulepackOutFile,
+      '--out',
+      outFile
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    kind: string;
+    authority: string;
+    decision_impact: string;
+    frozen: boolean;
+    next_step: string;
+    rulepack_ref: string;
+    frozen_rulepack: {
+      authority: string;
+      decision_impact: string;
+      lock_hash: string;
+      rules: Array<{ id: string; hash: string }>;
+    };
+  };
+  const persisted = JSON.parse(
+    await readFile(outFile, 'utf8')
+  ) as typeof output;
+  const frozenRulepack = JSON.parse(
+    await readFile(rulepackOutFile, 'utf8')
+  ) as typeof output.frozen_rulepack;
+  expect(output).toMatchObject({
+    kind: 'adversary_rulepack_freeze',
+    authority: 'deterministic_m4_freeze',
+    decision_impact: 'next_loop_only',
+    frozen: true,
+    next_step: 'use_as_next_loop_fixed_gate',
+    rulepack_ref: rulepackOutFile,
+    frozen_rulepack: {
+      authority: 'fixed_next_loop_gate',
+      decision_impact: 'next_loop_only',
+      rules: [
+        { id: 'baseline:rule', hash: 'sha256:base' },
+        { id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }
+      ]
+    }
+  });
+  expect(output.frozen_rulepack.lock_hash).toMatch(/^sha256:/);
+  expect(persisted).toMatchObject(output);
+  expect(frozenRulepack).toMatchObject(output.frozen_rulepack);
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+});
+
+it('adversary-rulepack-freeze rejects replay-unsafe or current-loop-applied candidates', async () => {
+  const dir = await tempDir('vibeloop-adversary-rulepack-freeze-reject-');
+  const candidateFile = path.join(dir, 'rulepack-candidate.json');
+  const replayFile = path.join(dir, 'm4-replay.json');
+  await writeFile(
+    candidateFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_rulepack_candidate',
+        authority: 'candidate_only',
+        decision_impact: 'none',
+        candidate_created: true,
+        status: 'candidate_created_m4_required',
+        reasons: [],
+        selected_candidate_id: 'handoff-c0',
+        source_handoff_ref: '/tmp/handoff.json',
+        source_confirmation_ref: '/tmp/confirmation.json',
+        current_rules: [],
+        proposed_rules: [{ id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }],
+        added_rules: [{ id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }],
+        diff: {
+          added: ['adversary:p-fixed-edge'],
+          removed: [],
+          changed: [],
+          appendOnly: true
+        },
+        next_step: 'm4_replay_freeze_required'
+      },
+      null,
+      2
+    )}\n`
+  );
+  await writeFile(
+    replayFile,
+    `${JSON.stringify(
+      {
+        replaySafe: false,
+        total: 1,
+        matched: 0,
+        mismatches: [{ id: 'known-good', expected: 'pass', actual: 'fail' }]
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'adversary-rulepack-freeze',
+      '--candidate',
+      candidateFile,
+      '--replay',
+      replayFile,
+      '--applied-to-current-loop'
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    frozen: boolean;
+    reasons: string[];
+    next_step: string;
+    frozen_rulepack: unknown;
+  };
+  expect(output).toMatchObject({
+    frozen: false,
+    next_step: 'discard_or_replay',
+    frozen_rulepack: null
+  });
+  expect(output.reasons).toContain('replay_unsafe');
+  expect(output.reasons).toContain('applied_to_current_loop');
+  expect(process.exitCode).toBe(EXIT_CODES.reject);
+  process.exitCode = 0;
 });
 
 it('runs discover dry-run and prints structured candidates without saving them', async () => {
@@ -352,6 +1093,154 @@ it('improve can promote the selected final-verified patch to a local PR-candidat
   process.exitCode = 0;
 });
 
+it('improve can push the selected final-verified patch and create a GitHub draft PR', async () => {
+  const repo = await createValueRepo();
+  const bareRemote = await tempDir('vibeloop-cli-draft-remote-');
+  await repo.git(['init', '--bare', bareRemote]);
+  await repo.git(['remote', 'add', 'origin', bareRemote]);
+  await repo.git(['push', 'origin', 'main']);
+
+  const dataDir = await tempDir('vibeloop-cli-draft-data-');
+  const fixtureDir = await tempDir('vibeloop-cli-draft-fixture-');
+  const { taskFile, evalFile } = await writeFixtureTaskEval({
+    dir: fixtureDir,
+    taskId: 'cli-draft'
+  });
+  const scenario = await writeScenario(fixtureDir, 'cli-draft-agent', [
+    { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
+    {
+      type: 'create',
+      path: 'tests/regression.test.js',
+      content:
+        "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+    }
+  ]);
+
+  const apiRequests: Array<{ method: string; path: string; body: string }> = [];
+  const server = createServer(async (req, res) => {
+    const requestBody = await readRequestBody(req);
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    apiRequests.push({
+      method: req.method ?? 'GET',
+      path: `${url.pathname}${url.search}`,
+      body: requestBody
+    });
+    res.setHeader('content-type', 'application/json');
+    if (req.method === 'GET' && url.pathname.endsWith('/pulls')) {
+      res.end('[]');
+      return;
+    }
+    if (req.method === 'POST' && url.pathname.endsWith('/pulls')) {
+      const payload = JSON.parse(requestBody) as {
+        title: string;
+        head: string;
+        base: string;
+        draft: boolean;
+        body: string;
+      };
+      expect(payload).toMatchObject({
+        title: 'VibeLoop: cli-draft-1',
+        head: 'pr-candidate/cli-draft-1',
+        base: 'main',
+        draft: true
+      });
+      expect(payload.body).toContain('VibeLoop eval summary');
+      expect(payload.body).toContain('`ALL_PASS`');
+      res.statusCode = 201;
+      res.end(
+        JSON.stringify({
+          html_url:
+            'https://github.com/coreline-ai/improvement_loop_harness/pull/9',
+          number: 9
+        })
+      );
+      return;
+    }
+    res.statusCode = 404;
+    res.end(JSON.stringify({ message: 'not found' }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('server failed');
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  process.env.VIBELOOP_TEST_GITHUB_TOKEN = 'fixture-token';
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'improve',
+      '--repo',
+      repo.repoPath,
+      '--task',
+      taskFile,
+      '--eval',
+      evalFile,
+      '--agent',
+      `mock:${scenario}`,
+      '--out',
+      dataDir,
+      '--loop-id',
+      'cli-draft-1',
+      '--skip-dependency-install',
+      '--github-draft-pr',
+      '--github-repo',
+      'coreline-ai/improvement_loop_harness',
+      '--github-token-env',
+      'VIBELOOP_TEST_GITHUB_TOKEN',
+      '--github-base',
+      'main',
+      '--github-branch',
+      'pr-candidate/cli-draft-1',
+      '--github-push-url',
+      bareRemote,
+      '--github-api-base-url',
+      `http://127.0.0.1:${address.port}`
+    ]);
+  } finally {
+    spy.mockRestore();
+    delete process.env.VIBELOOP_TEST_GITHUB_TOKEN;
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve()))
+    );
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    pr_candidate: boolean;
+    draft_pr: {
+      branch_name: string;
+      pushed: boolean;
+      pr_url: string;
+      pr_number: number;
+      pr_reused: boolean;
+    } | null;
+  };
+  expect(output.pr_candidate).toBe(true);
+  expect(output.draft_pr).toMatchObject({
+    branch_name: 'pr-candidate/cli-draft-1',
+    pushed: true,
+    pr_url: 'https://github.com/coreline-ai/improvement_loop_harness/pull/9',
+    pr_number: 9,
+    pr_reused: false
+  });
+  const remoteHead = (
+    await repo.git([
+      'ls-remote',
+      bareRemote,
+      'refs/heads/pr-candidate/cli-draft-1'
+    ])
+  ).trim();
+  expect(remoteHead).toMatch(
+    /^[a-f0-9]{40}\s+refs\/heads\/pr-candidate\/cli-draft-1$/
+  );
+  expect(apiRequests.map((request) => request.method)).toEqual(['GET', 'POST']);
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+});
+
 describe('resolveSameModelReview', () => {
   it.each([
     ['mock:scenario.json', undefined, false],
@@ -371,6 +1260,52 @@ describe('resolveSameModelReview', () => {
     'maps %s with critic config %j to %s',
     (agentSpec, criticConfig, expected) => {
       expect(resolveSameModelReview(agentSpec, criticConfig)).toBe(expected);
+    }
+  );
+});
+
+describe('resolveAdversaryReviewIndependence', () => {
+  it.each([
+    [
+      { builderAgentSpec: 'mock:scenario.json' },
+      {
+        builder_provider: 'mock',
+        reviewer_provider: 'undeclared',
+        same_model_review: false,
+        require_different_provider: false
+      }
+    ],
+    [
+      { builderAgentSpec: 'codex', reviewerProvider: 'anthropic' },
+      {
+        builder_provider: 'openai',
+        reviewer_provider: 'anthropic',
+        same_model_review: false,
+        require_different_provider: false
+      }
+    ],
+    [
+      { builderAgentSpec: 'codex', reviewerProvider: 'openai' },
+      {
+        builder_provider: 'openai',
+        reviewer_provider: 'openai',
+        same_model_review: true,
+        require_different_provider: false
+      }
+    ],
+    [
+      { builderAgentSpec: 'codex', requireDifferentProvider: true },
+      {
+        builder_provider: 'openai',
+        reviewer_provider: 'undeclared',
+        same_model_review: true,
+        require_different_provider: true
+      }
+    ]
+  ] as const)(
+    'records adversary reviewer independence for %j',
+    (input, expected) => {
+      expect(resolveAdversaryReviewIndependence(input)).toEqual(expected);
     }
   );
 });
@@ -839,11 +1774,28 @@ describe('runImprovementLoop', () => {
     // Advisory moved the pick, but it is STILL gated by final verification.
     expect(result.selected?.candidateId).toBe('tie-1-c1');
     expect(result.finalVerification?.passed).toBe(true);
+    expect(result.selectionQuality).toMatchObject({
+      status: 'fixed_tie_advisory_supported',
+      strict_score_improvement: false,
+      advisory_supported: true,
+      best_choice_supported: true,
+      full_autonomous_improvement_eligible: false
+    });
 
     const report = JSON.parse(
       await readFile(result.selectionReportPath!, 'utf8')
-    ) as { advisory_tie_break: { changed_pick: boolean } | null };
+    ) as {
+      advisory_tie_break: { changed_pick: boolean } | null;
+      selection_quality: {
+        status: string;
+        full_autonomous_improvement_eligible: boolean;
+      };
+    };
     expect(report.advisory_tie_break?.changed_pick).toBe(true);
+    expect(report.selection_quality).toMatchObject({
+      status: 'fixed_tie_advisory_supported',
+      full_autonomous_improvement_eligible: false
+    });
   });
 
   it('advisory judge cannot promote a non-tied (e.g. rejected) candidate (B1 safety)', async () => {
@@ -954,6 +1906,151 @@ describe('runImprovementLoop', () => {
     expect(judgeCalls).toBe(0); // unique top score → no tie → judge untouched
     expect(result.advisoryTieBreak).toBeUndefined();
     expect(result.selected?.candidateId).toBe('notie-1-c1'); // smaller diff wins
+    expect(result.selectionQuality).toMatchObject({
+      status: 'strict_fixed_score_win',
+      strict_score_improvement: true,
+      advisory_supported: false,
+      best_choice_supported: true,
+      full_autonomous_improvement_eligible: true,
+      evidence: 'strict_fixed_score_spread'
+    });
+  });
+
+  it('uses deterministic Q5 metric deltas to choose the better accepted candidate', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-q5-score-data-');
+    const fixtureDir = await tempDir('vibeloop-q5-score-fixture-');
+    const taskFile = path.join(fixtureDir, 'q5-score.task.yaml');
+    const evalFile = path.join(fixtureDir, 'q5-score.eval.yaml');
+    const metricCommand =
+      "node -e \"const fs=require('node:fs'); const v=require('./src/value.cjs'); fs.writeFileSync(process.env.VIBELOOP_METRICS_FILE, JSON.stringify({coverage_percent:v})); if (v < 2) process.exit(1);\"";
+    await writeFile(
+      taskFile,
+      [
+        'schema_version: "1.0"',
+        'id: q5-score',
+        'title: Q5 score fixture',
+        'objective: Prefer the accepted fix with the stronger fixed metric delta',
+        'base_branch: main',
+        'risk_area: none',
+        'write_scope:',
+        '  allowed:',
+        '    - src/',
+        '    - tests/',
+        'required_evidence:',
+        '  - adds_regression_test',
+        'limits:',
+        '  max_changed_files: 10',
+        '  max_changed_lines: 200',
+        'acceptance:',
+        '  required_tests:',
+        '    - node tests/regression.test.js',
+        ''
+      ].join('\n')
+    );
+    await writeFile(
+      evalFile,
+      [
+        'schema_version: "1.0"',
+        'project: q5-score-fixture',
+        'protected_paths:',
+        '  - .env',
+        '  - eval.yaml',
+        'risk_classification:',
+        '  none:',
+        '    - src/',
+        '    - tests/',
+        'limits:',
+        '  max_changed_files: 10',
+        '  max_changed_lines: 200',
+        'test_integrity:',
+        '  forbidden_patterns:',
+        '    - test.skip',
+        '    - it.only',
+        'gates:',
+        '  - name: unit_tests',
+        '    type: task_acceptance',
+        '    command: node tests/regression.test.js',
+        '    required: true',
+        '  - name: coverage_metric',
+        '    type: performance',
+        `    command: ${JSON.stringify(metricCommand)}`,
+        '    required: true',
+        'evaluator:',
+        '  min_evidence_present: 1',
+        '  min_coverage_delta: 1',
+        '  max_changed_files: 2',
+        '  max_changed_lines: 10',
+        ''
+      ].join('\n')
+    );
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value < 2) process.exit(1);\n";
+    const minPass = await writeScenario(fixtureDir, 'q5-min-pass', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+    const strongerMetric = await writeScenario(fixtureDir, 'q5-stronger', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 3;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+
+    let judgeCalls = 0;
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'q5-score-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${minPass}`, `mock:${strongerMetric}`],
+      qualityJudge: async () => {
+        judgeCalls += 1;
+        return { winner_candidate_id: 'q5-score-1-c0' };
+      }
+    });
+
+    expect(judgeCalls).toBe(0);
+    expect(result.selected?.candidateId).toBe('q5-score-1-c1');
+    expect(
+      result.candidates.find((c) => c.candidateId.endsWith('-c0'))?.score
+    ).toMatchObject({
+      evidence_present: 1,
+      changed_files: 2,
+      quality_metric_score: 1
+    });
+    expect(
+      result.candidates.find((c) => c.candidateId.endsWith('-c1'))?.score
+    ).toMatchObject({
+      evidence_present: 1,
+      changed_files: 2,
+      quality_metric_score: 2
+    });
+    expect(result.selectionQuality).toMatchObject({
+      status: 'strict_fixed_score_win',
+      strict_score_improvement: true,
+      advisory_supported: false,
+      best_choice_supported: true,
+      full_autonomous_improvement_eligible: true,
+      evidence: 'strict_fixed_score_spread'
+    });
+    expect(result.selectionQuality?.score_spread).toBe(1);
   });
 
   it('commandQualityJudge runs a separate process and parses its JSON verdict', async () => {
@@ -968,6 +2065,262 @@ describe('runImprovementLoop', () => {
     });
     expect(res.winner_candidate_id).toBe('b');
     expect(res.rationale).toBe('sep-context');
+  });
+
+  it('default quality judge prefers a defensive fix among score-tied candidates', async () => {
+    const dir = await tempDir('vibeloop-default-quality-judge-');
+    const basicPatch = path.join(dir, 'basic.patch');
+    const defensivePatch = path.join(dir, 'defensive.patch');
+    await writeFile(
+      basicPatch,
+      [
+        'diff --git a/src/cart.cjs b/src/cart.cjs',
+        '--- a/src/cart.cjs',
+        '+++ b/src/cart.cjs',
+        '@@ -1 +1 @@',
+        '-return item.price;',
+        '+return item.price * item.quantity;',
+        ''
+      ].join('\n')
+    );
+    await writeFile(
+      defensivePatch,
+      [
+        'diff --git a/src/cart.cjs b/src/cart.cjs',
+        '--- a/src/cart.cjs',
+        '+++ b/src/cart.cjs',
+        '@@ -1 +1 @@',
+        '-return item.price;',
+        '+return item.price * (item.quantity ?? 1);',
+        ''
+      ].join('\n')
+    );
+    const judge = commandQualityJudge(
+      `${JSON.stringify(process.execPath)} ${JSON.stringify(
+        path.join(process.cwd(), 'scripts/uat/quality-judge-best-patch.mjs')
+      )}`
+    );
+    const verdict = await judge({
+      tied: [
+        { candidate_id: 'c0', artifact_root: dir, patch_ref: basicPatch },
+        { candidate_id: 'c1', artifact_root: dir, patch_ref: defensivePatch }
+      ]
+    });
+    expect(verdict.winner_candidate_id).toBe('c1');
+    expect(verdict.rationale).toContain('handles missing cart quantity');
+  });
+
+  it('runs an adversary reviewer as advisory-only and filters proposed tests without changing selection (M2 entry)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-adversary-review-data-');
+    const fixtureDir = await tempDir('vibeloop-adversary-review-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'adversary-review'
+    });
+    const fix = await writeScenario(fixtureDir, 'ar-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+      }
+    ]);
+
+    let reviewerPrompt: string | undefined;
+    let reviewerPromptVersion: string | undefined;
+    let reviewerDecisionImpact: string | undefined;
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'adversary-review-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`],
+      adversaryReviewer: async (input) => {
+        reviewerPrompt = input.reviewer_context.prompt;
+        reviewerPromptVersion = input.reviewer_context.prompt_version;
+        reviewerDecisionImpact = input.reviewer_context.decision_impact;
+        return {
+          findings: [
+            {
+              severity: 'high',
+              message: `try edge case against ${input.selected.candidate_id}`,
+              suggested_test_id: 'adv-value-edge'
+            }
+          ],
+          proposals: [
+            {
+              id: 'adv-value-edge',
+              targetPath:
+                'tests/adversary/adversary-review-value-edge.test.cjs',
+              body: "// adversary-review objective edge\nconst value = require('../../src/value.cjs');\nif (value !== 2) process.exit(1);\n",
+              expectation: 'pass_to_pass'
+            },
+            {
+              id: 'adv-hidden-leak',
+              targetPath: 'tests/adversary/hidden.test.cjs',
+              body: 'console.log("SECRET_HIDDEN_EXPECTATION");',
+              expectation: 'pass_to_pass'
+            }
+          ]
+        };
+      }
+    });
+
+    expect(reviewerPrompt).toBe(FIXED_ADVERSARY_REVIEW_PROMPT);
+    expect(reviewerPrompt).toContain('Do not approve the change');
+    expect(reviewerPromptVersion).toBe(FIXED_ADVERSARY_REVIEW_PROMPT_VERSION);
+    expect(reviewerDecisionImpact).toBe('none');
+    expect(result.selected?.candidateId).toBe('adversary-review-1-c0');
+    expect(result.finalVerification?.passed).toBe(true);
+    expect(result.selectionQuality).toMatchObject({
+      status: 'single_accepted_no_comparator',
+      strict_score_improvement: false,
+      best_choice_supported: false,
+      full_autonomous_improvement_eligible: false
+    });
+    expect(result.adversaryReview).toMatchObject({
+      ran: true,
+      authority: 'advisory_only',
+      decision_impact: 'none',
+      selected_candidate_id: 'adversary-review-1-c0',
+      builder_provider: 'mock',
+      reviewer_provider: 'undeclared',
+      same_model_review: false,
+      require_different_provider: false,
+      prompt_version: FIXED_ADVERSARY_REVIEW_PROMPT_VERSION,
+      prompt_hash: expect.stringMatching(/^sha256:/),
+      accepted_proposal_count: 1,
+      requires_human_review_signal: true,
+      next_step: 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop'
+    });
+    expect(result.adversaryReview?.proposals[0]?.filter.accepted).toBe(true);
+    expect(result.adversaryReview?.proposals[0]?.next_step).toBe(
+      'm2_execution_required'
+    );
+    expect(result.adversaryReview?.proposals[1]?.filter.accepted).toBe(false);
+    expect(
+      result.adversaryReview?.proposals[1]?.filter.failedFilters
+    ).toContain('no_hidden_leak');
+
+    const report = JSON.parse(
+      await readFile(result.selectionReportPath!, 'utf8')
+    ) as {
+      selected_candidate_id: string;
+      pr_candidate: boolean;
+      adversary_review: {
+        decision_impact: string;
+        builder_provider: string;
+        reviewer_provider: string;
+        same_model_review: boolean;
+        prompt_version: string;
+        prompt_hash: string;
+        accepted_proposal_count: number;
+        m2_handoff_ref?: string;
+      } | null;
+    };
+    expect(report.selected_candidate_id).toBe('adversary-review-1-c0');
+    expect(report.pr_candidate).toBe(true);
+    expect(report.adversary_review).toMatchObject({
+      decision_impact: 'none',
+      builder_provider: 'mock',
+      reviewer_provider: 'undeclared',
+      same_model_review: false,
+      prompt_version: FIXED_ADVERSARY_REVIEW_PROMPT_VERSION,
+      prompt_hash: expect.stringMatching(/^sha256:/),
+      accepted_proposal_count: 1
+    });
+    expect(report.adversary_review?.m2_handoff_ref).toBe(
+      result.adversaryReview?.m2_handoff_ref
+    );
+    const handoff = JSON.parse(
+      await readFile(result.adversaryReview!.m2_handoff_ref!, 'utf8')
+    ) as {
+      authority: string;
+      decision_impact: string;
+      selected_candidate_id: string;
+      proposals: Array<{ proposal: { id: string; body: string } }>;
+      next_step: string;
+    };
+    expect(handoff).toMatchObject({
+      authority: 'advisory_only',
+      decision_impact: 'none',
+      selected_candidate_id: 'adversary-review-1-c0',
+      next_step: 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop'
+    });
+    expect(handoff.proposals).toHaveLength(1);
+    expect(handoff.proposals[0]!.proposal.id).toBe('adv-value-edge');
+    expect(JSON.stringify(handoff)).not.toContain('SECRET_HIDDEN_EXPECTATION');
+  });
+
+  it('keeps deterministic selection when adversary reviewer fails', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-adversary-fail-data-');
+    const fixtureDir = await tempDir('vibeloop-adversary-fail-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'adversary-fail'
+    });
+    const fix = await writeScenario(fixtureDir, 'ar-fail-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+      }
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'adversary-fail-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`],
+      adversaryReviewer: async () => {
+        throw new Error('reviewer unavailable');
+      }
+    });
+
+    expect(result.selected?.candidateId).toBe('adversary-fail-1-c0');
+    expect(result.finalVerification?.passed).toBe(true);
+    expect(result.adversaryReview).toMatchObject({
+      ran: true,
+      authority: 'advisory_only',
+      decision_impact: 'none',
+      selected_candidate_id: 'adversary-fail-1-c0',
+      accepted_proposal_count: 0,
+      requires_human_review_signal: true,
+      next_step: 'none',
+      error: 'reviewer unavailable'
+    });
+
+    const report = JSON.parse(
+      await readFile(result.selectionReportPath!, 'utf8')
+    ) as {
+      selected_candidate_id: string;
+      pr_candidate: boolean;
+      adversary_review: { decision_impact: string; error: string } | null;
+    };
+    expect(report.selected_candidate_id).toBe('adversary-fail-1-c0');
+    expect(report.pr_candidate).toBe(true);
+    expect(report.adversary_review).toMatchObject({
+      decision_impact: 'none',
+      error: 'reviewer unavailable'
+    });
   });
 
   it('runs a bounded refinement round only when round 0 produced no accepted candidate', async () => {
@@ -1510,7 +2863,7 @@ describe('orchestrate (auto mode)', () => {
     expect(process.exitCode).toBe(EXIT_CODES.accept);
   });
 
-  it('can cumulatively promote selected patches and rediscover the next issue on a local branch (RU-3 substrate)', async () => {
+  it('can cumulatively promote selected patches, rediscover the next issue, and publish stacked draft PRs (RU-3 substrate)', async () => {
     const repo = await createTempGitRepo();
     await repo.write('src/a.cjs', 'module.exports = 1;\n');
     await repo.write('src/b.cjs', 'module.exports = 1;\n');
@@ -1563,6 +2916,10 @@ describe('orchestrate (auto mode)', () => {
     );
     await repo.git(['add', '-A']);
     await repo.git(['commit', '-m', 'seed two independent failing tests']);
+    const bareRemote = await tempDir('vibeloop-orch-ru3-remote-');
+    await repo.git(['init', '--bare', bareRemote]);
+    await repo.git(['remote', 'add', 'origin', bareRemote]);
+    await repo.git(['push', 'origin', 'main']);
 
     const fixtureDir = await tempDir('vibeloop-orch-ru3-fixture-');
     const agent = path.join(fixtureDir, 'ru3-agent.cjs');
@@ -1573,22 +2930,59 @@ describe('orchestrate (auto mode)', () => {
         "const task = fs.readFileSync(process.env.VIBELOOP_TASK_FILE, 'utf8');",
         "if (task.includes('src/a.cjs')) {",
         "  fs.writeFileSync('src/a.cjs', 'module.exports = 2;\\n');",
-        "  process.exit(0);",
+        '  process.exit(0);',
         '}',
         "if (task.includes('src/b.cjs')) {",
         "  fs.writeFileSync('src/b.cjs', 'module.exports = 2;\\n');",
-        "  process.exit(0);",
+        '  process.exit(0);',
         '}',
         "throw new Error('unknown generated task: ' + task);",
         ''
       ].join('\n')
     );
     const dataDir = await tempDir('vibeloop-orch-ru3-data-');
+    const apiRequests: Array<{ method: string; path: string; body: string }> =
+      [];
+    let prNumber = 20;
+    const server = createServer(async (req, res) => {
+      const requestBody = await readRequestBody(req);
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+      apiRequests.push({
+        method: req.method ?? 'GET',
+        path: `${url.pathname}${url.search}`,
+        body: requestBody
+      });
+      res.setHeader('content-type', 'application/json');
+      if (req.method === 'GET' && url.pathname.endsWith('/pulls')) {
+        res.end('[]');
+        return;
+      }
+      if (req.method === 'POST' && url.pathname.endsWith('/pulls')) {
+        prNumber += 1;
+        res.statusCode = 201;
+        res.end(
+          JSON.stringify({
+            html_url: `https://github.com/coreline-ai/improvement_loop_harness/pull/${prNumber}`,
+            number: prNumber
+          })
+        );
+        return;
+      }
+      res.statusCode = 404;
+      res.end(JSON.stringify({ message: 'not found' }));
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve)
+    );
+    const address = server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('server failed');
 
     const logs: string[] = [];
     const spy = vi
       .spyOn(console, 'log')
       .mockImplementation((value: string) => logs.push(value));
+    process.env.VIBELOOP_TEST_GITHUB_TOKEN = 'fixture-token';
     try {
       await createProgram().parseAsync([
         'node',
@@ -1606,10 +3000,27 @@ describe('orchestrate (auto mode)', () => {
         '2',
         '--promote-branch',
         'pr-candidate/orchestrate-ru3',
+        '--github-draft-pr',
+        '--github-repo',
+        'coreline-ai/improvement_loop_harness',
+        '--github-token-env',
+        'VIBELOOP_TEST_GITHUB_TOKEN',
+        '--github-base',
+        'main',
+        '--github-branch-prefix',
+        'pr-candidate',
+        '--github-push-url',
+        bareRemote,
+        '--github-api-base-url',
+        `http://127.0.0.1:${address.port}`,
         '--skip-dependency-install'
       ]);
     } finally {
       spy.mockRestore();
+      delete process.env.VIBELOOP_TEST_GITHUB_TOKEN;
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      );
     }
 
     const output = JSON.parse(logs[logs.length - 1]!) as {
@@ -1623,8 +3034,14 @@ describe('orchestrate (auto mode)', () => {
       } | null;
       issues: Array<{
         title: string;
+        task_id: string;
         pr_candidate: boolean;
         promotion: { head_sha: string } | null;
+        draft_pr: {
+          branch_name: string;
+          base_ref: string;
+          pr_url: string;
+        } | null;
       }>;
     };
     const firstDiscovery = JSON.parse(
@@ -1645,6 +3062,14 @@ describe('orchestrate (auto mode)', () => {
       true,
       true
     ]);
+    expect(output.issues.map((issue) => issue.draft_pr?.base_ref)).toEqual([
+      'main',
+      output.issues[0]!.draft_pr!.branch_name
+    ]);
+    expect(output.issues.map((issue) => issue.draft_pr?.pr_url)).toEqual([
+      'https://github.com/coreline-ai/improvement_loop_harness/pull/21',
+      'https://github.com/coreline-ai/improvement_loop_harness/pull/22'
+    ]);
     expect(firstDiscovery.candidates[0]?.location.filePath).toBe('src/a.cjs');
     expect(secondDiscovery.candidates[0]?.location.filePath).toBe('src/b.cjs');
     await expect(
@@ -1656,6 +3081,34 @@ describe('orchestrate (auto mode)', () => {
     await expect(
       repo.git(['rev-list', '--count', 'main..pr-candidate/orchestrate-ru3'])
     ).resolves.toBe('2\n');
+    const remoteBranches = (
+      await repo.git(['ls-remote', bareRemote, 'refs/heads/pr-candidate/*'])
+    )
+      .trim()
+      .split(/\n/)
+      .filter(Boolean);
+    expect(remoteBranches).toHaveLength(2);
+    const postPayloads = apiRequests
+      .filter((request) => request.method === 'POST')
+      .map(
+        (request) =>
+          JSON.parse(request.body) as {
+            head: string;
+            base: string;
+            draft: boolean;
+          }
+      );
+    expect(postPayloads).toHaveLength(2);
+    expect(postPayloads[0]).toMatchObject({
+      head: output.issues[0]!.draft_pr!.branch_name,
+      base: 'main',
+      draft: true
+    });
+    expect(postPayloads[1]).toMatchObject({
+      head: output.issues[1]!.draft_pr!.branch_name,
+      base: output.issues[0]!.draft_pr!.branch_name,
+      draft: true
+    });
     expect(process.exitCode).toBe(EXIT_CODES.accept);
   });
 
@@ -1670,10 +3123,20 @@ describe('orchestrate (auto mode)', () => {
       'package.json',
       `${JSON.stringify({ scripts: { test: 'node tests/value.test.cjs' } }, null, 2)}\n`
     );
+    await repo.write(
+      'policy/rulepack.lock.json',
+      `${JSON.stringify(frozenRulepackFixture(), null, 2)}\n`
+    );
     await repo.git(['add', '-A']);
     await repo.git(['commit', '-m', 'seed package test bug']);
 
     const fixtureDir = await tempDir('vibeloop-orch-geneval-fixture-');
+    const hiddenDir = await tempDir('vibeloop-orch-geneval-hidden-');
+    const hiddenSource = path.join(hiddenDir, 'hidden-value.test.cjs');
+    await writeFile(
+      hiddenSource,
+      "const v = require('../../src/value.cjs');\nif (v !== 2) process.exit(1);\n"
+    );
     const fix = await writeScenario(fixtureDir, 'orch-geneval-fix', [
       {
         type: 'modify',
@@ -1697,6 +3160,15 @@ describe('orchestrate (auto mode)', () => {
         '--repo',
         repo.repoPath,
         '--generate-eval',
+        '--eval-artifact-leak',
+        '--eval-forbidden-literal',
+        'fixture_cart_id=cart-fixture-123',
+        '--eval-scan-patch',
+        '--eval-redact-gate-logs',
+        '--eval-rulepack-lock',
+        'policy/rulepack.lock.json',
+        '--eval-hidden-test',
+        `hidden_value=${hiddenSource}:tests/hidden/value-hidden.test.cjs:node tests/hidden/value-hidden.test.cjs`,
         '--agent',
         `mock:${fix}`,
         '--skip-dependency-install'
@@ -1716,6 +3188,24 @@ describe('orchestrate (auto mode)', () => {
     ) as {
       gates: Array<{ name: string; command: string }>;
       evaluator: { require_test_on_base_pass: boolean };
+      protected_paths: string[];
+      rulepack_lock?: {
+        file: string;
+        required_authority: string;
+        required_decision_impact: string;
+      };
+      hidden_acceptance?: {
+        tests: Array<{
+          name: string;
+          source_path: string;
+          target_path: string;
+        }>;
+      };
+      artifact_leak?: {
+        scan_patch?: boolean;
+        redact_gate_logs?: boolean;
+        forbidden_literals?: Array<{ label: string; value: string }>;
+      };
     };
 
     expect(output.generated_eval).toBe(true);
@@ -1727,8 +3217,150 @@ describe('orchestrate (auto mode)', () => {
     expect(
       generatedEval.gates.find((gate) => gate.name === 'unit_tests')?.command
     ).toBe('npm test');
+    expect(generatedEval.gates.map((gate) => gate.name)).toContain(
+      'artifact_leak'
+    );
+    expect(generatedEval.gates.map((gate) => gate.name)).toContain(
+      'rulepack_lock'
+    );
+    expect(
+      generatedEval.gates.find((gate) => gate.name === 'rulepack_lock')?.command
+    ).toBe('builtin:rulepack-lock');
+    expect(generatedEval.protected_paths).toContain(
+      'policy/rulepack.lock.json'
+    );
+    expect(generatedEval.protected_paths).toContain(
+      'tests/hidden/value-hidden.test.cjs'
+    );
+    expect(generatedEval.rulepack_lock).toMatchObject({
+      file: 'policy/rulepack.lock.json',
+      required_authority: 'fixed_next_loop_gate',
+      required_decision_impact: 'next_loop_only'
+    });
+    expect(generatedEval.hidden_acceptance?.tests).toEqual([
+      {
+        name: 'hidden_value',
+        source_path: hiddenSource,
+        target_path: 'tests/hidden/value-hidden.test.cjs'
+      }
+    ]);
+    expect(generatedEval.gates).toContainEqual(
+      expect.objectContaining({
+        name: 'hidden_value',
+        type: 'hidden_acceptance',
+        group: 'hidden_acceptance',
+        command: 'node tests/hidden/value-hidden.test.cjs',
+        required: true
+      })
+    );
+    expect(generatedEval.artifact_leak).toMatchObject({
+      scan_patch: true,
+      redact_gate_logs: true,
+      forbidden_literals: [
+        { label: 'fixture_cart_id', value: 'cart-fixture-123' }
+      ]
+    });
     expect(generatedEval.evaluator.require_test_on_base_pass).toBe(true);
     expect(process.exitCode).toBe(EXIT_CODES.accept);
+  });
+
+  it('fails closed when generated eval references a tampered frozen rulepack lock', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write('src/value.cjs', 'module.exports = 1;\n');
+    await repo.write(
+      'tests/value.test.cjs',
+      "const v = require('../src/value.cjs');\nif (v !== 2) { console.error('FAIL src/value.cjs: expected 2 got ' + v); process.exit(1); }\n"
+    );
+    await repo.write(
+      'package.json',
+      `${JSON.stringify({ scripts: { test: 'node tests/value.test.cjs' } }, null, 2)}\n`
+    );
+    const tampered = frozenRulepackFixture();
+    (tampered.replay as { replaySafe: boolean }).replaySafe = false;
+    await repo.write(
+      'policy/rulepack.lock.json',
+      `${JSON.stringify(tampered, null, 2)}\n`
+    );
+    await repo.git(['add', '-A']);
+    await repo.git(['commit', '-m', 'seed tampered rulepack lock']);
+
+    const fixtureDir = await tempDir('vibeloop-orch-lockfail-fixture-');
+    const fix = await writeScenario(fixtureDir, 'orch-lockfail-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+    ]);
+    const dataDir = await tempDir('vibeloop-orch-lockfail-data-');
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        '--data-dir',
+        dataDir,
+        'orchestrate',
+        '--repo',
+        repo.repoPath,
+        '--generate-eval',
+        '--eval-rulepack-lock',
+        'policy/rulepack.lock.json',
+        '--agent',
+        `mock:${fix}`,
+        '--skip-dependency-install'
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const output = JSON.parse(logs[logs.length - 1]!) as {
+      pr_candidates: number;
+      false_pass: number;
+      issues: Array<{
+        pr_candidate: boolean;
+        selected_candidate_id: string | null;
+        selection_report: string;
+      }>;
+    };
+    expect(output.pr_candidates).toBe(0);
+    expect(output.false_pass).toBe(0);
+    expect(output.issues[0]).toMatchObject({
+      pr_candidate: false,
+      selected_candidate_id: null
+    });
+    const selection = JSON.parse(
+      await readFile(output.issues[0]!.selection_report, 'utf8')
+    ) as {
+      accepted_count: number;
+      candidates: Array<{ report_path?: string }>;
+    };
+    expect(selection.accepted_count).toBe(0);
+    const report = JSON.parse(
+      await readFile(selection.candidates[0]!.report_path!, 'utf8')
+    ) as {
+      decision: string;
+      gate_runs: Array<{ name: string; status: string; stdout_ref: string }>;
+    };
+    expect(report.decision).toBe('reject');
+    const gate = report.gate_runs.find(
+      (entry) => entry.name === 'rulepack_lock'
+    );
+    expect(gate?.status).toBe('fail');
+    const stdout = await readFile(
+      path.join(
+        path.dirname(selection.candidates[0]!.report_path!),
+        '..',
+        gate!.stdout_ref
+      ),
+      'utf8'
+    );
+    expect(stdout).toContain('RULEPACK_LOCK_REPLAY_UNSAFE');
+    expect(stdout).toContain('RULEPACK_LOCK_HASH_MISMATCH');
+    expect(process.exitCode).toBe(EXIT_CODES.reject);
   });
 
   it('errors when no eval contract is available', async () => {

@@ -133,6 +133,8 @@ PR_CANDIDATE = selected_candidate_id != null
 ```jsonc
 {
   "status": "FULL_UAT_PASS", // fixture baseline status; not real Codex/GitHub PASS
+  "proof_scope": "fixture_baseline_only",
+  "not_live_codex_or_github_pass": true,
   "scenario": "skill-real-user-full-uat",
   "actual_user_environment": {
     "copied_skill_install": true,

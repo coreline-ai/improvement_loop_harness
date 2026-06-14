@@ -31,6 +31,36 @@ function requireString(args, key, fallback) {
   return value.trim();
 }
 
+function optionalString(args, key) {
+  const value = args[key];
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function titleFromPrompt(prompt) {
+  const firstSentence =
+    prompt
+      .split(/[.!?\n。！？]/)
+      .map((part) => part.trim())
+      .find(Boolean) ?? prompt.trim();
+  return firstSentence.length > 72
+    ? `${firstSentence.slice(0, 69).trim()}...`
+    : firstSentence;
+}
+
+function slugFromText(text) {
+  const ascii = text
+    .normalize('NFKD')
+    .replace(/[^\w\s-]/g, ' ')
+    .toLowerCase()
+    .trim()
+    .replace(/[_\s-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  const slug = ascii.replace(/[^a-z0-9-]/g, '').slice(0, 48);
+  return slug || 'vibeloop-task';
+}
+
 function templateName(kind) {
   if (kind === 'node') return 'eval-node.yaml';
   if (kind === 'python') return 'eval-python.yaml';
@@ -51,12 +81,23 @@ function yamlString(value) {
 
 const args = parseArgs(process.argv.slice(2));
 const outDir = path.resolve(String(args.out));
-const id = requireString(args, 'id', 'vibeloop-task');
-const title = requireString(args, 'title', 'Fix one bounded issue');
+const prompt = optionalString(args, 'prompt');
+const id = requireString(
+  args,
+  'id',
+  prompt ? `vibeloop-${slugFromText(prompt)}` : 'vibeloop-task'
+);
+const title = requireString(
+  args,
+  'title',
+  prompt ? titleFromPrompt(prompt) : 'Fix one bounded issue'
+);
 const objective = requireString(
   args,
   'objective',
-  'Fix exactly one issue and add or update a regression test that proves the fix.'
+  prompt
+    ? `Fix exactly one bounded issue from this user prompt and add or update a regression test that proves the fix: ${prompt}`
+    : 'Fix exactly one issue and add or update a regression test that proves the fix.'
 );
 const project = requireString(args, 'project', id);
 const template = requireString(args, 'template', 'node');
@@ -98,7 +139,9 @@ console.log(
   JSON.stringify(
     {
       task: path.join(outDir, 'task.yaml'),
-      eval: path.join(outDir, 'eval.yaml')
+      eval: path.join(outDir, 'eval.yaml'),
+      mode: prompt ? 'user_issue_from_prompt' : 'template',
+      single_issue_policy: true
     },
     null,
     2

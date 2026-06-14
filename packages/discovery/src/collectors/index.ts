@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -124,7 +125,14 @@ function extractFilePath(output: string, repoPath: string): string {
     const normalized = raw.startsWith(repoPrefix)
       ? raw.slice(repoPrefix.length + 1)
       : raw;
-    if (!normalized.includes('node_modules/') && !normalized.startsWith('/'))
+    const absolute = path.join(repoPath, normalized);
+    const looksLikeRuntimeName = /^(?:node|bun|deno)\.js$/i.test(normalized);
+    if (
+      !normalized.includes('node_modules/') &&
+      !normalized.startsWith('/') &&
+      !looksLikeRuntimeName &&
+      existsSync(absolute)
+    )
       candidates.push(normalized);
   }
   return (
@@ -135,6 +143,56 @@ function extractFilePath(output: string, repoPath: string): string {
     candidates[0] ??
     'project'
   );
+}
+
+function extractTestFilePath(output: string, repoPath: string): string | null {
+  const repoPrefix = repoPath.replace(/\\/g, '/').replace(/\/$/, '');
+  const filePattern =
+    /((?:[A-Za-z]:)?[./]?[A-Za-z0-9_@./-]+\.test\.(?:[cm]?[jt]sx?|py|rb|go|rs|java|kt|swift|php|c|cpp|h|hpp))/g;
+  for (const match of output.matchAll(filePattern)) {
+    const raw = sanitizePath(match[1] ?? '');
+    const normalized = raw.startsWith(repoPrefix)
+      ? raw.slice(repoPrefix.length + 1)
+      : raw;
+    const absolute = path.join(repoPath, normalized);
+    if (
+      !normalized.includes('node_modules/') &&
+      !normalized.startsWith('/') &&
+      existsSync(absolute)
+    ) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+function shSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function focusedReproCommand(
+  originalCommand: string,
+  output: string,
+  repoPath: string
+): string {
+  const testFile = extractTestFilePath(output, repoPath);
+  if (!testFile) return originalCommand;
+  if (/^(npm|pnpm|yarn)\s+(run\s+)?test\b/.test(originalCommand.trim())) {
+    return `node ${shSingleQuote(testFile)}`;
+  }
+  return originalCommand;
+}
+
+function sanitizedEvidenceSummary(output: string): string | undefined {
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .filter((line) => injectionIndicatorsForText(line).length === 0)
+    .filter((line) => !/node:internal|requireStack|^\s*at\s+/i.test(line))
+    .slice(0, 12);
+  const summary = lines.join('\n').slice(0, 1200).trim();
+  return summary.length > 0 ? summary : undefined;
 }
 
 function extractTestName(output: string): string | undefined {
@@ -237,12 +295,19 @@ async function collectCommand(
       evidenceRefs: [gate.stdout_ref, gate.stderr_ref].filter(
         (ref): ref is string => Boolean(ref)
       ),
+      ...(sanitizedEvidenceSummary(output)
+        ? { evidenceSummary: sanitizedEvidenceSummary(output) }
+        : {}),
       riskAreaHint: riskAreaFromPath(options.evalConfig, location.filePath),
       trustLevel: trustLevelForSource(command.source),
       injectionIndicators: injectionIndicatorsForText(output),
       // Capture the failing command so the generated task can REQUIRE it as the
       // acceptance test (test-on-base verifies fixes_reproduced_failure with it).
-      reproCommand: command.gate.command,
+      reproCommand: focusedReproCommand(
+        command.gate.command,
+        output,
+        options.repoPath
+      ),
       priority: SOURCE_PRIORITY[command.source],
       status: 'proposed',
       location

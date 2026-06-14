@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {
   annotateScope,
@@ -97,11 +98,154 @@ async function runBuiltinCheck(
         violations: []
       };
     }
+    case 'rulepack-lock':
+      return checkRulepackLock(context);
     default:
       throw new BuiltinGateError(
         `unsupported builtin gate command: ${gate.command}`
       );
   }
+}
+
+function sha256(value: unknown): string {
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex')}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isRule(value: unknown): value is { id: string; hash: string } {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.length > 0 &&
+    typeof value.hash === 'string' &&
+    value.hash.startsWith('sha256:')
+  );
+}
+
+async function checkRulepackLock(
+  context: GateRunContext
+): Promise<GuardCheckResult> {
+  const config = context.evalConfig.rulepack_lock;
+  if (!config?.file) {
+    throw new BuiltinGateError(
+      'rulepack_lock config is required for builtin:rulepack-lock'
+    );
+  }
+  const filePath = path.isAbsolute(config.file)
+    ? config.file
+    : path.resolve(context.worktreeRoot, config.file);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(filePath, 'utf8'));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      status: 'fail',
+      code: 'RULEPACK_LOCK_UNREADABLE',
+      summary: `rulepack lock unreadable: ${message}`,
+      violations: [{ code: 'RULEPACK_LOCK_UNREADABLE', message }]
+    };
+  }
+
+  const violations: Array<{ code: string; message: string }> = [];
+  const record = isRecord(parsed) ? parsed : undefined;
+  const requiredAuthority = config.required_authority ?? 'fixed_next_loop_gate';
+  const requiredImpact = config.required_decision_impact ?? 'next_loop_only';
+  if (!record) {
+    violations.push({
+      code: 'RULEPACK_LOCK_INVALID',
+      message: 'not an object'
+    });
+  }
+  if (record?.kind !== 'frozen_rulepack') {
+    violations.push({
+      code: 'RULEPACK_LOCK_KIND',
+      message: 'kind must be frozen_rulepack'
+    });
+  }
+  if (record?.authority !== requiredAuthority) {
+    violations.push({
+      code: 'RULEPACK_LOCK_AUTHORITY',
+      message: `authority must be ${requiredAuthority}`
+    });
+  }
+  if (record?.decision_impact !== requiredImpact) {
+    violations.push({
+      code: 'RULEPACK_LOCK_DECISION_IMPACT',
+      message: `decision_impact must be ${requiredImpact}`
+    });
+  }
+  const rules = Array.isArray(record?.rules) ? record.rules : [];
+  const addedRules = Array.isArray(record?.added_rules)
+    ? record.added_rules
+    : [];
+  if (rules.length === 0 || !rules.every(isRule)) {
+    violations.push({
+      code: 'RULEPACK_LOCK_RULES',
+      message: 'rules must be non-empty sha256-hashed rules'
+    });
+  }
+  if (addedRules.length === 0 || !addedRules.every(isRule)) {
+    violations.push({
+      code: 'RULEPACK_LOCK_ADDED_RULES',
+      message: 'added_rules must be non-empty sha256-hashed rules'
+    });
+  }
+  if (!isRecord(record?.diff) || record.diff.appendOnly !== true) {
+    violations.push({
+      code: 'RULEPACK_LOCK_NOT_APPEND_ONLY',
+      message: 'diff.appendOnly must be true'
+    });
+  }
+  if (!isRecord(record?.replay) || record.replay.replaySafe !== true) {
+    violations.push({
+      code: 'RULEPACK_LOCK_REPLAY_UNSAFE',
+      message: 'replay.replaySafe must be true'
+    });
+  }
+  if (
+    typeof record?.lock_hash !== 'string' ||
+    !record.lock_hash.startsWith('sha256:')
+  ) {
+    violations.push({
+      code: 'RULEPACK_LOCK_HASH_MISSING',
+      message: 'lock_hash must be a sha256 hash'
+    });
+  } else if (record) {
+    const expected = sha256({
+      source_candidate_ref: record.source_candidate_ref,
+      source_replay_ref: record.source_replay_ref,
+      rules: record.rules,
+      added_rules: record.added_rules,
+      diff: record.diff,
+      replay: record.replay
+    });
+    if (record.lock_hash !== expected) {
+      violations.push({
+        code: 'RULEPACK_LOCK_HASH_MISMATCH',
+        message: 'lock_hash does not match frozen rulepack content'
+      });
+    }
+  }
+
+  return violations.length === 0
+    ? {
+        status: 'pass',
+        summary:
+          'rulepack lock is frozen, append-only, replay-safe, and next-loop-only',
+        violations: []
+      }
+    : {
+        status: 'fail',
+        code: 'RULEPACK_LOCK_INVALID',
+        summary: `rulepack lock failed ${violations.length} check(s)`,
+        violations
+      };
 }
 
 export function isBuiltinGate(gate: EvalGate): boolean {

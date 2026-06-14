@@ -1320,6 +1320,8 @@ async function main() {
 
     const output = {
       status: 'FULL_UAT_PASS',
+      proof_scope: 'fixture_baseline_only',
+      not_live_codex_or_github_pass: true,
       scenario: 'skill-real-user-full-uat',
       started_at: startedAt,
       seed,

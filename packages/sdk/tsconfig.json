@@ -14,6 +14,7 @@
     { "path": "../artifacts" },
     { "path": "../workspace-runner" },
     { "path": "../guards" },
+    { "path": "../github-integration" },
     { "path": "../eval-engine" },
     { "path": "../agent-adapters" }
   ]

@@ -34,6 +34,14 @@ evaluator:
   forbid_protected: true
   # target_paths:            # optional: restrict the accepted fix to these files
   #   - src/your-module.ts
+  # Optional Q5 fixed metric deltas. These require project gates to emit
+  # coverage/latency/security/duplicate metrics through stdout or
+  # VIBELOOP_METRICS_FILE. Missing configured metrics fail closed.
+  # min_coverage_delta: 0
+  # max_latency_regression_ms: 25
+  # max_security_findings_delta: 0
+  # max_critical_security_findings_delta: 0
+  # max_duplicate_score_delta: 0
 # Optional: redact/reject context or secret leaks in agent stdout/stderr.
 # token_like reject is opt-in (false-positive risk); leave it off by default.
 # scan_patch also rejects (no redaction) when the candidate patch contains a

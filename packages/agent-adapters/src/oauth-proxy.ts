@@ -108,6 +108,7 @@ function jsonResponse(
 function modelsResponse(model: string): unknown {
   const modelEntry = {
     id: model,
+    slug: model,
     name: model,
     object: 'model',
     created: 0,

@@ -30,7 +30,14 @@
     "bundle:skill": "pnpm build && node scripts/bundle-skill.mjs",
     "uat:skill-loop:full": "pnpm bundle:skill && node scripts/uat/skill-real-user-full-uat.mjs",
     "uat:skill-loop:codex-live": "pnpm build && node scripts/uat/skill-real-user-codex-live-uat.mjs",
-    "uat:skill-loop:codex-live:multi": "pnpm build && node scripts/uat/skill-real-user-codex-multi-issue-uat.mjs"
+    "uat:skill-loop:codex-skill-prompt": "pnpm build && node scripts/uat/skill-real-user-codex-skill-prompt-uat.mjs",
+    "uat:skill-loop:codex-skill-prompt:real-builder": "pnpm build && VIBELOOP_SKILL_PROMPT_UAT_BUILDER=codex node scripts/uat/skill-real-user-codex-skill-prompt-uat.mjs",
+    "uat:skill-loop:codex-skill-prompt:auto": "pnpm build && VIBELOOP_SKILL_PROMPT_UAT_MODE=auto_discovery node scripts/uat/skill-real-user-codex-skill-prompt-uat.mjs",
+    "uat:skill-loop:codex-skill-prompt:auto:real-builder": "pnpm build && VIBELOOP_SKILL_PROMPT_UAT_MODE=auto_discovery VIBELOOP_SKILL_PROMPT_UAT_BUILDER=codex node scripts/uat/skill-real-user-codex-skill-prompt-uat.mjs",
+    "uat:skill-loop:codex-live:multi": "pnpm build && node scripts/uat/skill-real-user-codex-multi-issue-uat.mjs",
+    "uat:skill-loop:codex-live:orchestrate": "pnpm build && node scripts/uat/skill-real-user-codex-orchestrate-ru3-uat.mjs",
+    "uat:skill-loop:codex-live:strict-best": "pnpm build && node scripts/uat/skill-real-user-codex-strict-best-fix-uat.mjs",
+    "uat:skill-loop:codex-live:orchestrate-strict-best": "pnpm build && node scripts/uat/skill-real-user-codex-orchestrate-strict-best-uat.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

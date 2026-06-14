@@ -21,6 +21,7 @@
     "@vibeloop/artifacts": "workspace:*",
     "@vibeloop/eval-engine": "workspace:*",
     "@vibeloop/guards": "workspace:*",
+    "@vibeloop/github-integration": "workspace:*",
     "@vibeloop/shared": "workspace:*",
     "@vibeloop/task-protocol": "workspace:*",
     "@vibeloop/workspace-runner": "workspace:*"

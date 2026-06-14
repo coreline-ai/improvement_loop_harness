@@ -1,8 +1,11 @@
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Command } from 'commander';
 import {
   EXIT_CODES,
+  commandAdversaryReviewer,
   commandQualityJudge,
+  publishSelectedPatchDraftPr,
   promoteSelectedPatch,
   runImprovementLoop
 } from '@vibeloop/sdk';
@@ -23,8 +26,19 @@ interface ImproveCommandOptions {
   skipFinalReverify?: boolean | undefined;
   allowDirty?: boolean | undefined;
   qualityJudge?: string | undefined;
+  adversaryReview?: string | undefined;
+  adversaryReviewerProvider?: string | undefined;
+  adversaryRequireDifferentProvider?: boolean | undefined;
   promoteBranch?: string | undefined;
   promoteCommitMessage?: string | undefined;
+  githubDraftPr?: boolean | undefined;
+  githubRepo?: string | undefined;
+  githubTokenEnv?: string | undefined;
+  githubBase?: string | undefined;
+  githubBranch?: string | undefined;
+  githubPushUrl?: string | undefined;
+  githubApiBaseUrl?: string | undefined;
+  githubTitle?: string | undefined;
 }
 
 function collect(value: string, previous: string[]): string[] {
@@ -90,6 +104,19 @@ export function registerImproveCommand(program: Command): void {
       'advisory tie-break: shell command (separate context) that ranks score-tied candidates (reads JSON on stdin, prints {winner_candidate_id} JSON)'
     )
     .option(
+      '--adversary-review <command>',
+      'advisory adversary reviewer command; proposes findings/tests for M2/M4, never changes accept/selection'
+    )
+    .option(
+      '--adversary-reviewer-provider <provider>',
+      'declared provider for --adversary-review independence reporting (e.g. openai, anthropic)'
+    )
+    .option(
+      '--adversary-require-different-provider',
+      'record that the adversary reviewer is expected to use a different provider; unmet/unknown identity keeps same_model_review=true',
+      false
+    )
+    .option(
       '--promote-branch <name>',
       'create a local PR-candidate branch from the selected, final-verified patch (no push, no merge)'
     )
@@ -98,6 +125,38 @@ export function registerImproveCommand(program: Command): void {
       'commit message for --promote-branch',
       'vibeloop: apply selected patch'
     )
+    .option(
+      '--github-draft-pr',
+      'push the selected final-verified patch branch and create/reuse a GitHub draft PR (no merge)',
+      false
+    )
+    .option(
+      '--github-repo <owner/repo>',
+      'GitHub repository for --github-draft-pr (owner/repo or github.com URL)'
+    )
+    .option(
+      '--github-token-env <name>',
+      'environment variable containing a GitHub token for --github-draft-pr',
+      'GITHUB_TOKEN'
+    )
+    .option(
+      '--github-base <branch>',
+      'base branch for --github-draft-pr',
+      'main'
+    )
+    .option(
+      '--github-branch <name>',
+      'remote branch name for --github-draft-pr (defaults to --promote-branch or pr-candidate/<loop-id>)'
+    )
+    .option(
+      '--github-push-url <url>',
+      'override git push URL for --github-draft-pr (test/enterprise use)'
+    )
+    .option(
+      '--github-api-base-url <url>',
+      'override GitHub API base URL for --github-draft-pr'
+    )
+    .option('--github-title <title>', 'draft PR title override')
     .action(async (options: ImproveCommandOptions, command: Command) => {
       if (options.agent.length === 0) {
         throw new Error('improve requires at least one --agent <spec>');
@@ -138,6 +197,21 @@ export function registerImproveCommand(program: Command): void {
           allowDirty: options.allowDirty,
           ...(options.qualityJudge
             ? { qualityJudge: commandQualityJudge(options.qualityJudge) }
+            : {}),
+          ...(options.adversaryReview
+            ? {
+                adversaryReviewer: commandAdversaryReviewer(
+                  options.adversaryReview
+                ),
+                ...(options.adversaryReviewerProvider
+                  ? {
+                      adversaryReviewerProvider:
+                        options.adversaryReviewerProvider
+                    }
+                  : {}),
+                adversaryRequireDifferentProvider:
+                  options.adversaryRequireDifferentProvider === true
+              }
             : {})
         });
         // A selected (accepted ∧ qualified) candidate is a PR candidate; otherwise
@@ -157,6 +231,53 @@ export function registerImproveCommand(program: Command): void {
                   'vibeloop: apply selected patch'
               })
             : null;
+        const draftPr =
+          result.selected && selectedPatch && options.githubDraftPr
+            ? await (async () => {
+                if (!options.githubRepo) {
+                  throw new Error(
+                    '--github-draft-pr requires --github-repo <owner/repo>'
+                  );
+                }
+                const tokenEnv = options.githubTokenEnv ?? 'GITHUB_TOKEN';
+                const token = process.env[tokenEnv];
+                if (!token) {
+                  throw new Error(
+                    `--github-draft-pr requires ${tokenEnv} to be set`
+                  );
+                }
+                const report = result.selected?.reportPath
+                  ? (JSON.parse(
+                      await readFile(result.selected.reportPath, 'utf8')
+                    ) as Record<string, unknown>)
+                  : undefined;
+                return publishSelectedPatchDraftPr({
+                  repoPath: options.repo,
+                  baseRef: options.githubBase ?? 'main',
+                  branchName:
+                    options.githubBranch ??
+                    options.promoteBranch ??
+                    `pr-candidate/${result.loopId}`,
+                  patchPath: selectedPatch,
+                  commitMessage:
+                    options.promoteCommitMessage ??
+                    'vibeloop: apply selected patch',
+                  githubRepo: options.githubRepo,
+                  token,
+                  title: options.githubTitle ?? `VibeLoop: ${result.loopId}`,
+                  ...(result.adversaryReview
+                    ? { adversaryReview: result.adversaryReview }
+                    : {}),
+                  ...(options.githubPushUrl
+                    ? { pushUrl: options.githubPushUrl }
+                    : {}),
+                  ...(options.githubApiBaseUrl
+                    ? { apiBaseUrl: options.githubApiBaseUrl }
+                    : {}),
+                  ...(report ? { report } : {})
+                });
+              })()
+            : null;
         process.exitCode = result.selected
           ? EXIT_CODES.accept
           : EXIT_CODES.reject;
@@ -175,8 +296,11 @@ export function registerImproveCommand(program: Command): void {
               selected_patch: selectedPatch,
               pr_candidate: !!result.selected,
               promotion,
+              draft_pr: draftPr,
               final_verification: result.finalVerification ?? null,
               advisory_tie_break: result.advisoryTieBreak ?? null,
+              selection_quality: result.selectionQuality ?? null,
+              adversary_review: result.adversaryReview ?? null,
               limits: result.limits ?? null,
               selection_report: result.selectionReportPath ?? null
             },

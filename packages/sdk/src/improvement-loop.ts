@@ -7,9 +7,19 @@ import { resolveBaseCommit, worktreeStatus } from '@vibeloop/workspace-runner';
 import {
   verifyCandidatePatchHash,
   verifyEvalReportProvenance,
-  type EvalReport
+  type EvalReport,
+  type QualityReport
 } from '@vibeloop/eval-engine';
 import { runKernel } from './run.js';
+import {
+  filterAdversaryReviewOutput,
+  fixedAdversaryReviewContext,
+  fixedAdversaryReviewPromptHash,
+  FIXED_ADVERSARY_REVIEW_PROMPT_VERSION,
+  resolveAdversaryReviewIndependence,
+  type AdversaryReviewReport,
+  type AdversaryReviewer
+} from './adversary-review.js';
 import type { QualityJudge } from './quality-judge.js';
 
 /**
@@ -95,12 +105,32 @@ export interface ImprovementLoopOptions {
    * lexicographic tie-break.
    */
   qualityJudge?: QualityJudge | undefined;
+  /**
+   * Optional separate-context adversary reviewer. Advisory only: it receives the
+   * selected/final-verified patch and may propose findings/tests, but it cannot
+   * change decision/qualified/selection. Proposed tests are statically filtered
+   * and must go through M2 isolation + M4 replay/freeze before any future gate.
+   */
+  adversaryReviewer?: AdversaryReviewer | undefined;
+  /**
+   * Declared provider for the separate-context adversary reviewer. Used only for
+   * observability (`same_model_review` independence warning), never for accept.
+   */
+  adversaryReviewerProvider?: string | undefined;
+  /**
+   * Contract flag saying the caller intended a different provider. If the
+   * reported provider identity does not prove independence, the advisory report
+   * keeps `same_model_review=true` and raises a review signal.
+   */
+  adversaryRequireDifferentProvider?: boolean | undefined;
 }
 
 export interface CandidateScore {
   evidence_present: number;
   changed_files: number;
   changed_lines: number;
+  /** Deterministic Q5 metric-delta contribution from reports/quality-report.json. */
+  quality_metric_score: number;
   total: number;
 }
 
@@ -157,6 +187,41 @@ export interface AdvisoryTieBreak {
   error?: string | undefined;
 }
 
+export type SelectionQualityStatus =
+  | 'no_verified_selection'
+  | 'single_accepted_no_comparator'
+  | 'strict_fixed_score_win'
+  | 'fixed_tie_advisory_supported'
+  | 'fixed_tie_no_distinction';
+
+/**
+ * Fixed evidence for "is this the best-known fix?" separate from correctness.
+ *
+ * Full autonomous improvement may only rely on `strict_score_improvement=true`,
+ * which is derived from fixed Evaluator scores. Advisory tie-breaks can support
+ * a choice among score-equal candidates, but never make a full-improvement PASS.
+ */
+export interface SelectionQuality {
+  authority: 'fixed_score_required_for_full_improvement';
+  status: SelectionQualityStatus;
+  selected_candidate_id: string | null;
+  selected_score: CandidateScore | null;
+  accepted_candidate_ids: string[];
+  comparator_candidate_ids: string[];
+  score_spread: number;
+  strict_score_improvement: boolean;
+  advisory_supported: boolean;
+  best_choice_supported: boolean;
+  full_autonomous_improvement_eligible: boolean;
+  evidence:
+    | 'strict_fixed_score_spread'
+    | 'advisory_tie_break_changed_pick'
+    | 'single_accepted_no_comparator'
+    | 'fixed_tie_no_distinction'
+    | 'none';
+  reasons: string[];
+}
+
 export interface CandidateOutcome {
   candidateId: string;
   agentSpec: string;
@@ -184,6 +249,8 @@ export interface SelectionReport {
   pr_candidate: boolean;
   final_verification: FinalVerification | null;
   advisory_tie_break: AdvisoryTieBreak | null;
+  selection_quality: SelectionQuality;
+  adversary_review: AdversaryReviewReport | null;
   limits: LoopLimits;
   candidates: Array<{
     candidate_id: string;
@@ -322,6 +389,8 @@ export interface ImprovementLoopResult {
   selectionReportPath?: string | undefined;
   finalVerification?: FinalVerification | undefined;
   advisoryTieBreak?: AdvisoryTieBreak | undefined;
+  selectionQuality?: SelectionQuality | undefined;
+  adversaryReview?: AdversaryReviewReport | undefined;
   limits?: LoopLimits | undefined;
 }
 
@@ -329,6 +398,12 @@ interface ArtifactSignals {
   evidencePresent: number;
   changedFiles: number;
   changedLines: number;
+  /**
+   * Fixed quality metric score from Q5 rules. Positive means objectively better
+   * than baseline according to configured metrics. This is deterministic and
+   * comes from the Evaluator artifact, not an LLM opinion.
+   */
+  qualityMetricScore: number;
 }
 
 async function readJson<T>(filePath: string): Promise<T | undefined> {
@@ -337,6 +412,19 @@ async function readJson<T>(filePath: string): Promise<T | undefined> {
   } catch {
     return undefined;
   }
+}
+
+function q5MetricScore(quality: QualityReport | undefined): number {
+  if (!quality?.rules) return 0;
+  return quality.rules.reduce((score, rule) => {
+    if (!rule.id.startsWith('Q5_') || typeof rule.value !== 'number') {
+      return score;
+    }
+    // Coverage is higher-is-better. The remaining Q5 deltas are lower-is-better
+    // (latency/security/critical-security/duplication), so negate their delta.
+    if (rule.id === 'Q5_coverage') return score + rule.value;
+    return score - rule.value;
+  }, 0);
 }
 
 async function readCandidateSignals(
@@ -348,6 +436,9 @@ async function readCandidateSignals(
   const evidence = await readJson<{
     evidence?: Array<{ status?: string }>;
   }>(path.join(artifactRoot, 'reports', 'evidence-summary.json'));
+  const quality = await readJson<QualityReport>(
+    path.join(artifactRoot, 'reports', 'quality-report.json')
+  );
 
   const files = changed?.files ?? [];
   return {
@@ -358,20 +449,25 @@ async function readCandidateSignals(
     changedLines: files.reduce(
       (sum, file) => sum + (file.added_lines ?? 0) + (file.deleted_lines ?? 0),
       0
-    )
+    ),
+    qualityMetricScore: q5MetricScore(quality)
   };
 }
 
 function scoreFor(signals: ArtifactSignals): CandidateScore {
-  // Fixed weights: more evidence is better; smaller diffs are better.
+  // Fixed weights: more evidence and better Q5 metric deltas are better; smaller
+  // diffs are better. If no Q5 rules exist, qualityMetricScore=0 and legacy
+  // evidence/diff ranking is unchanged.
   const total =
-    signals.evidencePresent * 100 -
+    signals.evidencePresent * 100 +
+    signals.qualityMetricScore -
     signals.changedFiles * 5 -
     signals.changedLines;
   return {
     evidence_present: signals.evidencePresent,
     changed_files: signals.changedFiles,
     changed_lines: signals.changedLines,
+    quality_metric_score: signals.qualityMetricScore,
     total
   };
 }
@@ -389,6 +485,123 @@ function compareAccepted(a: CandidateOutcome, b: CandidateOutcome): number {
   return a.candidateId.localeCompare(b.candidateId);
 }
 
+async function writeAdversaryM2Handoff(options: {
+  report: AdversaryReviewReport;
+  selected: CandidateOutcome;
+  baseCommit: string;
+  loopId: string;
+}): Promise<string | undefined> {
+  const accepted = options.report.proposals.filter(
+    (proposal) => proposal.next_step === 'm2_execution_required'
+  );
+  if (accepted.length === 0) return undefined;
+
+  const handoffRef = path.join(
+    options.selected.artifactRoot,
+    'reports',
+    'adversary-m2-handoff.json'
+  );
+  await mkdir(path.dirname(handoffRef), { recursive: true });
+  await writeFile(
+    handoffRef,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'adversary_m2_handoff',
+        authority: 'advisory_only',
+        decision_impact: 'none',
+        note: 'Static filters passed only. Execute under R1 isolation and M4 replay/freeze before any next-loop fixed gate.',
+        loop_id: options.loopId,
+        base_commit: options.baseCommit,
+        selected_candidate_id: options.selected.candidateId,
+        selected_patch: path.join(
+          options.selected.artifactRoot,
+          CANDIDATE_PATCH_REF
+        ),
+        selected_report: options.selected.reportPath ?? null,
+        next_step: 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop',
+        proposals: accepted.map((entry) => ({
+          proposal: entry.proposal,
+          filter: entry.filter,
+          next_step: entry.next_step
+        }))
+      },
+      null,
+      2
+    )}\n`
+  );
+  return handoffRef;
+}
+
+function buildSelectionQuality(options: {
+  selected: CandidateOutcome | undefined;
+  accepted: CandidateOutcome[];
+  advisoryTieBreak: AdvisoryTieBreak | undefined;
+}): SelectionQuality {
+  const { selected, accepted, advisoryTieBreak } = options;
+  const acceptedIds = accepted.map((candidate) => candidate.candidateId);
+  const comparatorIds = selected
+    ? acceptedIds.filter((id) => id !== selected.candidateId)
+    : acceptedIds;
+  const scores = accepted
+    .map((candidate) => candidate.score?.total)
+    .filter((score): score is number => typeof score === 'number');
+  const scoreSpread =
+    scores.length > 0 ? Math.max(...scores) - Math.min(...scores) : 0;
+  const selectedScore = selected?.score ?? null;
+  const selectedIsTopFixedScore =
+    !!selectedScore &&
+    scores.length > 0 &&
+    selectedScore.total === Math.max(...scores);
+  const strictScoreImprovement =
+    !!selected &&
+    accepted.length >= 2 &&
+    selectedIsTopFixedScore &&
+    scoreSpread > 0;
+  const advisorySupported = advisoryTieBreak?.changed_pick === true;
+  let status: SelectionQualityStatus;
+  let evidence: SelectionQuality['evidence'];
+  const reasons: string[] = [];
+
+  if (!selected) {
+    status = 'no_verified_selection';
+    evidence = 'none';
+    reasons.push('no_selected_candidate_survived_final_verification');
+  } else if (accepted.length <= 1) {
+    status = 'single_accepted_no_comparator';
+    evidence = 'single_accepted_no_comparator';
+    reasons.push('only_one_accepted_candidate');
+  } else if (strictScoreImprovement) {
+    status = 'strict_fixed_score_win';
+    evidence = 'strict_fixed_score_spread';
+    reasons.push('selected_candidate_has_strictly_better_fixed_score');
+  } else if (advisorySupported) {
+    status = 'fixed_tie_advisory_supported';
+    evidence = 'advisory_tie_break_changed_pick';
+    reasons.push('fixed_scores_tied_and_advisory_tie_break_changed_pick');
+  } else {
+    status = 'fixed_tie_no_distinction';
+    evidence = 'fixed_tie_no_distinction';
+    reasons.push('fixed_scores_do_not_prove_better_choice');
+  }
+
+  return {
+    authority: 'fixed_score_required_for_full_improvement',
+    status,
+    selected_candidate_id: selected?.candidateId ?? null,
+    selected_score: selectedScore,
+    accepted_candidate_ids: acceptedIds,
+    comparator_candidate_ids: comparatorIds,
+    score_spread: scoreSpread,
+    strict_score_improvement: strictScoreImprovement,
+    advisory_supported: advisorySupported,
+    best_choice_supported: strictScoreImprovement || advisorySupported,
+    full_autonomous_improvement_eligible: strictScoreImprovement,
+    evidence,
+    reasons
+  };
+}
+
 export async function runImprovementLoop(
   options: ImprovementLoopOptions
 ): Promise<ImprovementLoopResult> {
@@ -397,6 +610,7 @@ export async function runImprovementLoop(
   }
 
   const baseLoopId = options.loopId ?? `iloop-${Date.now()}`;
+  const task = await loadTask(options.taskFile);
 
   // Trust-floor dirty-source guard (#1): only when the base is auto-resolved
   // (an explicit --base-commit means the caller pinned the exact state). The
@@ -417,10 +631,7 @@ export async function runImprovementLoop(
   // Resolve the base commit ONCE so every candidate fixes the same problem state.
   const baseCommit =
     options.baseCommit ??
-    (await resolveBaseCommit(
-      options.repoPath,
-      (await loadTask(options.taskFile)).base_branch ?? 'HEAD'
-    ));
+    (await resolveBaseCommit(options.repoPath, task.base_branch ?? 'HEAD'));
 
   const outcomes: CandidateOutcome[] = [];
   let resolvedProjectId = options.projectId ?? 'default';
@@ -554,7 +765,8 @@ export async function runImprovementLoop(
               ? {
                   total: c.score.total,
                   changed_files: c.score.changed_files,
-                  changed_lines: c.score.changed_lines
+                  changed_lines: c.score.changed_lines,
+                  quality_metric_score: c.score.quality_metric_score
                 }
               : undefined
           }))
@@ -607,6 +819,73 @@ export async function runImprovementLoop(
     }
   }
 
+  let adversaryReview: AdversaryReviewReport | undefined;
+  if (selected && options.adversaryReviewer) {
+    const adversaryIndependence = resolveAdversaryReviewIndependence({
+      builderAgentSpec: selected.agentSpec,
+      reviewerProvider: options.adversaryReviewerProvider,
+      requireDifferentProvider: options.adversaryRequireDifferentProvider
+    });
+    const patchRef = path.join(selected.artifactRoot, CANDIDATE_PATCH_REF);
+    const adversaryInput = {
+      reviewer_context: fixedAdversaryReviewContext(),
+      task: {
+        id: task.id,
+        title: task.title,
+        objective: task.objective,
+        required_evidence: task.required_evidence,
+        acceptance_required_tests: task.acceptance?.required_tests ?? [],
+        write_scope_allowed: task.write_scope.allowed
+      },
+      selected: {
+        candidate_id: selected.candidateId,
+        patch_ref: patchRef,
+        patch: await readFile(patchRef, 'utf8')
+      }
+    };
+    try {
+      const output = await options.adversaryReviewer(adversaryInput);
+      adversaryReview = filterAdversaryReviewOutput({
+        input: adversaryInput,
+        output,
+        independence: adversaryIndependence
+      });
+      const m2HandoffRef = await writeAdversaryM2Handoff({
+        report: adversaryReview,
+        selected,
+        baseCommit,
+        loopId: baseLoopId
+      });
+      if (m2HandoffRef) adversaryReview.m2_handoff_ref = m2HandoffRef;
+    } catch (error) {
+      adversaryReview = {
+        ran: true,
+        authority: 'advisory_only',
+        decision_impact: 'none',
+        selected_candidate_id: selected.candidateId,
+        builder_provider: adversaryIndependence.builder_provider,
+        reviewer_provider: adversaryIndependence.reviewer_provider,
+        same_model_review: adversaryIndependence.same_model_review,
+        require_different_provider:
+          adversaryIndependence.require_different_provider,
+        prompt_version: FIXED_ADVERSARY_REVIEW_PROMPT_VERSION,
+        prompt_hash: fixedAdversaryReviewPromptHash(),
+        findings: [],
+        proposals: [],
+        accepted_proposal_count: 0,
+        requires_human_review_signal: true,
+        next_step: 'none',
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  const selectionQuality = buildSelectionQuality({
+    selected,
+    accepted,
+    advisoryTieBreak
+  });
+
   const limits: LoopLimits = {
     max_candidates: maxCandidates ?? null,
     candidates_run: outcomes.length,
@@ -630,6 +909,8 @@ export async function runImprovementLoop(
     pr_candidate: !!selected,
     final_verification: finalVerification ?? null,
     advisory_tie_break: advisoryTieBreak ?? null,
+    selection_quality: selectionQuality,
+    adversary_review: adversaryReview ?? null,
     limits,
     candidates: outcomes.map((outcome) => ({
       candidate_id: outcome.candidateId,
@@ -665,6 +946,8 @@ export async function runImprovementLoop(
     selectionReportPath,
     finalVerification,
     advisoryTieBreak,
+    selectionQuality,
+    adversaryReview,
     limits
   };
 }

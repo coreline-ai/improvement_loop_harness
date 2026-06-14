@@ -254,6 +254,26 @@
             "type": "string",
             "minLength": 1
           }
+        },
+        "min_coverage_delta": {
+          "type": "number",
+          "description": "Q5: candidate coverage_percent - baseline coverage_percent must be >= this."
+        },
+        "max_latency_regression_ms": {
+          "type": "number",
+          "description": "Q5: candidate latency_ms - baseline latency_ms must be <= this."
+        },
+        "max_security_findings_delta": {
+          "type": "number",
+          "description": "Q5: candidate security_findings - baseline security_findings must be <= this."
+        },
+        "max_critical_security_findings_delta": {
+          "type": "number",
+          "description": "Q5: candidate critical_security_findings - baseline critical_security_findings must be <= this."
+        },
+        "max_duplicate_score_delta": {
+          "type": "number",
+          "description": "Q5: candidate duplicate_score - baseline duplicate_score must be <= this."
         }
       }
     },
@@ -298,6 +318,17 @@
             "token_like": { "type": "boolean", "default": false }
           }
         }
+      }
+    },
+    "rulepack_lock": {
+      "description": "Optional frozen next-loop rulepack lock that must remain fixed and replay-safe before generated evals use it as a deterministic gate.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "required_authority": { "const": "fixed_next_loop_gate" },
+        "required_decision_impact": { "const": "next_loop_only" }
       }
     },
     "execution": {

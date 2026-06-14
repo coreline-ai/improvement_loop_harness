@@ -33,15 +33,27 @@ The Skill may interpret the user's prompt, but it must not invent acceptance cri
 node skills/vibeloop-harness/scripts/classify-intent.mjs --prompt "<user prompt>"
 ```
 
-| User intent signal | Route | Hard rule |
-| --- | --- | --- |
-| Specific bug/path/symptom: "fix this", "src/... fails", "quantity bug" | `user_issue` → create one task/eval then `vibeloop improve` | Exactly one issue per task/eval |
-| "auto-discover", "자율 개선", "문제 찾아서 하나씩" | `auto_discovery` → `vibeloop orchestrate` | Default is substrate; add `--promote-branch` for local cumulative rediscovery, still no GitHub/live RU-3 |
-| "verify only", "패치 검증만" | `verify_only` | Do not run builder edits |
-| "FULL UAT", fixture baseline/catalog | `fixture_full_uat` | `FULL_UAT_PASS` is fixture baseline only |
-| "real Codex", "실사용자", GitHub draft PR UAT | `codex_live_uat` | Requires real auth/repo evidence; no auto-merge |
-| "적대적", "failure case", "hidden leak/tamper" | `adversarial_uat` | Fixture/advisarial lane unless live adversary is explicitly configured |
-| eval-report/report summary | `report` | Summarize deterministic report only |
+For a full deterministic Skill-layer route, prefer the prompt runner. It classifies the prompt, generates one task/eval for `user_issue`, and prints the exact `vibeloop improve` or `orchestrate` command. It also forwards PR-candidate publish flags (`--promote-branch`, `--github-draft-pr`, GitHub repo/token/base/branch/title options) and generated-eval safety flags (`--eval-artifact-leak`, `--eval-rulepack-lock`, `--eval-hidden-test`) to the underlying core command. Add `--execute` only when repo path, fixed test command, and agent spec are explicit:
+
+```bash
+node skills/vibeloop-harness/scripts/run-from-prompt.mjs \
+  --prompt "src/cart.cjs quantity 버그를 고쳐줘. 테스트도 추가해." \
+  --repo /path/to/repo \
+  --out .vibeloop/task-eval \
+  --test-command "npm test" \
+  --agent '<builder-spec>'
+```
+
+| User intent signal                                                     | Route                                                       | Hard rule                                                                                                                 |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Specific bug/path/symptom: "fix this", "src/... fails", "quantity bug" | `user_issue` → create one task/eval then `vibeloop improve` | Exactly one issue per task/eval                                                                                           |
+| "auto-discover", "자율 개선", "문제 찾아서 하나씩"                     | `auto_discovery` → `vibeloop orchestrate`                   | Core supports local cumulative rediscovery and stacked draft PR publishing; real Codex/GitHub live RU-3 is still unproven |
+| "verify only", "패치 검증만"                                           | `verify_only`                                               | Do not run builder edits                                                                                                  |
+| "FULL UAT", fixture baseline/catalog                                   | `fixture_full_uat`                                          | `FULL_UAT_PASS` is fixture baseline only                                                                                  |
+| "Skill prompt live", "스킬 프롬프트 실환경", SKILL.md 호출 검증        | `codex_skill_prompt_uat`                                    | Proves live Codex Skill orchestrator invokes `run-from-prompt`; `:real-builder` variants also prove real builder local flow, but still not GitHub RU-3/full improvement PASS |
+| "real Codex", "실사용자", GitHub draft PR UAT                          | `codex_live_uat`                                            | Requires real auth/repo evidence; no auto-merge                                                                           |
+| "적대적", "failure case", "hidden leak/tamper"                         | `adversarial_uat`                                           | Fixture/advisarial lane unless live adversary is explicitly configured                                                    |
+| eval-report/report summary                                             | `report`                                                    | Summarize deterministic report only                                                                                       |
 
 If classification is `unknown`, ask for: repo path, one issue vs auto-discovery, and the fixed acceptance command.
 
@@ -50,6 +62,17 @@ If classification is `unknown`, ask for: repo path, one issue vs auto-discovery,
 ### fix-once
 
 Run one builder agent against one task.
+
+If the user gave a specific natural-language issue and no task/eval exists yet,
+create exactly one task/eval pair first:
+
+```bash
+node skills/vibeloop-harness/scripts/create-task-eval.mjs \
+  --template node \
+  --out .vibeloop/task-eval \
+  --prompt "<specific user issue prompt>" \
+  --test-command "<acceptance command>"
+```
 
 ```bash
 vibeloop run \
@@ -78,7 +101,7 @@ vibeloop improve \
   --loop-id <loop>
 ```
 
-The command prints `selected_candidate_id` and a `selection_report` path. A PR candidate is only the `selected` candidate; if none is selected, nothing cleared the bar (no PR candidate). Do not override the selection with an LLM opinion. Quality thresholds live in `eval.yaml`'s `evaluator` block (fixed rules). If `--quality-judge` is configured, it is advisory only: it may choose among already accepted, score-tied candidates, never override accept/reject, and never makes `strict_score_improvement_every_issue=true`.
+The command prints `selected_candidate_id` and a `selection_report` path. A PR candidate is only the `selected` candidate; if none is selected, nothing cleared the bar (no PR candidate). Do not override the selection with an LLM opinion. Quality thresholds live in `eval.yaml`'s `evaluator` block (fixed rules). If `--quality-judge` is configured, it is advisory only: it may choose among already accepted, score-tied candidates, never override accept/reject, and never makes `strict_score_improvement_every_issue=true`. If `--adversary-review` is configured, it is also advisory only: it records separate-context findings/proposed tests for M2/M4 and writes static-filter accepted proposals to `adversary-m2-handoff.json`, but never changes `decision`, `qualified`, `selected_candidate_id`, or PR-candidate status. Also pass `--adversary-reviewer-provider <provider>` when known; missing/unknown/same provider records `adversary_review.same_model_review=true` as an independence warning only. Use `vibeloop adversary-confirm --handoff ...` to inspect or explicitly execute that handoff under R1 isolation; this still does not affect the current loop accept. If M2 is actually executed and confirmed, `vibeloop adversary-rulepack-candidate --handoff ... --confirmation ...` may create a candidate-only rulepack artifact. After M4 replay is safe, `vibeloop adversary-rulepack-freeze --candidate ... --replay ... --rulepack-out ...` can freeze a `fixed_next_loop_gate` lock artifact; it is next-loop-only and never changes the current loop. Today this is a frozen lock/provenance/replay-safe substrate; executing frozen rule bodies as a semantic next-loop quality gate still requires the future policy/rule runner. Use `selection_report.selection_quality.full_autonomous_improvement_eligible=true` as the fixed evidence for a full improvement claim; advisory support alone is not enough.
 
 ### verify-only
 
@@ -93,6 +116,38 @@ pnpm uat:codex-oauth
 ```
 
 This must use ChatGPT/Codex OAuth through a local or external compatible proxy. It records only auth-header presence, never token text.
+
+### skill-prompt-live-uat
+
+Use this when you need to verify the natural-language Skill/LLM layer itself: a real `codex exec` session must read `SKILL.md`, invoke `scripts/run-from-prompt.mjs --execute`, and leave deterministic helper evidence. The default lane uses a command fixture builder to isolate Skill routing. The `:real-builder` variants set `VIBELOOP_SKILL_PROMPT_UAT_BUILDER=codex` and prove the same Skill prompt flow with a real Codex builder, but still only local branch/one-candidate proof — not GitHub RU-3 or full-autonomous PASS.
+
+```bash
+VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-skill-prompt
+VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-skill-prompt:auto
+
+# Same Skill prompt path + real Codex builder; still local/one-candidate only.
+VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-skill-prompt:real-builder
+VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-skill-prompt:auto:real-builder
+```
+
+PASS requires either `SKILL_PROMPT_LIVE_UAT_PASS` for `user_issue` or `SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS` for `auto_discovery`. In both cases the helper must execute, produce `pr_candidate=true`, pass final reverify, and create the expected local promotion branch. The `:auto` lane proves `run-from-prompt` routes to `vibeloop orchestrate --generate-eval --promote-branch`; `:real-builder` additionally proves a real Codex builder was invoked through the helper (`proxy_auth_header_seen=true`). None of these lanes proves GitHub draft PR RU-3, multi-issue auto-discovery, or strict best-fix/full improvement.
+
+For the live RU-3 auto-discovery/GitHub lane, use the dedicated orchestrate UAT script:
+
+```bash
+VIBELOOP_UAT_KEEP_TMP=1 VIBELOOP_UAT_KEEP_REMOTE=1 pnpm uat:skill-loop:codex-live:orchestrate
+
+# Controlled one-issue strict best-fix proof: real Codex challenger must beat
+# an accepted-but-verbose comparator by fixed score.
+VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-live:strict-best
+
+# Broad RU-3 strict-best proof lane: auto-discovery + verbose comparator + real Codex challenger.
+# R13 confirmed controlled full improvement PASS; hidden/adversary semantic gates remain future work.
+VIBELOOP_UAT_KEEP_TMP=1 VIBELOOP_UAT_KEEP_REMOTE=1 pnpm uat:skill-loop:codex-live:orchestrate-strict-best
+```
+
+R11 reported `REAL_USER_RU3_ORCHESTRATE_VERIFICATION_PASS`, so live RU-3 verification is proven for the checked fixture scenario. R12 reported `REAL_USER_STRICT_BEST_FIX_PASS`, proving controlled one-issue strict fixed-score selection with a real Codex challenger. R13 confirmed the controlled RU-3 strict-best proof lane: every issue had `selection_quality.full_autonomous_improvement_eligible=true` and `real_codex_challenger_selected_every_issue=true`. This closes the controlled multi-issue best-fix proof, but hidden/adversary semantic gates remain future work.
+
 
 ### loop-uat
 
@@ -126,7 +181,7 @@ For each issue it runs a verbose builder and a tight challenger; the determinist
 
 ### discover / auto-discovery
 
-Use discovery only to create candidate tasks. `vibeloop orchestrate` can discover failures, create a task, and run `improve` for bounded issues. With `--promote-branch`, it commits each selected/final-verified patch to a local integration branch and rediscovers on the updated branch. It is still not full live RU-3 until GitHub draft PR/push evidence and live Codex run are added.
+Use discovery only to create candidate tasks. `vibeloop orchestrate` can discover failures, create a task, and run `improve` for bounded issues. With `--promote-branch`, it commits each selected/final-verified patch to a local integration branch and rediscovers on the updated branch. With `--promote-branch --github-draft-pr`, the core can publish stacked draft PR branches. R11 proves this live RU-3 verification path with real Codex + a real GitHub repo; still do not call it full autonomous improvement until strict fixed-score improvement is proven for every issue.
 
 ```bash
 vibeloop orchestrate \
@@ -137,11 +192,11 @@ vibeloop orchestrate \
   --promote-branch pr-candidate/vibeloop-auto
 ```
 
-If no `eval.yaml` exists, `--generate-eval` may create a minimal visible-test eval from package scripts or `--eval-command`; do not call that hidden/adversary/policy-rich eval.
+If no `eval.yaml` exists, `--generate-eval` may create a minimal visible-test eval from package scripts or `--eval-command`. Add `--eval-artifact-leak` / `--eval-forbidden-literal label=value` / `--eval-scan-patch` / `--eval-redact-gate-logs` when a deterministic leak policy can be declared. Do not call this hidden/adversary/rulepack-freeze eval generation.
 
 ### report
 
-Summarize `eval-report.json` with `scripts/summarize-report.mjs`; never infer acceptance without the deterministic report.
+Summarize `eval-report.json` with `scripts/summarize-report.mjs`; pass `--selection-report <selection-report.json>` when available to surface advisory review signals. Never infer acceptance without the deterministic report.
 
 ### pr-candidate
 
@@ -154,9 +209,9 @@ Create a PR candidate only when ALL hold (the summarizer's `prCandidate` is true
 - `final_verification.passed` is true when using `improve`/selection flows
 - protected file, diff-scope, and (when configured) `artifact-leak` gates passed
 - the decision reason is not `GUARD_ARTIFACT_LEAK` (agent/artifact context·secret leak rejects at the kernel; surface as `remove_leaked_context_then_rerun`)
-- human review is not required, or the user explicitly approved it
+- deterministic risk policy does not require human approval, or the user explicitly approved it. Advisory review signals (`reviewAdvisoryBeforePr`) do not change `prCandidate`; they only require clear disclosure before PR publication.
 
-An accepted-but-unqualified run (correctness passed, quality gate failed) is NOT a PR candidate — surface it as `improve_quality_then_rerun`.
+An accepted-but-unqualified run (correctness passed, quality gate failed) is NOT a PR candidate — surface it as `improve_quality_then_rerun`. For single-issue publish, `improve --github-draft-pr` may push the selected/final-verified patch to a remote branch and create/reuse a GitHub draft PR. For auto-discovery, `orchestrate --promote-branch --github-draft-pr` may publish stacked draft PRs after each selected/final-verified issue. Neither path merges automatically, and neither changes deterministic selection.
 
 ## References
 

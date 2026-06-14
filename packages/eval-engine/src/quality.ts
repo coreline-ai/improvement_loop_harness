@@ -1,5 +1,6 @@
 import { pathMatchesAny } from '@vibeloop/guards';
 import type { EvaluatorConfig } from '@vibeloop/task-protocol';
+import type { BaselineMetrics, MetricKey } from './metrics.js';
 
 /**
  * Deterministic improvement-quality Evaluator (M0).
@@ -24,6 +25,8 @@ export interface QualityRuleResult {
   detail: string;
   value?: number | undefined;
   threshold?: number | undefined;
+  baseline?: number | undefined;
+  candidate?: number | undefined;
 }
 
 export interface QualityReport {
@@ -48,6 +51,43 @@ export interface EvaluateQualityInput {
   testOnBase?: { base_failed_candidate_passed: boolean } | undefined;
   /** number of task.acceptance.required_tests (decides whether Q2 applies). */
   requiredTestCount?: number | undefined;
+  /** Baseline metrics collected from the unmodified base worktree. */
+  baselineMetrics?: BaselineMetrics | undefined;
+  /** Candidate metrics collected after the patch. */
+  candidateMetrics?: BaselineMetrics | undefined;
+}
+
+function metricDeltaRule(options: {
+  id: string;
+  metric: MetricKey;
+  detail: string;
+  baselineMetrics: BaselineMetrics | undefined;
+  candidateMetrics: BaselineMetrics | undefined;
+  threshold: number;
+  pass: (delta: number, threshold: number) => boolean;
+}): QualityRuleResult {
+  const baseline = options.baselineMetrics?.[options.metric];
+  const candidate = options.candidateMetrics?.[options.metric];
+  if (baseline === undefined || candidate === undefined) {
+    return {
+      id: options.id,
+      status: 'fail',
+      detail: `${options.detail}_missing_metric`,
+      threshold: options.threshold,
+      ...(baseline !== undefined ? { baseline } : {}),
+      ...(candidate !== undefined ? { candidate } : {})
+    };
+  }
+  const delta = candidate - baseline;
+  return {
+    id: options.id,
+    status: options.pass(delta, options.threshold) ? 'pass' : 'fail',
+    detail: options.detail,
+    value: delta,
+    threshold: options.threshold,
+    baseline,
+    candidate
+  };
 }
 
 export function evaluateQuality(input: EvaluateQualityInput): QualityReport {
@@ -141,6 +181,75 @@ export function evaluateQuality(input: EvaluateQualityInput): QualityReport {
       status: touchedProtected ? 'fail' : 'pass',
       detail: 'no_protected_path'
     });
+  }
+
+  // Q5 — metric delta thresholds. These are fixed numeric rules over trusted
+  // harness-collected baseline/candidate metrics. Missing required metrics fail
+  // closed because a configured quality threshold must be evidenced.
+  if (config.min_coverage_delta !== undefined) {
+    rules.push(
+      metricDeltaRule({
+        id: 'Q5_coverage',
+        metric: 'coverage_percent',
+        detail: 'min_coverage_delta',
+        baselineMetrics: input.baselineMetrics,
+        candidateMetrics: input.candidateMetrics,
+        threshold: config.min_coverage_delta,
+        pass: (delta, threshold) => delta >= threshold
+      })
+    );
+  }
+  if (config.max_latency_regression_ms !== undefined) {
+    rules.push(
+      metricDeltaRule({
+        id: 'Q5_latency',
+        metric: 'latency_ms',
+        detail: 'max_latency_regression_ms',
+        baselineMetrics: input.baselineMetrics,
+        candidateMetrics: input.candidateMetrics,
+        threshold: config.max_latency_regression_ms,
+        pass: (delta, threshold) => delta <= threshold
+      })
+    );
+  }
+  if (config.max_security_findings_delta !== undefined) {
+    rules.push(
+      metricDeltaRule({
+        id: 'Q5_security_findings',
+        metric: 'security_findings',
+        detail: 'max_security_findings_delta',
+        baselineMetrics: input.baselineMetrics,
+        candidateMetrics: input.candidateMetrics,
+        threshold: config.max_security_findings_delta,
+        pass: (delta, threshold) => delta <= threshold
+      })
+    );
+  }
+  if (config.max_critical_security_findings_delta !== undefined) {
+    rules.push(
+      metricDeltaRule({
+        id: 'Q5_critical_security_findings',
+        metric: 'critical_security_findings',
+        detail: 'max_critical_security_findings_delta',
+        baselineMetrics: input.baselineMetrics,
+        candidateMetrics: input.candidateMetrics,
+        threshold: config.max_critical_security_findings_delta,
+        pass: (delta, threshold) => delta <= threshold
+      })
+    );
+  }
+  if (config.max_duplicate_score_delta !== undefined) {
+    rules.push(
+      metricDeltaRule({
+        id: 'Q5_duplicate_score',
+        metric: 'duplicate_score',
+        detail: 'max_duplicate_score_delta',
+        baselineMetrics: input.baselineMetrics,
+        candidateMetrics: input.candidateMetrics,
+        threshold: config.max_duplicate_score_delta,
+        pass: (delta, threshold) => delta <= threshold
+      })
+    );
   }
 
   const met = rules.every((rule) => rule.status !== 'fail');

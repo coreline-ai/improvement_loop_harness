@@ -284,6 +284,7 @@ async function runIssue({
     decision: candidate.decision,
     qualified: candidate.qualified,
     score: candidate.score?.total ?? null,
+    quality_metric_score: candidate.score?.quality_metric_score ?? null,
     changed_files: candidate.score?.changed_files ?? null,
     changed_lines: candidate.score?.changed_lines ?? null
   }));
@@ -298,19 +299,26 @@ async function runIssue({
       ? Math.max(...acceptedScores) - Math.min(...acceptedScores)
       : 0;
   const advisoryTieBreak = output.advisory_tie_break ?? null;
+  const selectionQuality =
+    output.selection_quality ?? selection.selection_quality ?? null;
   const qualityJudgeRan = advisoryTieBreak?.ran === true;
   const qualityJudgeChangedPick = advisoryTieBreak?.changed_pick === true;
-  const strictScoreImprovement = scoreSpread > 0;
-  const bestChoiceEvidence = strictScoreImprovement
-    ? 'strict_score_spread'
-    : qualityJudgeChangedPick
-      ? 'advisory_tie_break_changed_pick'
-      : qualityJudgeRan
-        ? 'advisory_tie_break_no_fixed_distinction'
-        : 'none';
-  const bestChoiceProven =
+  const strictScoreImprovement =
+    selectionQuality?.strict_score_improvement === true &&
+    selectionQuality?.full_autonomous_improvement_eligible === true;
+  const bestChoiceEvidence =
+    selectionQuality?.evidence ??
+    (qualityJudgeRan ? 'advisory_tie_break_no_fixed_distinction' : 'none');
+  const advisoryQualitySupported =
+    selectionQuality?.advisory_supported === true || qualityJudgeChangedPick;
+  const bestChoiceSupported =
+    selectionQuality?.best_choice_supported === true ||
     strictScoreImprovement ||
-    bestChoiceEvidence === 'advisory_tie_break_changed_pick';
+    advisoryQualitySupported;
+  // "Proven" is intentionally stricter than "supported": only fixed-score
+  // evidence can prove full autonomous improvement. Advisory tie-breaks can
+  // support a human/reviewer decision but never make a full PASS.
+  const bestChoiceProven = strictScoreImprovement;
 
   await git(localRepo, ['apply', output.selected_patch]);
   await mustRun('node', [issue.visibleTest], { cwd: localRepo });
@@ -349,8 +357,12 @@ async function runIssue({
     selected_score: selectedScore,
     score_spread: scoreSpread,
     strict_score_improvement: strictScoreImprovement,
+    strict_fixed_score_proven: bestChoiceProven,
+    best_choice_supported: bestChoiceSupported,
     best_choice_proven: bestChoiceProven,
+    advisory_quality_supported: advisoryQualitySupported,
     best_choice_evidence: bestChoiceEvidence,
+    selection_quality: selectionQuality,
     candidates: scores,
     quality_met: quality?.met ?? null,
     advisory_tie_break: advisoryTieBreak,
@@ -485,8 +497,22 @@ async function main() {
     const strictImprovementEveryIssue = iterations.every(
       (iteration) => iteration.strict_score_improvement
     );
-    const bestChoiceProvenEveryIssue = iterations.every(
+    const strictFixedScoreProvenEveryIssue = iterations.every(
       (iteration) => iteration.best_choice_proven
+    );
+    const bestChoiceSupportedEveryIssue = iterations.every(
+      (iteration) => iteration.best_choice_supported
+    );
+    const advisoryQualitySupportedEveryIssue = iterations.every(
+      (iteration) => iteration.advisory_quality_supported
+    );
+    const tiedAcceptedIterations = iterations.filter(
+      (iteration) =>
+        Number(iteration.accepted_count ?? 0) >= 2 &&
+        Number(iteration.score_spread ?? 0) === 0
+    );
+    const qualityJudgeRanForAllTies = tiedAcceptedIterations.every(
+      (iteration) => iteration.quality_judge?.ran === true
     );
     const verificationPass =
       everyIssuePrCandidate && issueQueueExhausted && !hiddenLeak;
@@ -494,7 +520,7 @@ async function main() {
       ? 'REAL_USER_MULTI_LOOP_FAIL'
       : strictImprovementEveryIssue
         ? 'REAL_USER_MULTI_FULL_IMPROVEMENT_PASS'
-        : bestChoiceProvenEveryIssue
+        : bestChoiceSupportedEveryIssue
           ? 'REAL_USER_MULTI_VERIFICATION_PASS_QUALITY_SUPPORTED'
           : 'REAL_USER_MULTI_VERIFICATION_PASS_BEST_UNPROVEN';
 
@@ -527,13 +553,27 @@ async function main() {
         ? 'not_evaluated'
         : strictImprovementEveryIssue
           ? 'strict_score_pass'
-          : bestChoiceProvenEveryIssue
-            ? 'quality_advisory_supported'
+          : bestChoiceSupportedEveryIssue
+            ? advisoryQualitySupportedEveryIssue
+              ? 'quality_advisory_supported'
+              : 'quality_supported_non_full'
             : 'best_unproven',
       strict_score_improvement_every_issue: strictImprovementEveryIssue,
-      best_choice_proven_every_issue: bestChoiceProvenEveryIssue,
+      strict_fixed_score_proven_every_issue: strictFixedScoreProvenEveryIssue,
+      best_choice_supported_every_issue: bestChoiceSupportedEveryIssue,
+      advisory_quality_supported_every_issue:
+        advisoryQualitySupportedEveryIssue,
+      // Backward-compatible but deliberately strict: "proven" only means fixed
+      // score proof, not advisory support.
+      best_choice_proven_every_issue: strictFixedScoreProvenEveryIssue,
       full_autonomous_improvement_pass:
         verificationPass && strictImprovementEveryIssue,
+      strict_full_pass_invariant: {
+        verification_required: true,
+        strict_score_required: true,
+        advisory_support_is_not_enough: true,
+        satisfied: verificationPass && strictImprovementEveryIssue
+      },
       false_pass: 0,
       leak: hiddenLeak ? 1 : 0,
       proxy_auth_header_seen: proxy?.stats?.auth_header_seen ?? null,
@@ -542,11 +582,40 @@ async function main() {
           qualityJudgeCommand === defaultQualityJudgeCommand
             ? 'scripts/uat/quality-judge-best-patch.mjs'
             : '[custom]',
+        connected_to_live_ru2: true,
+        tied_accepted_iteration_count: tiedAcceptedIterations.length,
+        ran_for_all_tied_accepted_iterations: qualityJudgeRanForAllTies,
         note: 'advisory tie-break only; cannot override fixed verifier/evaluator and does not make strict_score_improvement true'
       },
       iterations,
       evidence: { tmp_root: tmpRoot, data_dir: dataDir, local_repo: localRepo }
     };
+
+    if (
+      ledger.status === 'REAL_USER_MULTI_FULL_IMPROVEMENT_PASS' &&
+      !strictImprovementEveryIssue
+    ) {
+      throw new Error(
+        'strict full-pass invariant violated: full improvement requires strict_score_improvement_every_issue=true'
+      );
+    }
+    if (
+      ledger.full_autonomous_improvement_pass !==
+      (verificationPass && strictImprovementEveryIssue)
+    ) {
+      throw new Error(
+        'strict full-pass invariant violated: full_autonomous_improvement_pass must equal verificationPass && strictImprovementEveryIssue'
+      );
+    }
+    if (
+      verificationPass &&
+      tiedAcceptedIterations.length > 0 &&
+      !qualityJudgeRanForAllTies
+    ) {
+      throw new Error(
+        'quality judge invariant violated: every accepted score tie in live RU-2 must run the configured quality judge'
+      );
+    }
 
     assertNoHiddenLeak('ledger', ledger);
     console.log(JSON.stringify(ledger, null, 2));

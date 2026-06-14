@@ -26,7 +26,12 @@ export interface QualityJudgeCandidate {
   patch_ref: string;
   report_path?: string | undefined;
   score?:
-    | { total: number; changed_files: number; changed_lines: number }
+    | {
+        total: number;
+        changed_files: number;
+        changed_lines: number;
+        quality_metric_score?: number | undefined;
+      }
     | undefined;
 }
 

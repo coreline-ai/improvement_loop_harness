@@ -1,6 +1,16 @@
-import type { EvalConfig, EvalGate, Limits, TaskDefinition } from '@vibeloop/task-protocol';
+import type {
+  EvalConfig,
+  EvalGate,
+  Limits,
+  TaskDefinition
+} from '@vibeloop/task-protocol';
 
-export type CandidateSource = 'test_failure' | 'typecheck' | 'lint' | 'security_scan' | 'manual';
+export type CandidateSource =
+  | 'test_failure'
+  | 'typecheck'
+  | 'lint'
+  | 'security_scan'
+  | 'manual';
 
 export interface StructuredLocation {
   filePath: string;
@@ -15,12 +25,20 @@ export interface DiscoveryCandidate {
   fingerprint: string;
   title: string;
   evidenceRefs: string[];
+  /** Sanitized, bounded failure excerpt for the builder. Prompt-injection lines are removed. */
+  evidenceSummary?: string | undefined;
   riskAreaHint?: string | null | undefined;
   trustLevel?: 'high' | 'medium' | 'low' | undefined;
   injectionIndicators?: string[] | undefined;
   reproCommand?: string | null | undefined;
   priority: number;
-  status: 'proposed' | 'approved' | 'queued' | 'running' | 'processed' | 'dismissed';
+  status:
+    | 'proposed'
+    | 'approved'
+    | 'queued'
+    | 'running'
+    | 'processed'
+    | 'dismissed';
   location: StructuredLocation;
 }
 

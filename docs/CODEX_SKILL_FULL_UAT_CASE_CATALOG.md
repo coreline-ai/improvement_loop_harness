@@ -128,6 +128,8 @@
 | 출력 필드                            | 기대                                   |
 | ------------------------------------ | -------------------------------------- |
 | `status`                             | `FULL_UAT_PASS`(fixture baseline only) |
+| `proof_scope`                        | `fixture_baseline_only`                |
+| `not_live_codex_or_github_pass`      | `true`                                 |
 | `required_cases`                     | `24` 이상                              |
 | `passed_cases`                       | `total_cases`와 동일                   |
 | `positive.accepted_issue_count`      | `2`                                    |

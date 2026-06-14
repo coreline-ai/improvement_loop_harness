@@ -106,6 +106,8 @@ export interface EvalConfig {
    * docs/EVAL_ENGINE_SPEC.md.
    */
   artifact_leak?: ArtifactLeakConfig;
+  /** Optional frozen next-loop rulepack lock that must remain fixed and replay-safe. */
+  rulepack_lock?: RulepackLockConfig;
   /**
    * R1: OS-level isolation for project command gates (which run agent-modified
    * code == arbitrary code execution). When `isolation: container`, project
@@ -163,6 +165,15 @@ export interface ArtifactLeakConfig {
   };
 }
 
+export interface RulepackLockConfig {
+  /** Frozen rulepack JSON path, relative to the worktree or absolute. */
+  file: string;
+  /** Required authority. Defaults to fixed_next_loop_gate. */
+  required_authority?: 'fixed_next_loop_gate';
+  /** Required decision impact. Defaults to next_loop_only. */
+  required_decision_impact?: 'next_loop_only';
+}
+
 export interface EvaluatorConfig {
   /** When true, PR candidacy requires quality.met (consumed by the PR gate). */
   required?: boolean;
@@ -182,4 +193,17 @@ export interface EvaluatorConfig {
   require_test_on_base_pass?: boolean;
   /** Q3: changed files must intersect at least one of these path prefixes. */
   target_paths?: string[];
+  /** Q5: candidate coverage_percent - baseline coverage_percent must be >= this. */
+  min_coverage_delta?: number;
+  /** Q5: candidate latency_ms - baseline latency_ms must be <= this. */
+  max_latency_regression_ms?: number;
+  /** Q5: candidate security_findings - baseline security_findings must be <= this. */
+  max_security_findings_delta?: number;
+  /**
+   * Q5: candidate critical_security_findings - baseline critical_security_findings
+   * must be <= this.
+   */
+  max_critical_security_findings_delta?: number;
+  /** Q5: candidate duplicate_score - baseline duplicate_score must be <= this. */
+  max_duplicate_score_delta?: number;
 }

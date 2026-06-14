@@ -31,6 +31,14 @@ evaluator:
   forbid_protected: true
   # target_paths:            # optional: restrict the accepted fix to these files
   #   - src/your_module.py
+  # Optional Q5 fixed metric deltas. These require project gates to emit
+  # coverage/latency/security/duplicate metrics through stdout or
+  # VIBELOOP_METRICS_FILE. Missing configured metrics fail closed.
+  # min_coverage_delta: 0
+  # max_latency_regression_ms: 25
+  # max_security_findings_delta: 0
+  # max_critical_security_findings_delta: 0
+  # max_duplicate_score_delta: 0
 gates:
   - name: git_meta_integrity
     type: integrity

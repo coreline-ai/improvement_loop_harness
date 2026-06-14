@@ -88,4 +88,93 @@ describe('evaluateQuality', () => {
     expect(report.rules.find((r) => r.id === 'Q3')?.status).toBe('fail');
     expect(report.met).toBe(false);
   });
+
+  it('passes Q5 metric delta rules when configured thresholds hold', () => {
+    const report = evaluateQuality({
+      config: {
+        min_coverage_delta: 2,
+        max_latency_regression_ms: 5,
+        max_security_findings_delta: 0,
+        max_critical_security_findings_delta: 0,
+        max_duplicate_score_delta: 0
+      },
+      changedFiles: [{ path: 'src/a.ts', addedLines: 2, deletedLines: 1 }],
+      evidence: present,
+      baselineMetrics: {
+        coverage_percent: 80,
+        latency_ms: 100,
+        security_findings: 2,
+        critical_security_findings: 0,
+        duplicate_score: 10
+      },
+      candidateMetrics: {
+        coverage_percent: 83,
+        latency_ms: 104,
+        security_findings: 1,
+        critical_security_findings: 0,
+        duplicate_score: 9
+      }
+    });
+    expect(report.met).toBe(true);
+    expect(report.rules.find((r) => r.id === 'Q5_coverage')).toMatchObject({
+      status: 'pass',
+      value: 3,
+      baseline: 80,
+      candidate: 83
+    });
+    expect(report.rules.find((r) => r.id === 'Q5_latency')).toMatchObject({
+      status: 'pass',
+      value: 4
+    });
+  });
+
+  it('fails Q5 closed when a configured metric is missing', () => {
+    const report = evaluateQuality({
+      config: { min_coverage_delta: 1 },
+      changedFiles: [{ path: 'src/a.ts', addedLines: 1, deletedLines: 0 }],
+      evidence: present,
+      baselineMetrics: { coverage_percent: 80 },
+      candidateMetrics: {}
+    });
+    expect(report.met).toBe(false);
+    expect(report.rules.find((r) => r.id === 'Q5_coverage')).toMatchObject({
+      status: 'fail',
+      detail: 'min_coverage_delta_missing_metric',
+      baseline: 80,
+      threshold: 1
+    });
+  });
+
+  it('fails Q5 when metric regressions exceed deterministic thresholds', () => {
+    const report = evaluateQuality({
+      config: {
+        min_coverage_delta: 0,
+        max_latency_regression_ms: 10,
+        max_security_findings_delta: 0,
+        max_duplicate_score_delta: 0
+      },
+      changedFiles: [{ path: 'src/a.ts', addedLines: 1, deletedLines: 0 }],
+      evidence: present,
+      baselineMetrics: {
+        coverage_percent: 80,
+        latency_ms: 100,
+        security_findings: 1,
+        duplicate_score: 3
+      },
+      candidateMetrics: {
+        coverage_percent: 79,
+        latency_ms: 125,
+        security_findings: 3,
+        duplicate_score: 4
+      }
+    });
+    expect(report.met).toBe(false);
+    const failedIds = report.rules
+      .filter((rule) => rule.status === 'fail')
+      .map((rule) => rule.id);
+    expect(failedIds).toContain('Q5_coverage');
+    expect(failedIds).toContain('Q5_latency');
+    expect(failedIds).toContain('Q5_security_findings');
+    expect(failedIds).toContain('Q5_duplicate_score');
+  });
 });

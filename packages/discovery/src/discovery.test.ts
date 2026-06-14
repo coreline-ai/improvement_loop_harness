@@ -88,6 +88,7 @@ describe('discovery package', () => {
       priority: 80
     });
     expect(candidates[0]?.location.filePath).toBe('tests/failing.test.js');
+    expect(candidates[0]?.evidenceSummary).toContain('tests/failing.test.js');
     expect(JSON.stringify(candidates[0])).not.toContain(
       'ignore previous instructions'
     );
@@ -143,9 +144,99 @@ describe('discovery package', () => {
       max_changed_files: 10,
       max_changed_lines: 200
     });
+    expect(generated.task.objective).toContain(
+      'Reproduce with: node tests/failing.test.js.'
+    );
+    expect(generated.task.objective).toContain('tests/failing.test.js');
     expect(generated.task.objective).not.toContain(
       'ignore previous instructions'
     );
+  });
+
+  it('focuses npm test repro commands to the failing test file when possible', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write(
+      'package.json',
+      JSON.stringify({
+        private: true,
+        type: 'commonjs',
+        scripts: { test: 'node tests/cart-quantity.test.cjs' }
+      })
+    );
+    await repo.write(
+      'src/cart.cjs',
+      'module.exports = { calculateTotal: () => 5 };\n'
+    );
+    await repo.write(
+      'tests/cart-quantity.test.cjs',
+      [
+        "const assert = require('node:assert/strict');",
+        "const { calculateTotal } = require('../src/cart.cjs');",
+        'try {',
+        '  assert.equal(calculateTotal([{ price: 5, quantity: 3 }]), 15);',
+        '} catch (error) {',
+        "  console.error('FAIL src/cart.cjs: calculateTotal must multiply price by quantity');",
+        '  throw error;',
+        '}',
+        ''
+      ].join('\n')
+    );
+    await repo.git(['add', '-A']);
+    await repo.git(['commit', '-m', 'add package and failing test']);
+
+    const [candidate] = await discoverCandidates({
+      repoPath: repo.repoPath,
+      evalConfig: evalConfig('npm test')
+    });
+    const generated = generateTaskFromCandidate(candidate!, {
+      evalConfig: evalConfig('npm test'),
+      baseBranch: 'main'
+    });
+
+    expect(candidate?.location.filePath).toBe('src/cart.cjs');
+    expect(generated.task.acceptance?.required_tests).toEqual([
+      "node 'tests/cart-quantity.test.cjs'"
+    ]);
+  });
+
+  it('falls back to eval risk prefixes when discovery output has no real file path', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write('src/cart.cjs', 'module.exports = { value: 1 };\n');
+    await repo.git(['add', 'src/cart.cjs']);
+    await repo.git(['commit', '-m', 'add cart source']);
+    const config: EvalConfig = {
+      schema_version: '1.0',
+      project: 'discovery-generated-eval-fixture',
+      risk_classification: {
+        none: ['src/', 'tests/']
+      },
+      limits: { max_changed_files: 10, max_changed_lines: 200 },
+      gates: [
+        {
+          name: 'auto_command_0',
+          type: 'task_acceptance',
+          command: 'node tests/cart-quantity.test.cjs',
+          required: true
+        }
+      ]
+    };
+
+    const [candidate] = await discoverCandidates({
+      repoPath: repo.repoPath,
+      evalConfig: config
+    });
+    expect(candidate?.location.filePath).toBe('project');
+
+    const generated = generateTaskFromCandidate(candidate!, {
+      evalConfig: config,
+      baseBranch: 'main'
+    });
+    expect(generated.task.risk_area).toBe('none');
+    expect(generated.task.human_approval_required).toBe(false);
+    expect(generated.task.write_scope.allowed).toEqual(['src/', 'tests/']);
+    expect(generated.task.acceptance?.required_tests).toEqual([
+      'node tests/cart-quantity.test.cjs'
+    ]);
   });
 
   it('keeps only the top 50 proposed candidates by priority', async () => {

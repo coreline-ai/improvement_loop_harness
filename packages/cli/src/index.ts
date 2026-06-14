@@ -1,5 +1,10 @@
 import { Command } from 'commander';
 import { getDataDir } from '@vibeloop/shared';
+import { registerAdversaryConfirmCommand } from './commands/adversary-confirm.js';
+import { registerAdversaryRulepackCandidateCommand } from './commands/adversary-rulepack-candidate.js';
+import { registerAdversaryRulepackFreezeCommand } from './commands/adversary-rulepack-freeze.js';
+import { registerAdversaryRulepackReplayCorpusCommand } from './commands/adversary-rulepack-replay-corpus.js';
+import { registerAdversaryRulepackReplayCommand } from './commands/adversary-rulepack-replay.js';
 import { registerDiscoverCommand } from './commands/discover.js';
 import { registerGcCommand } from './commands/gc.js';
 import { registerImproveCommand } from './commands/improve.js';
@@ -20,6 +25,11 @@ export function createProgram(): Command {
     .version(VERSION)
     .option('--data-dir <path>', 'VibeLoop data directory', getDataDir());
 
+  registerAdversaryConfirmCommand(program);
+  registerAdversaryRulepackCandidateCommand(program);
+  registerAdversaryRulepackReplayCorpusCommand(program);
+  registerAdversaryRulepackReplayCommand(program);
+  registerAdversaryRulepackFreezeCommand(program);
   registerDiscoverCommand(program);
   registerRunCommand(program);
   registerImproveCommand(program);

@@ -7,6 +7,7 @@
  * statically filtered here; execution/M2 confirmation and M4 rulepack freeze are
  * explicit later steps.
  */
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
   filterAdversaryProposal,
@@ -14,8 +15,36 @@ import {
   type ProposalFilterConfig,
   type ProposalFilterResult
 } from '@vibeloop/eval-engine';
+import { providerForAgentSpec } from '@vibeloop/agent-adapters';
+
+export const FIXED_ADVERSARY_REVIEW_PROMPT_VERSION = 'adversary-review-v1';
+
+export const FIXED_ADVERSARY_REVIEW_PROMPT = [
+  'You are an adversarial advisory reviewer for a VibeLoop candidate patch.',
+  'Do not approve the change. Try to break it.',
+  'Find defects, edge cases, regressions, or missing tests that the visible verifier may not catch.',
+  'You are not an accept gate and must not decide pass/fail or merge readiness.',
+  'Return JSON only: findings[] and optional proposals[].',
+  'A proposal must be a bounded test file under tests/, test/, __tests__/, or .vibeloop/adversary/.',
+  'Do not weaken tests, skip tests, use hidden acceptance details, request secrets, or include tokens.',
+  'The harness will statically filter proposals, then M2/M4 may isolate and freeze them for a later loop only.'
+].join('\n');
+
+function promptHash(): string {
+  return `sha256:${createHash('sha256')
+    .update(FIXED_ADVERSARY_REVIEW_PROMPT)
+    .digest('hex')}`;
+}
 
 export interface AdversaryReviewInput {
+  reviewer_context: {
+    prompt_version: typeof FIXED_ADVERSARY_REVIEW_PROMPT_VERSION;
+    prompt: typeof FIXED_ADVERSARY_REVIEW_PROMPT;
+    decision_impact: 'none';
+    authority: 'advisory_only';
+    forbidden_inputs: string[];
+    output_contract: string;
+  };
   task: {
     id: string;
     title: string;
@@ -54,6 +83,12 @@ export interface AdversaryReviewReport {
   authority: 'advisory_only';
   decision_impact: 'none';
   selected_candidate_id: string;
+  builder_provider: string;
+  reviewer_provider: string;
+  same_model_review: boolean;
+  require_different_provider: boolean;
+  prompt_version: typeof FIXED_ADVERSARY_REVIEW_PROMPT_VERSION;
+  prompt_hash: string;
   findings: AdversaryFinding[];
   proposals: ReviewedAdversaryProposal[];
   accepted_proposal_count: number;
@@ -61,6 +96,11 @@ export interface AdversaryReviewReport {
   next_step:
     | 'none'
     | 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop';
+  /**
+   * JSON artifact containing only static-filter-accepted proposals for later M2
+   * isolated execution. Advisory only; not an accept gate.
+   */
+  m2_handoff_ref?: string | undefined;
   error?: string | undefined;
 }
 
@@ -71,6 +111,71 @@ export type AdversaryReviewer = (
 export interface CommandAdversaryReviewerOptions {
   timeoutMs?: number | undefined;
   env?: NodeJS.ProcessEnv | undefined;
+}
+
+export interface AdversaryReviewIndependenceOptions {
+  builderAgentSpec: string;
+  reviewerProvider?: string | undefined;
+  requireDifferentProvider?: boolean | undefined;
+}
+
+export interface AdversaryReviewIndependence {
+  builder_provider: string;
+  reviewer_provider: string;
+  same_model_review: boolean;
+  require_different_provider: boolean;
+}
+
+export function fixedAdversaryReviewContext(): AdversaryReviewInput['reviewer_context'] {
+  return {
+    prompt_version: FIXED_ADVERSARY_REVIEW_PROMPT_VERSION,
+    prompt: FIXED_ADVERSARY_REVIEW_PROMPT,
+    decision_impact: 'none',
+    authority: 'advisory_only',
+    forbidden_inputs: [
+      'builder transcript',
+      'hidden acceptance tests',
+      'hidden sentinels',
+      'OAuth tokens',
+      'API keys',
+      'secrets'
+    ],
+    output_contract:
+      'JSON object with findings[] and optional proposals[{id,targetPath,body,expectation}]'
+  };
+}
+
+export function fixedAdversaryReviewPromptHash(): string {
+  return promptHash();
+}
+
+export function resolveAdversaryReviewIndependence(
+  options: AdversaryReviewIndependenceOptions
+): AdversaryReviewIndependence {
+  const builderProvider = providerForAgentSpec(options.builderAgentSpec);
+  const reviewerProvider = options.reviewerProvider?.trim() || 'undeclared';
+  const requireDifferentProvider = options.requireDifferentProvider === true;
+
+  let sameModelReview: boolean;
+  if (builderProvider === 'mock') {
+    sameModelReview = false;
+  } else if (
+    reviewerProvider === 'undeclared' ||
+    reviewerProvider === 'unknown'
+  ) {
+    sameModelReview = true;
+  } else if (builderProvider === 'unknown') {
+    sameModelReview = true;
+  } else {
+    sameModelReview = builderProvider === reviewerProvider;
+  }
+
+  return {
+    builder_provider: builderProvider,
+    reviewer_provider: reviewerProvider,
+    same_model_review: sameModelReview,
+    require_different_provider: requireDifferentProvider
+  };
 }
 
 export function commandAdversaryReviewer(
@@ -146,6 +251,7 @@ export function filterAdversaryReviewOutput(options: {
   input: AdversaryReviewInput;
   output: AdversaryReviewOutput;
   filterConfig?: Partial<ProposalFilterConfig> | undefined;
+  independence?: AdversaryReviewIndependence | undefined;
 }): AdversaryReviewReport {
   const filterConfig: ProposalFilterConfig = {
     testDirs: ['tests/', 'test/', '__tests__/', '.vibeloop/adversary/'],
@@ -168,15 +274,30 @@ export function filterAdversaryReviewOutput(options: {
   const acceptedProposalCount = proposals.filter(
     (proposal) => proposal.filter.accepted
   ).length;
+  const independence =
+    options.independence ??
+    resolveAdversaryReviewIndependence({
+      builderAgentSpec: 'unknown'
+    });
+  const independenceWarning =
+    independence.same_model_review ||
+    (independence.require_different_provider && independence.same_model_review);
   return {
     ran: true,
     authority: 'advisory_only',
     decision_impact: 'none',
     selected_candidate_id: options.input.selected.candidate_id,
+    builder_provider: independence.builder_provider,
+    reviewer_provider: independence.reviewer_provider,
+    same_model_review: independence.same_model_review,
+    require_different_provider: independence.require_different_provider,
+    prompt_version: options.input.reviewer_context.prompt_version,
+    prompt_hash: fixedAdversaryReviewPromptHash(),
     findings,
     proposals,
     accepted_proposal_count: acceptedProposalCount,
     requires_human_review_signal:
+      independenceWarning ||
       acceptedProposalCount > 0 ||
       findings.some((finding) =>
         ['high', 'critical'].includes(finding.severity)

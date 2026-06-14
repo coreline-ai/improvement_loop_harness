@@ -1,10 +1,12 @@
 import {
   access,
+  mkdir,
   mkdtemp,
   readFile,
   realpath,
   writeFile
 } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { extractDiff, type GuardChangedFile } from '@vibeloop/guards';
@@ -100,6 +102,50 @@ async function fileExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function sha256(value: unknown): string {
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex')}`;
+}
+
+function frozenRulepackLock(overrides: Record<string, unknown> = {}): string {
+  const lockInput = {
+    source_candidate_ref: 'candidate.json',
+    source_replay_ref: 'replay.json',
+    rules: [
+      { id: 'baseline:rule', hash: 'sha256:base' },
+      { id: 'adversary:p-edge', hash: 'sha256:edge' }
+    ],
+    added_rules: [{ id: 'adversary:p-edge', hash: 'sha256:edge' }],
+    diff: {
+      added: ['adversary:p-edge'],
+      removed: [],
+      changed: [],
+      appendOnly: true
+    },
+    replay: {
+      replaySafe: true,
+      total: 2,
+      matched: 2,
+      mismatches: []
+    }
+  };
+  return `${JSON.stringify(
+    {
+      schema_version: '1.0',
+      kind: 'frozen_rulepack',
+      authority: 'fixed_next_loop_gate',
+      decision_impact: 'next_loop_only',
+      ...lockInput,
+      frozen_at: new Date(0).toISOString(),
+      lock_hash: sha256(lockInput),
+      ...overrides
+    },
+    null,
+    2
+  )}\n`;
 }
 
 describe('interpolation', () => {
@@ -323,6 +369,57 @@ describe('builtin:artifact-leak gate (fail-open invariant)', () => {
     expect(
       failResult.report.gates.find((g) => g.name === 'artifact_leak')?.status
     ).toBe('fail');
+  });
+});
+
+describe('builtin:rulepack-lock gate (next-loop frozen rulepack invariant)', () => {
+  const rulepackGate: EvalConfig['gates'] = [
+    {
+      name: 'rulepack_lock',
+      type: 'integrity',
+      command: 'builtin:rulepack-lock',
+      required: true
+    }
+  ];
+
+  it('passes only for a frozen next-loop replay-safe rulepack lock', async () => {
+    const context = await contextFor({ gates: rulepackGate });
+    await mkdir(path.join(context.worktreeRoot, 'policy'), { recursive: true });
+    await writeFile(
+      path.join(context.worktreeRoot, 'policy/rulepack.lock.json'),
+      frozenRulepackLock()
+    );
+    context.evalConfig.rulepack_lock = {
+      file: 'policy/rulepack.lock.json'
+    };
+
+    const result = await runGates(context);
+    const gate = result.report.gates.find((g) => g.name === 'rulepack_lock');
+    expect(gate?.status).toBe('pass');
+    expect(gate?.summary).toContain('next-loop-only');
+  });
+
+  it('fails closed when the frozen rulepack is replay-unsafe or tampered', async () => {
+    const context = await contextFor({ gates: rulepackGate });
+    await mkdir(path.join(context.worktreeRoot, 'policy'), { recursive: true });
+    await writeFile(
+      path.join(context.worktreeRoot, 'policy/rulepack.lock.json'),
+      frozenRulepackLock({ replay: { replaySafe: false } })
+    );
+    context.evalConfig.rulepack_lock = {
+      file: 'policy/rulepack.lock.json'
+    };
+
+    const result = await runGates(context);
+    const gate = result.report.gates.find((g) => g.name === 'rulepack_lock');
+    expect(gate?.status).toBe('fail');
+    expect(gate?.summary).toContain('failed');
+    const stdout = await readFile(
+      path.join(context.artifactRoot, gate!.stdout_ref!),
+      'utf8'
+    );
+    expect(stdout).toContain('RULEPACK_LOCK_REPLAY_UNSAFE');
+    expect(stdout).toContain('RULEPACK_LOCK_HASH_MISMATCH');
   });
 });
 
