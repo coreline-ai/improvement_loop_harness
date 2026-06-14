@@ -11,7 +11,7 @@
 // package.json / the lockfile. `VIBELOOP_ESBUILD` overrides the launcher
 // (e.g. "pnpm exec esbuild") for offline use.
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,7 +19,8 @@ const ESBUILD_VERSION = '0.28.1';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const entry = path.join(repoRoot, 'packages/cli/bin/vibeloop');
-const vendorDir = path.join(repoRoot, 'skills/vibeloop-harness/vendor');
+const skillRoot = path.join(repoRoot, 'skills/vibeloop-harness');
+const vendorDir = path.join(skillRoot, 'vendor');
 const outfile = path.join(vendorDir, 'vibeloop.mjs');
 
 const cliPkg = JSON.parse(
@@ -67,6 +68,9 @@ if (code !== 0) {
 }
 
 await writeFile(path.join(vendorDir, 'VERSION'), `${version}\n`);
+await cp(path.join(repoRoot, 'schemas'), path.join(skillRoot, 'schemas'), {
+  recursive: true
+});
 console.log(
   `bundled vibeloop CLI v${version} -> ${path.relative(repoRoot, outfile)}`
 );
