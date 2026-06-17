@@ -1,0 +1,13 @@
+CREATE INDEX "Task_projectId_idx" ON "Task"("projectId");
+CREATE INDEX "LoopRun_taskId_idx" ON "LoopRun"("taskId");
+CREATE INDEX "LoopEvent_loopRunId_idx" ON "LoopEvent"("loopRunId");
+CREATE INDEX "WorkspaceRun_loopRunId_idx" ON "WorkspaceRun"("loopRunId");
+CREATE INDEX "AgentRun_loopRunId_idx" ON "AgentRun"("loopRunId");
+CREATE INDEX "GateRun_loopRunId_idx" ON "GateRun"("loopRunId");
+CREATE INDEX "EvalReport_loopRunId_idx" ON "EvalReport"("loopRunId");
+CREATE INDEX "Artifact_loopRunId_idx" ON "Artifact"("loopRunId");
+CREATE INDEX "Approval_loopRunId_idx" ON "Approval"("loopRunId");
+CREATE INDEX "PullRequest_loopRunId_idx" ON "PullRequest"("loopRunId");
+CREATE INDEX "ImprovementCandidate_projectId_idx" ON "ImprovementCandidate"("projectId");
+CREATE INDEX "OrchestratorEvent_projectId_idx" ON "OrchestratorEvent"("projectId");
+CREATE INDEX "Learning_projectId_idx" ON "Learning"("projectId");

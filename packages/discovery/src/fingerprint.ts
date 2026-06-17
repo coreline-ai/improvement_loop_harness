@@ -4,7 +4,12 @@ import type { CandidateSource, StructuredLocation } from './types.js';
 export function normalizeCandidateLocation(
   location: StructuredLocation
 ): string {
-  return [location.filePath, location.testName ?? '', location.errorCode]
+  return [
+    location.filePath,
+    location.testName ?? '',
+    location.gateName ?? '',
+    location.errorCode
+  ]
     .map((part) => part.trim().replace(/\\/g, '/').toLowerCase())
     .join('|');
 }

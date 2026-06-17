@@ -37,6 +37,7 @@ export interface ContainerRunOptions {
   network?: 'none' | 'default';
   /** Env keys/values passed THROUGH to the container (via -e KEY, value in env). */
   env?: Record<string, string>;
+  signal?: AbortSignal | undefined;
   timeoutMs?: number;
   maxBufferBytes?: number;
 }
@@ -118,6 +119,7 @@ export async function runCommandInContainer(
     env: { ...process.env, ...env }
   };
   if (options.timeoutMs) runOptions.timeoutMs = options.timeoutMs;
+  if (options.signal) runOptions.signal = options.signal;
   if (options.maxBufferBytes)
     runOptions.maxBufferBytes = options.maxBufferBytes;
 

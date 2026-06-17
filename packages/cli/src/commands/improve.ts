@@ -1,14 +1,21 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Command } from 'commander';
 import {
   EXIT_CODES,
   commandAdversaryReviewer,
   commandQualityJudge,
+  isPrCandidate,
   publishSelectedPatchDraftPr,
   promoteSelectedPatch,
   runImprovementLoop
 } from '@vibeloop/sdk';
+import {
+  loadEvalConfig,
+  type EvalConfig,
+  type EvalGate
+} from '@vibeloop/task-protocol';
+import { buildTokenBudgetLoopOptions } from '../token-usage.js';
 
 interface ImproveCommandOptions {
   repo: string;
@@ -23,12 +30,18 @@ interface ImproveCommandOptions {
   llmProxyUrl?: string | undefined;
   skipDependencyInstall?: boolean | undefined;
   maxCandidates?: string | undefined;
+  deadline?: string | undefined;
+  tokenBudgetTotal?: string | undefined;
+  tokenUsageUrl?: string | undefined;
   skipFinalReverify?: boolean | undefined;
   allowDirty?: boolean | undefined;
   qualityJudge?: string | undefined;
   adversaryReview?: string | undefined;
   adversaryReviewerProvider?: string | undefined;
   adversaryRequireDifferentProvider?: boolean | undefined;
+  rulepackSemantic?: string | undefined;
+  rulepackSemanticImage?: string | undefined;
+  rulepackSemanticTimeoutMs?: string | undefined;
   promoteBranch?: string | undefined;
   promoteCommitMessage?: string | undefined;
   githubDraftPr?: boolean | undefined;
@@ -48,6 +61,147 @@ function collect(value: string, previous: string[]): string[] {
 function globalDataDir(command: Command): string {
   return (command.parent?.opts<{ dataDir: string }>().dataDir ??
     command.opts<{ dataDir: string }>().dataDir) as string;
+}
+
+function warnRiskyFlags(options: ImproveCommandOptions): void {
+  if (options.githubDraftPr && options.skipFinalReverify) {
+    throw new Error(
+      '--skip-final-reverify cannot be used with --github-draft-pr; draft PR creation requires final re-execution'
+    );
+  }
+  if (options.skipFinalReverify) {
+    console.error(
+      'warning: --skip-final-reverify skips B2 final re-execution; only provenance hash binding remains'
+    );
+  }
+  if (options.allowDirty) {
+    console.error(
+      'warning: --allow-dirty permits auto-base runs from a dirty source repo'
+    );
+  }
+}
+
+function parseNonNegativeInt(
+  value: string | undefined,
+  name: string
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
+function parsePositiveInt(
+  value: string | undefined,
+  name: string
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
+const PROJECT_COMMAND_GATE_TYPES = new Set<EvalGate['type']>([
+  'hard',
+  'task_acceptance',
+  'regression',
+  'security',
+  'performance',
+  'hidden_acceptance'
+]);
+
+function addRulepackSemanticGate(gates: EvalGate[]): EvalGate[] {
+  const conflictingGate = gates.find(
+    (gate) =>
+      gate.name === 'rulepack_semantic' &&
+      gate.command !== 'builtin:rulepack-semantic'
+  );
+  if (conflictingGate) {
+    throw new Error(
+      "--rulepack-semantic cannot overlay eval with an existing 'rulepack_semantic' gate that uses a different command"
+    );
+  }
+
+  if (gates.some((gate) => gate.command === 'builtin:rulepack-semantic')) {
+    return gates.map((gate) =>
+      gate.command === 'builtin:rulepack-semantic'
+        ? {
+            ...gate,
+            name: gate.name || 'rulepack_semantic',
+            type: 'integrity',
+            required: true
+          }
+        : gate
+    );
+  }
+
+  const semanticGate: EvalGate = {
+    name: 'rulepack_semantic',
+    type: 'integrity',
+    command: 'builtin:rulepack-semantic',
+    required: true
+  };
+  const firstProjectGateIndex = gates.findIndex((gate) =>
+    PROJECT_COMMAND_GATE_TYPES.has(gate.type)
+  );
+  if (firstProjectGateIndex === -1) {
+    return [...gates, semanticGate];
+  }
+  return [
+    ...gates.slice(0, firstProjectGateIndex),
+    semanticGate,
+    ...gates.slice(firstProjectGateIndex)
+  ];
+}
+
+async function buildRulepackSemanticEvalOverlay(options: {
+  evalFile: string;
+  dataDir: string;
+  projectId: string;
+  loopId: string;
+  rulepackFile: string;
+  image: string;
+  timeoutMs?: number | undefined;
+}): Promise<{ evalFile: string; evalConfig: EvalConfig }> {
+  const evalConfig = await loadEvalConfig(options.evalFile);
+  const protectedPaths = [...(evalConfig.protected_paths ?? [])];
+  if (
+    !path.isAbsolute(options.rulepackFile) &&
+    !protectedPaths.includes(options.rulepackFile)
+  ) {
+    protectedPaths.push(options.rulepackFile);
+  }
+
+  const overlay: EvalConfig = {
+    ...evalConfig,
+    ...(protectedPaths.length > 0 ? { protected_paths: protectedPaths } : {}),
+    gates: addRulepackSemanticGate(evalConfig.gates),
+    rulepack_semantic: {
+      file: options.rulepackFile,
+      image: options.image,
+      network: 'none',
+      current_loop_id: options.loopId,
+      required_authority: 'fixed_next_loop_gate',
+      required_decision_impact: 'next_loop_only',
+      ...(options.timeoutMs ? { timeout_ms: options.timeoutMs } : {})
+    }
+  };
+
+  const outputPath = path.join(
+    options.dataDir,
+    'projects',
+    options.projectId,
+    'improve',
+    options.loopId,
+    'eval.rulepack-semantic.json'
+  );
+  await mkdir(path.dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, `${JSON.stringify(overlay, null, 2)}\n`);
+  return { evalFile: outputPath, evalConfig: overlay };
 }
 
 export function registerImproveCommand(program: Command): void {
@@ -90,6 +244,18 @@ export function registerImproveCommand(program: Command): void {
       '24'
     )
     .option(
+      '--deadline <ms>',
+      'wall-clock deadline in milliseconds before launching another candidate'
+    )
+    .option(
+      '--token-budget-total <tokens>',
+      'provider token budget before launching another candidate (default applies with --token-usage-url or stats-capable --llm-proxy-url; override with VIBELOOP_TOKEN_BUDGET_TOTAL)'
+    )
+    .option(
+      '--token-usage-url <url>',
+      'HTTP(S) JSON usage endpoint returning {total_tokens} or {usage:{total_tokens}}; defaults to <llm-proxy-url>/__vibeloop_proxy_stats when a token budget is set'
+    )
+    .option(
       '--skip-final-reverify',
       'skip re-executing the selected patch (keep only provenance hash binding)',
       false
@@ -115,6 +281,18 @@ export function registerImproveCommand(program: Command): void {
       '--adversary-require-different-provider',
       'record that the adversary reviewer is expected to use a different provider; unmet/unknown identity keeps same_model_review=true',
       false
+    )
+    .option(
+      '--rulepack-semantic <path>',
+      'overlay --eval with builtin:rulepack-semantic required gate for an executable frozen next-loop rulepack'
+    )
+    .option(
+      '--rulepack-semantic-image <image>',
+      'container image for --rulepack-semantic execution'
+    )
+    .option(
+      '--rulepack-semantic-timeout-ms <n>',
+      'per semantic-rule timeout for --rulepack-semantic'
     )
     .option(
       '--promote-branch <name>',
@@ -165,6 +343,17 @@ export function registerImproveCommand(program: Command): void {
       if (!Number.isInteger(maxCandidates) || maxCandidates < 1) {
         throw new Error('--max-candidates must be a positive integer');
       }
+      const deadlineMs = parseNonNegativeInt(options.deadline, '--deadline');
+      const tokenBudgetOptions = buildTokenBudgetLoopOptions(options);
+      if (options.rulepackSemantic && !options.rulepackSemanticImage) {
+        throw new Error(
+          '--rulepack-semantic requires --rulepack-semantic-image <image>'
+        );
+      }
+      const semanticTimeoutMs = parsePositiveInt(
+        options.rulepackSemanticTimeoutMs,
+        '--rulepack-semantic-timeout-ms'
+      );
       const controller = new AbortController();
       let sigintCount = 0;
       const onSigint = (): void => {
@@ -177,22 +366,46 @@ export function registerImproveCommand(program: Command): void {
       };
       process.on('SIGINT', onSigint);
       try {
+        warnRiskyFlags(options);
+        const dataDir = options.out ?? globalDataDir(command);
+        const projectId = options.projectId ?? 'default';
+        const loopId =
+          options.rulepackSemantic && !options.loopId
+            ? `iloop-${Date.now()}`
+            : options.loopId;
+        const evalSource =
+          options.rulepackSemantic && loopId
+            ? await buildRulepackSemanticEvalOverlay({
+                evalFile: options.eval,
+                dataDir,
+                projectId,
+                loopId,
+                rulepackFile: options.rulepackSemantic,
+                image: options.rulepackSemanticImage!,
+                ...(semanticTimeoutMs ? { timeoutMs: semanticTimeoutMs } : {})
+              })
+            : {
+                evalFile: options.eval,
+                evalConfig: undefined
+              };
         const result = await runImprovementLoop({
           repoPath: options.repo,
           taskFile: options.task,
-          evalFile: options.eval,
-          dataDir: options.out ?? globalDataDir(command),
+          evalFile: evalSource.evalFile,
+          dataDir,
           builders: options.agent,
           ...(options.challenger.length > 0
             ? { challengerRounds: [options.challenger] }
             : {}),
           projectId: options.projectId,
-          loopId: options.loopId,
+          loopId,
           baseCommit: options.baseCommit,
           proxyBaseUrl: options.llmProxyUrl,
           signal: controller.signal,
           skipDependencyInstall: options.skipDependencyInstall,
           maxCandidates,
+          deadlineMs,
+          ...tokenBudgetOptions,
           skipFinalReverify: options.skipFinalReverify,
           allowDirty: options.allowDirty,
           ...(options.qualityJudge
@@ -219,6 +432,15 @@ export function registerImproveCommand(program: Command): void {
         const selectedPatch = result.selected
           ? path.join(result.selected.artifactRoot, 'patches/candidate.patch')
           : null;
+        const promotionArtifactLeak =
+          result.selected &&
+          selectedPatch &&
+          (options.promoteBranch || options.githubDraftPr)
+            ? (
+                evalSource.evalConfig ??
+                (await loadEvalConfig(evalSource.evalFile))
+              ).artifact_leak
+            : undefined;
         const promotion =
           result.selected && options.promoteBranch && selectedPatch
             ? await promoteSelectedPatch({
@@ -226,6 +448,9 @@ export function registerImproveCommand(program: Command): void {
                 baseCommit: result.baseCommit,
                 branchName: options.promoteBranch,
                 patchPath: selectedPatch,
+                expectedPatchHash:
+                  result.finalVerification?.candidate_patch_hash,
+                artifactLeak: promotionArtifactLeak,
                 commitMessage:
                   options.promoteCommitMessage ??
                   'vibeloop: apply selected patch'
@@ -259,6 +484,9 @@ export function registerImproveCommand(program: Command): void {
                     options.promoteBranch ??
                     `pr-candidate/${result.loopId}`,
                   patchPath: selectedPatch,
+                  expectedPatchHash:
+                    result.finalVerification?.candidate_patch_hash,
+                  artifactLeak: promotionArtifactLeak,
                   commitMessage:
                     options.promoteCommitMessage ??
                     'vibeloop: apply selected patch',
@@ -294,7 +522,13 @@ export function registerImproveCommand(program: Command): void {
               selected_artifact_root: result.selected?.artifactRoot ?? null,
               selected_report: result.selected?.reportPath ?? null,
               selected_patch: selectedPatch,
-              pr_candidate: !!result.selected,
+              pr_candidate: isPrCandidate({
+                decision: result.selected?.decision ?? null,
+                allPass: result.selected?.decision === 'accept',
+                qualified: result.selected?.qualified ?? null,
+                selected: result.selected,
+                finalVerification: result.finalVerification ?? null
+              }),
               promotion,
               draft_pr: draftPr,
               final_verification: result.finalVerification ?? null,

@@ -15,5 +15,6 @@ export * from './metrics.js';
 export * from './quality.js';
 export * from './rulepack-shadow.js';
 export * from './rulepack-replay.js';
+export * from './rulepack-runner.js';
 export * from './orchestrator.js';
 export * from './types.js';

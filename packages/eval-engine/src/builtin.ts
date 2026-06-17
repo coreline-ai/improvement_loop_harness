@@ -13,6 +13,8 @@ import {
 import { mergeLimits, type EvalGate } from '@vibeloop/task-protocol';
 import { BuiltinGateError } from './errors.js';
 import { createGateResult, gateLogPaths } from './gate-report.js';
+import { runFrozenRulepack } from './rulepack-runner.js';
+import { ruleSpecHashMatches, type RulepackRule } from './rulepack-shadow.js';
 import type { GateReportEntry, GateRunContext } from './types.js';
 
 function builtinName(command: string): string {
@@ -100,6 +102,8 @@ async function runBuiltinCheck(
     }
     case 'rulepack-lock':
       return checkRulepackLock(context);
+    case 'rulepack-semantic':
+      return checkRulepackSemantic(context);
     default:
       throw new BuiltinGateError(
         `unsupported builtin gate command: ${gate.command}`
@@ -117,7 +121,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function isRule(value: unknown): value is { id: string; hash: string } {
+function isRule(value: unknown): value is RulepackRule {
   return (
     isRecord(value) &&
     typeof value.id === 'string' &&
@@ -196,6 +200,20 @@ async function checkRulepackLock(
       message: 'added_rules must be non-empty sha256-hashed rules'
     });
   }
+  const specHashMismatches = [
+    ...new Set(
+      [...rules, ...addedRules]
+        .filter(isRule)
+        .filter((rule) => !ruleSpecHashMatches(rule))
+        .map((rule) => rule.id)
+    )
+  ];
+  if (specHashMismatches.length > 0) {
+    violations.push({
+      code: 'RULEPACK_LOCK_RULE_SPEC_HASH',
+      message: `rule spec hash mismatch: ${specHashMismatches.join(', ')}`
+    });
+  }
   if (!isRecord(record?.diff) || record.diff.appendOnly !== true) {
     violations.push({
       code: 'RULEPACK_LOCK_NOT_APPEND_ONLY',
@@ -220,6 +238,8 @@ async function checkRulepackLock(
     const expected = sha256({
       source_candidate_ref: record.source_candidate_ref,
       source_replay_ref: record.source_replay_ref,
+      source_loop_id: record.source_loop_id,
+      source_base_commit: record.source_base_commit,
       rules: record.rules,
       added_rules: record.added_rules,
       diff: record.diff,
@@ -246,6 +266,148 @@ async function checkRulepackLock(
         summary: `rulepack lock failed ${violations.length} check(s)`,
         violations
       };
+}
+
+async function checkRulepackSemantic(
+  context: GateRunContext
+): Promise<GuardCheckResult> {
+  const config = context.evalConfig.rulepack_semantic;
+  if (!config?.file) {
+    throw new BuiltinGateError(
+      'rulepack_semantic config is required for builtin:rulepack-semantic'
+    );
+  }
+  if (!config.image) {
+    throw new BuiltinGateError(
+      'rulepack_semantic.image is required for builtin:rulepack-semantic'
+    );
+  }
+
+  const lockCheck = await checkRulepackLock({
+    ...context,
+    evalConfig: {
+      ...context.evalConfig,
+      rulepack_lock: {
+        file: config.file,
+        ...(config.required_authority
+          ? { required_authority: config.required_authority }
+          : {}),
+        ...(config.required_decision_impact
+          ? { required_decision_impact: config.required_decision_impact }
+          : {})
+      }
+    }
+  });
+  if (lockCheck.status !== 'pass') {
+    return {
+      status: 'fail',
+      code: 'RULEPACK_SEMANTIC_LOCK_INVALID',
+      summary: `rulepack semantic lock validation failed: ${lockCheck.summary}`,
+      violations: lockCheck.violations,
+      details: {
+        rulepack_semantic: {
+          file: config.file,
+          current_loop_id: config.current_loop_id ?? context.loopId,
+          image: config.image,
+          network: config.network ?? 'none',
+          status: 'fail',
+          total: 0,
+          passed: 0,
+          results: [],
+          errors: lockCheck.violations.map((violation) => ({
+            code: violation.code,
+            message: violation.message
+          }))
+        }
+      }
+    };
+  }
+
+  const filePath = path.isAbsolute(config.file)
+    ? config.file
+    : path.resolve(context.worktreeRoot, config.file);
+  const frozen = JSON.parse(await readFile(filePath, 'utf8'));
+  const result = await runFrozenRulepack(frozen, {
+    worktreePath: context.worktreeRoot,
+    image: config.image,
+    network: config.network ?? 'none',
+    currentLoopId: config.current_loop_id ?? context.loopId,
+    artifactLeak: context.evalConfig.artifact_leak,
+    ...(context.rulepackSemanticRuntimeAvailable
+      ? { runtimeAvailable: context.rulepackSemanticRuntimeAvailable }
+      : {}),
+    ...(context.rulepackSemanticCommandRunner
+      ? { commandRunner: context.rulepackSemanticCommandRunner }
+      : {}),
+    ...(config.timeout_ms ? { timeoutMs: config.timeout_ms } : {})
+  });
+  const frozenRecord = isRecord(frozen) ? frozen : {};
+  const details = {
+    rulepack_semantic: {
+      file: config.file,
+      lock_hash:
+        typeof frozenRecord.lock_hash === 'string'
+          ? frozenRecord.lock_hash
+          : null,
+      source_loop_id:
+        typeof frozenRecord.source_loop_id === 'string'
+          ? frozenRecord.source_loop_id
+          : null,
+      current_loop_id: config.current_loop_id ?? context.loopId,
+      image: config.image,
+      network: config.network ?? 'none',
+      status: result.status,
+      total: result.total,
+      passed: result.passed,
+      results: result.results.map((entry) => ({
+        rule_id: entry.ruleId,
+        status: entry.status,
+        expected: entry.expected,
+        actual: entry.actual,
+        summary: entry.summary
+      })),
+      errors: result.errors.map((error) => ({
+        code: error.code,
+        message: error.message,
+        ...(error.ruleId ? { rule_id: error.ruleId } : {})
+      }))
+    }
+  };
+  if (result.allPass) {
+    return {
+      status: 'pass',
+      summary: `rulepack semantic gate passed ${result.passed}/${result.total} rule(s)`,
+      violations: [],
+      details
+    };
+  }
+
+  return {
+    status: 'fail',
+    code:
+      result.status === 'error'
+        ? 'RULEPACK_SEMANTIC_ERROR'
+        : 'RULEPACK_SEMANTIC_FAILED',
+    summary: `rulepack semantic gate ${result.status}: ${result.passed}/${result.total} passed`,
+    violations: [
+      ...result.errors.map((error) => ({
+        code: error.code,
+        message: error.ruleId
+          ? `${error.ruleId}: ${error.message}`
+          : error.message
+      })),
+      ...result.results
+        .filter((entry) => entry.status !== 'pass')
+        .map((entry) => ({
+          code:
+            entry.status === 'error'
+              ? 'RULEPACK_SEMANTIC_RULE_ERROR'
+              : 'RULEPACK_SEMANTIC_RULE_FAILED',
+          message: `${entry.ruleId}: ${entry.summary}`
+        }))
+    ],
+    details
+  };
 }
 
 export function isBuiltinGate(gate: EvalGate): boolean {

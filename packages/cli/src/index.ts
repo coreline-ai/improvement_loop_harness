@@ -11,6 +11,7 @@ import { registerImproveCommand } from './commands/improve.js';
 import { registerOrchestrateCommand } from './commands/orchestrate.js';
 import { registerReportCommand } from './commands/report.js';
 import { registerRetryCommand } from './commands/retry.js';
+import { registerRulepackCommand } from './commands/rulepack.js';
 import { registerRunCommand } from './commands/run.js';
 import { EXIT_CODES } from '@vibeloop/sdk';
 
@@ -36,6 +37,7 @@ export function createProgram(): Command {
   registerOrchestrateCommand(program);
   registerRetryCommand(program);
   registerReportCommand(program);
+  registerRulepackCommand(program);
   registerGcCommand(program);
 
   return program;

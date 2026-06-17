@@ -46,6 +46,8 @@ evaluator:
   # max_security_findings_delta: 0
   # max_critical_security_findings_delta: 0
   # max_duplicate_score_delta: 0
+execution:
+  isolation: none
 gates:
   - name: git_meta_integrity
     type: integrity

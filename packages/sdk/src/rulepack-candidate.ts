@@ -1,10 +1,12 @@
-import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import {
   diffRulepack,
+  hashRuleSpec,
+  normalizeRuleTargetPath,
   type RulepackDiff,
-  type RulepackRule
+  type RulepackRule,
+  type RulepackRuleSpec
 } from '@vibeloop/eval-engine';
 import {
   loadAdversaryM2Handoff,
@@ -29,6 +31,8 @@ export interface AdversaryRulepackCandidateReport {
   status: 'candidate_created_m4_required' | 'rejected';
   reasons: string[];
   selected_candidate_id: string;
+  source_loop_id: string;
+  source_base_commit: string;
   source_handoff_ref: string;
   source_confirmation_ref: string;
   current_rules: RulepackRule[];
@@ -38,10 +42,8 @@ export interface AdversaryRulepackCandidateReport {
   next_step: 'm4_replay_freeze_required' | 'discard_or_revise_proposals';
 }
 
-function sha256(value: unknown): string {
-  return `sha256:${createHash('sha256')
-    .update(JSON.stringify(value))
-    .digest('hex')}`;
+function shSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 async function loadConfirmation(
@@ -63,10 +65,43 @@ async function loadConfirmation(
   return confirmation;
 }
 
-function ruleForProposal(proposal: unknown, proposalId: string): RulepackRule {
+function defaultCommandForTarget(targetPath: string): string {
+  return `node ${shSingleQuote(targetPath)}`;
+}
+
+function ruleSpecForProposal(
+  proposal: {
+    targetPath: string;
+    body: string;
+    expectation?: 'fail_to_pass' | 'pass_to_pass' | undefined;
+  },
+  testCommand?: string | undefined
+): RulepackRuleSpec {
+  const targetPath = normalizeRuleTargetPath(proposal.targetPath);
   return {
-    id: `adversary:${proposalId}`,
-    hash: sha256({ kind: 'adversary_rulepack_rule', proposal })
+    kind: 'command_test',
+    target_path: targetPath,
+    body: proposal.body,
+    command: testCommand?.trim() || defaultCommandForTarget(targetPath),
+    expect: proposal.expectation ?? 'fail_to_pass',
+    network: 'none'
+  };
+}
+
+function ruleForProposal(
+  proposal: {
+    id: string;
+    targetPath: string;
+    body: string;
+    expectation?: 'fail_to_pass' | 'pass_to_pass' | undefined;
+  },
+  testCommand?: string | undefined
+): RulepackRule {
+  const spec = ruleSpecForProposal(proposal, testCommand);
+  return {
+    id: `adversary:${proposal.id}`,
+    hash: hashRuleSpec(spec),
+    spec
   };
 }
 
@@ -86,6 +121,12 @@ export async function buildAdversaryRulepackCandidate(
   if (!confirmation.all_confirmed) {
     reasons.push('m2_not_confirmed');
   }
+  if (
+    confirmation.execution?.network &&
+    confirmation.execution.network !== 'none'
+  ) {
+    reasons.push('m2_network_not_none');
+  }
 
   const confirmedIds = new Set(
     confirmation.confirmations
@@ -94,7 +135,9 @@ export async function buildAdversaryRulepackCandidate(
   );
   const addedRules = handoff.proposals
     .filter((entry) => confirmedIds.has(entry.proposal.id))
-    .map((entry) => ruleForProposal(entry.proposal, entry.proposal.id));
+    .map((entry) =>
+      ruleForProposal(entry.proposal, confirmation.execution?.test_command)
+    );
   if (addedRules.length === 0) reasons.push('no_confirmed_proposals');
 
   const currentRules = [...(options.currentRules ?? [])];
@@ -113,6 +156,8 @@ export async function buildAdversaryRulepackCandidate(
     status: candidateCreated ? 'candidate_created_m4_required' : 'rejected',
     reasons,
     selected_candidate_id: handoff.selected_candidate_id,
+    source_loop_id: handoff.loop_id,
+    source_base_commit: handoff.base_commit,
     source_handoff_ref: options.handoffFile,
     source_confirmation_ref: options.confirmationFile,
     current_rules: currentRules,

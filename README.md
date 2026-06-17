@@ -16,7 +16,7 @@
 ![packages](https://img.shields.io/badge/monorepo-12%20packages%20%2F%202%20apps-blue)
 ![LOC](https://img.shields.io/badge/TypeScript-~17k%20LOC-3178C6)
 ![status](https://img.shields.io/badge/status-alpha%20v0.1.0-orange)
-![license](https://img.shields.io/badge/license-UNLICENSED%20(private)-lightgrey)
+![license](<https://img.shields.io/badge/license-UNLICENSED%20(private)-lightgrey>)
 
 </div>
 
@@ -51,14 +51,14 @@ LLM 코딩 에이전트는 빠르게 패치를 만들지만, **"정말 고쳤는
 
 ## 🧱 핵심 원칙
 
-| | 원칙 | 의미 |
-| --- | --- | --- |
-| 🔒 | **격리 실행** | 모든 후보는 base commit에 묶인 **독립 git worktree**에서 실행된다(사용자 repo 비오염). |
-| ⚖️ | **결정론 판정** | accept/reject는 15개 first-match-wins 규칙 엔진이 결정한다. LLM 개입 없음. |
-| 🎯 | **한 번에 1개** | 한 루프는 **이슈 1개**만 다룬다. 범위가 명확해야 검증이 명확하다. |
-| 🧪 | **증거 기반** | "고쳤다"는 base에서 실패하던 테스트가 candidate에서 통과(test-on-base) 등 **증거**로만 인정. |
-| 🛡️ | **누설 차단** | hidden 수용 테스트·토큰·시크릿이 stdout/report/PR에 새지 않도록 스캔·차단. |
-| 🚫 | **auto-merge 금지** | 통과해도 **draft PR 후보**까지만. 병합은 사람이. |
+|     | 원칙                | 의미                                                                                         |
+| --- | ------------------- | -------------------------------------------------------------------------------------------- |
+| 🔒  | **격리 실행**       | 모든 후보는 base commit에 묶인 **독립 git worktree**에서 실행된다(사용자 repo 비오염).       |
+| ⚖️  | **결정론 판정**     | accept/reject는 15개 first-match-wins 규칙 엔진이 결정한다. LLM 개입 없음.                   |
+| 🎯  | **한 번에 1개**     | 한 루프는 **이슈 1개**만 다룬다. 범위가 명확해야 검증이 명확하다.                            |
+| 🧪  | **증거 기반**       | "고쳤다"는 base에서 실패하던 테스트가 candidate에서 통과(test-on-base) 등 **증거**로만 인정. |
+| 🛡️  | **누설 차단**       | hidden 수용 테스트·토큰·시크릿이 stdout/report/PR에 새지 않도록 스캔·차단.                   |
+| 🚫  | **auto-merge 금지** | 통과해도 **draft PR 후보**까지만. 병합은 사람이.                                             |
 
 ---
 
@@ -91,12 +91,12 @@ flowchart TD
 PR 후보  ⇔  selected ∧ accept ∧ ALL_PASS ∧ qualified ∧ final_verification.passed
 ```
 
-| 항목 | 무엇 | 출처 |
-| --- | --- | --- |
-| `accept` / `ALL_PASS` | **정확성** — 모든 required 게이트 통과 + 증거 충족, 가드 위반 없음 | Decision Engine(15 rules) |
-| `qualified` | **품질** — 결정론 evaluator 블록(변경 규모·protected·최소 증거 등) 통과 | Quality Evaluator(M0) |
-| `selected` | accepted 후보들 중 Arbiter가 고른 best-known | `score = evidence×100 − files×5 − lines` |
-| `final_verification.passed` | 선택 patch를 **fresh base에 재적용·전체 게이트 재실행** + report↔patch 해시 일치 | Trust Floor B2·B3 |
+| 항목                        | 무엇                                                                             | 출처                                     |
+| --------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------- |
+| `accept` / `ALL_PASS`       | **정확성** — 모든 required 게이트 통과 + 증거 충족, 가드 위반 없음               | Decision Engine(15 rules)                |
+| `qualified`                 | **품질** — 결정론 evaluator 블록(변경 규모·protected·최소 증거 등) 통과          | Quality Evaluator(M0)                    |
+| `selected`                  | accepted 후보들 중 Arbiter가 고른 best-known                                     | `score = evidence×100 − files×5 − lines` |
+| `final_verification.passed` | 선택 patch를 **fresh base에 재적용·전체 게이트 재실행** + report↔patch 해시 일치 | Trust Floor B2·B3                        |
 
 종료 코드: `accept=0` · `reject=10` · `cancelled=20` · `failed=2`.
 
@@ -106,15 +106,15 @@ PR 후보  ⇔  selected ∧ accept ∧ ALL_PASS ∧ qualified ∧ final_verific
 
 "선택 이후 산출물 신뢰"를 보장하는 코어 게이트:
 
-| | 게이트 | 동작 |
-| --- | --- | --- |
-| **B1** | 동점 품질심사(advisory) | score 무차별 동점일 때만 **별도 컨텍스트** 심사가 선호를 표함. correctness 불참, 동점 집합 밖 선택 불가. |
-| **B2** | selected patch 최종 재검증 | 선택 patch를 **새 worktree에 재적용 → 전체 게이트 재실행**. `accept ∧ qualified` 재현 못 하면 PR 없음. |
-| **B3** | provenance/hash 바인딩 | 검증된 report에 기록된 `candidate_patch_hash`·gate artifact 해시를 **선택 시점 재확인**. 불일치 → reject. |
-| **B4** | 반복/비용 상한 | `--max-candidates`(기본 24 백스톱) + 선택적 wall-clock deadline. 초과 시 안전 중단(`cap_hit` 기록). |
-| **#1** | dirty 가드 | base 자동해석 + source repo dirty면 **거부**(`--allow-dirty`/pinned base 예외). |
-| 🔐 | OS 격리(R1) | `docker run --rm --network none`로 게이트/replay를 컨테이너 격리(선택). |
-| 🙈 | 누설 차단 | agent stdout/patch/gate log를 스캔·redact, hidden 수용 테스트·토큰 노출 시 차단. |
+|        | 게이트                     | 동작                                                                                                      |
+| ------ | -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| **B1** | 동점 품질심사(advisory)    | score 무차별 동점일 때만 **별도 컨텍스트** 심사가 선호를 표함. correctness 불참, 동점 집합 밖 선택 불가.  |
+| **B2** | selected patch 최종 재검증 | 선택 patch를 **새 worktree에 재적용 → 전체 게이트 재실행**. `accept ∧ qualified` 재현 못 하면 PR 없음.    |
+| **B3** | provenance/hash 바인딩     | 검증된 report에 기록된 `candidate_patch_hash`·gate artifact 해시를 **선택 시점 재확인**. 불일치 → reject. |
+| **B4** | 반복/비용 상한             | `--max-candidates`(기본 24 백스톱) + 선택적 wall-clock deadline. 초과 시 안전 중단(`cap_hit` 기록).       |
+| **#1** | dirty 가드                 | base 자동해석 + source repo dirty면 **거부**(`--allow-dirty`/pinned base 예외).                           |
+| 🔐     | OS 격리(R1)                | `docker run --rm --network none`로 게이트/replay를 컨테이너 격리(선택).                                   |
+| 🙈     | 누설 차단                  | agent stdout/patch/gate log를 스캔·redact, hidden 수용 테스트·토큰 노출 시 차단.                          |
 
 ---
 
@@ -122,11 +122,13 @@ PR 후보  ⇔  selected ∧ accept ∧ ALL_PASS ∧ qualified ∧ final_verific
 
 후보 패치를 만드는 어댑터는 spec 문자열로 지정한다:
 
-| spec | 용도 |
-| --- | --- |
-| `mock:/path/to/scenario.json` | 결정론 fixture(테스트/CI). 시나리오대로 파일을 수정. |
-| `command:<your-agent>` | 임의의 외부 에이전트를 서브프로세스로 실행. |
-| `codex` | 실제 **Codex CLI + ChatGPT OAuth**. VibeLoop OAuth 프록시가 강제되어 API 키를 스크럽하고 placeholder bearer로 상류에 ChatGPT OAuth만 포워딩(토큰 텍스트는 로그/출력에 안 남고 auth-header 존재 여부만 노출). |
+| spec                          | 용도                                                                                                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mock:/path/to/scenario.json` | 결정론 fixture(테스트/CI). 시나리오대로 파일을 수정.                                                                                                                                                         |
+| `command:<your-agent>`        | 임의의 외부 에이전트를 서브프로세스로 실행.                                                                                                                                                                  |
+| `codex`                       | 실제 **Codex CLI + ChatGPT OAuth**. VibeLoop OAuth 프록시가 강제되어 API 키를 스크럽하고 placeholder bearer로 상류에 ChatGPT OAuth만 포워딩(토큰 텍스트는 로그/출력에 안 남고 auth-header 존재 여부만 노출). |
+
+주의: `command:`는 신뢰한 로컬 CLI/UAT 실행용 escape hatch다. server API의 `agent_spec`은 allowlist 정책을 통과해야 하며, `command:`는 R1 격리형 command-agent adapter가 붙기 전까지 거부된다.
 
 `improve`/`orchestrate`는 `--agent`(빌더, 반복 가능)와 `--challenger`(통과 후에도 "더 나은 후보"를 탐색)를 받는다.
 
@@ -135,8 +137,8 @@ PR 후보  ⇔  selected ∧ accept ∧ ALL_PASS ∧ qualified ∧ final_verific
 ## 🚀 Quickstart
 
 ```bash
-pnpm install
-pnpm exec prisma generate
+corepack pnpm install
+corepack pnpm exec prisma generate
 cp .env.example .env   # 없으면 아래 env를 직접 export
 ```
 
@@ -155,8 +157,9 @@ PostgreSQL(운영형) + 서버 기동:
 ```bash
 docker compose up -d postgres
 export DATABASE_URL="postgresql://vibeloop:vibeloop@127.0.0.1:54329/vibeloop"
-pnpm exec prisma migrate deploy
-pnpm build && pnpm start:server
+corepack pnpm exec prisma migrate deploy
+corepack pnpm build
+corepack pnpm start:server
 # 헬스 확인
 curl -H "Authorization: Bearer $VIBELOOP_API_TOKEN" http://127.0.0.1:3001/api/projects
 ```
@@ -176,17 +179,18 @@ node packages/cli/bin/vibeloop run \
 
 `vibeloop <command>` (`packages/cli/bin/vibeloop`):
 
-| 명령 | 설명 |
-| --- | --- |
-| 🔍 `discover` | repo를 스캔해 문제 후보(test/typecheck/lint/security)를 우선순위로 출력(dry-run). |
-| ▶️ `run` | task/eval 1개를 검증 커널로 1회 실행 → eval-report. |
-| 🔁 `improve` | builder 풀 + `--challenger`를 후보로 돌리고 Arbiter 선택 + 신뢰 바닥(B1~B4) → PR 후보. |
-| 🧭 `orchestrate` | **자동 모드**: discover → top-N 선택 → task **자동 생성** → `improve` 루프를 다중 이슈에 순차(`--max-issues`). |
-| 🔂 `retry` | 이전 루프 재실행(`retry_same_base`/`retry_latest_base`/`retry_eval_only`/`retry_critic_only`). |
-| 📊 `report` | 루프 결과를 HTML 리포트로 렌더. |
-| 🧹 `gc` | 오래된 run 아티팩트 정리. |
+| 명령                  | 설명                                                                                                           |
+| --------------------- | -------------------------------------------------------------------------------------------------------------- |
+| 🔍 `discover`         | repo를 스캔해 문제 후보(test/typecheck/lint/security)를 우선순위로 출력(dry-run).                              |
+| ▶️ `run`              | task/eval 1개를 검증 커널로 1회 실행 → eval-report.                                                            |
+| 🔁 `improve`          | builder 풀 + `--challenger`를 후보로 돌리고 Arbiter 선택 + 신뢰 바닥(B1~B4) → PR 후보.                         |
+| 🧭 `orchestrate`      | **자동 모드**: discover → top-N 선택 → task **자동 생성** → `improve` 루프를 다중 이슈에 순차(`--max-issues`). |
+| 🧩 `rulepack inspect` | frozen rulepack lock의 무결성·semantic readiness를 요약/검증.                                                  |
+| 🔂 `retry`            | 이전 루프 재실행(`retry_same_base`/`retry_latest_base`/`retry_eval_only`/`retry_critic_only`).                 |
+| 📊 `report`           | 루프 결과를 HTML 리포트로 렌더.                                                                                |
+| 🧹 `gc`               | 오래된 run 아티팩트 정리.                                                                                      |
 
-주요 플래그: `--max-candidates`(비용 상한) · `--allow-dirty` · `--skip-final-reverify` · `--quality-judge <command>`(B1) · `--max-issues`(orchestrate) · `--base-commit` · `--llm-proxy-url`.
+주요 플래그: `--max-candidates`(후보 수 상한) · `--deadline <ms>`(벽시계 상한) · `--token-budget-total <tokens>`(`--llm-proxy-url`이 있으면 proxy stats 자동 사용, 필요 시 `--token-usage-url <url>`로 override) · `--allow-dirty` · `--skip-final-reverify`(GitHub draft PR과 병용 불가) · `--quality-judge <command>`(B1) · `--max-issues`(orchestrate) · `--base-commit` · `--llm-proxy-url`.
 
 ---
 
@@ -218,22 +222,22 @@ node skills/vibeloop-harness/scripts/vibeloop-run.mjs run \
 
 pnpm 워크스페이스 · `packages/*` + `apps/*` (~17k LOC TS).
 
-| 패키지 | 역할 |
-| --- | --- |
-| `@vibeloop/task-protocol` | `task.yaml`/`eval.yaml` 스키마·로더·검증, 한도(limits), 위험 분류, 경로 정규화. |
-| `@vibeloop/shared` | 공통 프리미티브: exec, **컨테이너 격리(R1)**, 해시, data dir, 타입. |
-| `@vibeloop/guards` | diff 추출, scope/protected/test-integrity/**artifact-leak** 가드, 변경 파일 분석. |
-| `@vibeloop/eval-engine` | gate 실행기, **Decision Engine(15 rules)**, 증거 detector, baseline/test-on-base, 품질 evaluator, provenance, rulepack shadow, adversary 필터/실행. |
-| `@vibeloop/workspace-runner` | 격리 git worktree, base commit 해석, 의존성 provisioning, **dirty 가드**. |
-| `@vibeloop/agent-adapters` | mock/command/**codex** 어댑터 + **ChatGPT OAuth 프록시**. |
-| `@vibeloop/discovery` | 문제 발견(test/lint/typecheck/security), 우선순위, **task 자동 생성**. |
-| `@vibeloop/artifacts` | run 레이아웃, manifest, 무결성 체크섬, 영속화. |
-| `@vibeloop/sdk` | `runKernel`(단일) · `runImprovementLoop`(후보 풀 + Arbiter + 신뢰 바닥) · quality judge. |
-| `@vibeloop/cli` | `vibeloop` CLI(discover/run/improve/orchestrate/retry/report/gc). |
-| `@vibeloop/github-integration` | draft PR / 브랜치 헬퍼. |
-| `@vibeloop/report-html` | HTML 리포트 렌더. |
-| `apps/@vibeloop/server` | Fastify 컨트롤플레인 API + PrismaStore. |
-| `apps/web` | 대시보드 / 리포트 뷰어. |
+| 패키지                         | 역할                                                                                                                                                              |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@vibeloop/task-protocol`      | `task.yaml`/`eval.yaml` 스키마·로더·검증, 한도(limits), 위험 분류, 경로 정규화.                                                                                   |
+| `@vibeloop/shared`             | 공통 프리미티브: exec, **컨테이너 격리(R1)**, 해시, data dir, 타입.                                                                                               |
+| `@vibeloop/guards`             | diff 추출, scope/protected/test-integrity/**artifact-leak** 가드, 변경 파일 분석.                                                                                 |
+| `@vibeloop/eval-engine`        | gate 실행기, **Decision Engine(15 rules)**, 증거 detector, baseline/test-on-base, 품질 evaluator, provenance, rulepack shadow/semantic gate, adversary 필터/실행. |
+| `@vibeloop/workspace-runner`   | 격리 git worktree, base commit 해석, 의존성 provisioning, **dirty 가드**.                                                                                         |
+| `@vibeloop/agent-adapters`     | mock/command/**codex** 어댑터 + **ChatGPT OAuth 프록시**.                                                                                                         |
+| `@vibeloop/discovery`          | 문제 발견(test/lint/typecheck/security), 우선순위, **task 자동 생성**.                                                                                            |
+| `@vibeloop/artifacts`          | run 레이아웃, manifest, 무결성 체크섬, 영속화.                                                                                                                    |
+| `@vibeloop/sdk`                | `runKernel`(단일) · `runImprovementLoop`(후보 풀 + Arbiter + 신뢰 바닥) · quality judge · rulepack candidate/replay/freeze/inspect.                               |
+| `@vibeloop/cli`                | `vibeloop` CLI(discover/run/improve/orchestrate/rulepack/retry/report/gc).                                                                                        |
+| `@vibeloop/github-integration` | draft PR / 브랜치 헬퍼.                                                                                                                                           |
+| `@vibeloop/report-html`        | HTML 리포트 렌더.                                                                                                                                                 |
+| `apps/@vibeloop/server`        | Fastify 컨트롤플레인 API + PrismaStore.                                                                                                                           |
+| `apps/web`                     | 대시보드 / 리포트 뷰어.                                                                                                                                           |
 
 ```text
 .
@@ -253,23 +257,44 @@ pnpm 워크스페이스 · `packages/*` + `apps/*` (~17k LOC TS).
 로컬 전체 검증:
 
 ```bash
-pnpm exec prisma generate
-pnpm typecheck && pnpm lint && pnpm test && pnpm test:e2e && pnpm build && pnpm build:web
+corepack pnpm exec prisma generate
+corepack pnpm typecheck && corepack pnpm lint && corepack pnpm test && corepack pnpm test:e2e && corepack pnpm build && corepack pnpm build:web
 ```
 
 실제 LLM live UAT(실 Codex + 실 GitHub repo + draft PR, auto-merge 없음):
 
 ```bash
-pnpm uat:skill-loop:codex-live          # 단일 이슈, 실 gpt-5.5 + draft PR
-pnpm uat:skill-loop:codex-live:multi    # 다중 이슈(2개) 순차 + stacked draft PR
+corepack pnpm uat:live-preflight              # codex/gh/corepack pnpm 확인
+corepack pnpm uat:release-gates-preflight     # P0/P2/P4 readiness + P2/P3/P5 evidence + P2/P4 조건부 evidence 확인
+corepack pnpm uat:release-evidence-audit      # 다운로드/병합된 CI P2/P4/P5 evidence artifact 감사
+corepack pnpm uat:release-evidence-audit:gh -- --latest # 최신 GitHub run artifact 다운로드+감사
+node scripts/uat/release-evidence-audit.mjs --all-release-evidence # P3/대표 live evidence까지 감사
+corepack pnpm uat:postgres-contract-preflight # P2 TEST_DATABASE_URL 확인
+corepack pnpm uat:postgres-contract           # P2 PrismaStore contract leg
+corepack pnpm uat:postgres-contract:docker    # P2 Docker Compose postgres + migrate + contract
+corepack pnpm uat:skill-loop:codex-live       # 단일 이슈, 실 gpt-5.5 + draft PR
+corepack pnpm uat:skill-loop:codex-live:multi # 다중 이슈(2개) 순차 + stacked draft PR
+corepack pnpm uat:adversary-live-preflight    # P4 R1 컨테이너 런타임 확인
+corepack pnpm uat:adversary-live              # M2/M4/freeze/N+1 semantic live lane
+VIBELOOP_ADVERSARY_REVIEWER_COMMAND='<reviewer-json-command>' VIBELOOP_ADVERSARY_REVIEWER_PROVIDER=openai VIBELOOP_ADVERSARY_REVIEWER_REAL_LLM=1 corepack pnpm uat:adversary-live # optional real reviewer proposal lane
+corepack pnpm uat:repo-matrix                 # P5 controlled repo corpus matrix
+corepack pnpm uat:repo-matrix:codex-monorepo-live # P5 대표 monorepo live cell + draft PR
+corepack pnpm uat:repo-matrix:codex-python-live # P5 대표 Python live cell + draft PR
 ```
+
+CI는 push/PR 외에도 `workflow_dispatch`로 수동 실행할 수 있습니다. `prisma-store` job은 실제 PostgreSQL service에서 `pnpm uat:postgres-contract`를 실행하고 `postgres-contract-evidence-*` artifact를 업로드합니다. CI의 `adversary-live` job은 `node:22-alpine`을 preload한 Docker runner에서 `pnpm uat:adversary-live`를 실행하고 `adversary-live-evidence-*` artifact를 업로드합니다. 이어서 `release-evidence-audit` job이 `postgres-contract-evidence-*`, `adversary-live-evidence-*`, `uat-evidence-*`를 다운로드/병합한 뒤 기본 P2/P4/P5 ledger status, manifest, Postgres checks, adversary attack/safety/reviewer provenance ledger, repo matrix cell summary를 preflight 없이 감사합니다. evidence artifact가 없거나 다운로드 단계가 실패해도 감사 단계는 실행되어 missing evidence를 JSON으로 남깁니다. audit 결과는 Step Summary와 `release-evidence-audit-*` artifact에도 남습니다. 로컬에서 GitHub Actions run을 재감사할 때는 `uat:release-evidence-audit:gh -- --latest`가 최근 CI run들을 훑어 evidence artifact가 있는 첫 run을 내려받고 같은 감사기를 실행합니다. `--repo`나 `GITHUB_REPOSITORY`가 있으면 각 후보 run의 artifact 목록을 먼저 조회해 `missing_artifacts`/matching count를 남기므로, artifact가 전혀 없는 예전 CI run과 감사 실패를 구분할 수 있습니다. 특정 run만 고정하려면 `--run-id <run-id>`를 사용합니다. 더 넓은 증거 감사가 필요하면 `--all-release-evidence`로 P3 live Codex, Python representative live, monorepo representative live evidence까지 포함하거나 `--scenario <scenario>`로 단일 시나리오만 감사할 수 있습니다.
+
+P2 Postgres evidence는 DB URL/연결 확인만으로 통과하지 않습니다. `prisma_store_smoke`가 실제 PrismaStore candidate round-trip, 보안 메타데이터 round-trip, duplicate fingerprint 거부를 모두 `pass`로 남겨야 release gate와 CI artifact audit이 통과합니다.
 
 **실행 원장(Run Ledger)** — `docs/SKILL_REAL_USER_SCENARIO.md`에 매 실행을 1행씩 누적(과장 금지: fixture PASS를 실사용자 PASS로 부르지 않음).
 
-| Run | 모드 | 빌더 | 결과 |
-| --- | --- | --- | --- |
-| R3 | 단일 이슈 | 실 gpt-5.5(OAuth) | PASS — accept/ALL_PASS/qualified + **B2 재검증·B3 provenance·B4 limits** 실경로 실측, draft PR |
-| R5 | **다중 이슈(cart+sku)** | 실 gpt-5.5(OAuth) | PASS — 2이슈 1개씩 수정 → **stacked draft PR 2개**, 이슈마다 신뢰 바닥 통과, `false_pass 0 / leak 0` |
+| Run | 모드                    | 빌더              | 결과                                                                                                 |
+| --- | ----------------------- | ----------------- | ---------------------------------------------------------------------------------------------------- |
+| R3  | 단일 이슈               | 실 gpt-5.5(OAuth) | PASS — accept/ALL_PASS/qualified + **B2 재검증·B3 provenance·B4 limits** 실경로 실측, draft PR       |
+| R5  | **다중 이슈(cart+sku)** | 실 gpt-5.5(OAuth) | PASS — 2이슈 1개씩 수정 → **stacked draft PR 2개**, 이슈마다 신뢰 바닥 통과, `false_pass 0 / leak 0` |
+| R14 | 단일 이슈 rerun         | 실 gpt-5.5(OAuth) | PASS — P0 preflight 복구 후 draft PR + durable evidence bundle copied 81/missing 0                   |
+| R15 | 대표 Python stdlib live | 실 gpt-5.5(OAuth) | PASS — hidden acceptance + final reverify + draft PR, evidence copied 77/missing 0                   |
+| R16 | 대표 JS monorepo live   | 실 gpt-5.5(OAuth) | PASS — scope boundary + hidden acceptance + final reverify + draft PR, evidence copied 112/missing 0 |
 
 ---
 
@@ -286,8 +311,10 @@ pnpm uat:skill-loop:codex-live:multi    # 다중 이슈(2개) 순차 + stacked d
 
 ## 🚦 현재 상태(정직한 범위)
 
-- ✅ **결정론 커널 + 후보 루프 + 신뢰 바닥(B1~B4·dirty 가드)** — 단위/e2e + 실 codex live(R3·R5)로 검증.
+- ✅ **결정론 커널 + 후보 루프 + 신뢰 바닥(B1~B4·dirty 가드)** — 단위/e2e + 실 codex live(R3·R5·R14·R15·R16)로 검증. Token budget은 SDK hook, CLI flags, OAuth proxy stats endpoint, `--llm-proxy-url`/`--token-usage-url`이 있는 실행의 기본 500k token 운영 상한, `VIBELOOP_TOKEN_BUDGET_TOTAL`/`VIBELOOP_UAT_TOKEN_BUDGET_TOTAL` override, 명시 disable(`off`)까지 연결됐다.
 - ✅ **자동 모드 `orchestrate`** — discover→선택→task 자동생성→다중이슈 순차(결정론 오케스트레이션). fixture로 검증.
-- 🚧 **남은 작업** — 자연어 의도 인식(지정/자동 분기, 스킬/LLM 층) · eval 자동 생성 · adversary lane · 코어 PR 브랜치 생성(현재 wrapper) · 토큰 budget.
+- ✅/⚠️ **adversary rulepack substrate** — M2 handoff→candidate→M4 replay/freeze→`rulepack_semantic` next-loop gate core와 `rulepack inspect`, `uat:adversary-live` 드라이버는 구현. CI `adversary-live` job은 Docker R1에서 evidence artifact를 남기도록 구성됐고, `release-evidence-audit` job이 해당 artifact의 attack/safety/reviewer provenance ledger를 검증하도록 연결됐다. 기본 controlled lane은 `real_llm=false`로만 인정되며, optional reviewer command lane은 `real_llm=true`, `accepted_review_proposal`, fixed prompt hash/version, `same_model_review=false`가 있어야 release-grade evidence로 통과한다. 현재 머신의 P4 live lane은 `CONTAINER_RUNTIME_UNAVAILABLE`로 blocked(fail-closed). real Codex adversary reviewer + R1 완주 evidence·broad corpus는 후속.
+- ✅/⚠️ **P5 controlled repo matrix + 대표 live 2셀** — `uat:repo-matrix` 16셀 실행: Node/Python/Ruby/Java/JVM/Swift/TypeScript ESM/monorepo/React-like/CLI/no-PM/large/npm lockfile provisioning/pnpm lockfile provisioning/yarn lockfile provisioning PASS, dirty blocked, network-restricted unsupported(Docker 없음). R15에서 Python stdlib, R16에서 JS monorepo scope 대표 repo가 실 Codex + GitHub draft PR + hidden acceptance + final reverify까지 PASS. Evidence bundle은 `~/.vibeloop/uat-evidence/repo-matrix-*/<run-id>/`.
+- 🚧 **남은 작업** — hidden/adversary eval 자동생성 · real Codex adversary reviewer live · 실제 대형 서비스/프레임워크 corpus · P2/P4 live runtime evidence.
 
 > 상태·표현은 항상 증거 범위를 함께 명시한다. `PASS`/`실사용자`/`프로덕션급`은 근거(Run Ledger·테스트)와 함께만 쓴다.

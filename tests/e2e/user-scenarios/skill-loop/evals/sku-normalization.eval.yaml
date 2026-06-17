@@ -38,6 +38,8 @@ artifact_leak:
       value: skill-loop-cart-quantity
     - label: hidden_sentinel
       value: SECRET_HIDDEN_EXPECTATION
+execution:
+  isolation: none
 hidden_acceptance:
   tests:
     - name: hidden_sku_whitespace_lowercase

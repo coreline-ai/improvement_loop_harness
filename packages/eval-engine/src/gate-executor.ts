@@ -2,11 +2,12 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { redactForLeak } from '@vibeloop/guards';
 import {
+  isContainerRuntimeAvailable,
   runCommand,
   runCommandInContainer,
   type RunCommandResult
 } from '@vibeloop/shared';
-import type { EvalGate } from '@vibeloop/task-protocol';
+import type { EvalGate, GateType } from '@vibeloop/task-protocol';
 import {
   interpolate,
   interpolateRecord,
@@ -21,10 +22,41 @@ import {
 } from './metrics.js';
 import type { GateReportEntry, GateRunContext } from './types.js';
 
+const PROJECT_COMMAND_GATE_TYPES = new Set<GateType>([
+  'hard',
+  'task_acceptance',
+  'regression',
+  'security',
+  'performance',
+  'hidden_acceptance'
+]);
+
 function statusFromRunCommand(
   status: 'pass' | 'fail' | 'error'
 ): 'pass' | 'fail' | 'error' {
   return status;
+}
+
+async function gateConfigError(
+  gate: EvalGate,
+  command: string,
+  logPaths: ReturnType<typeof gateLogPaths>,
+  startedAt: Date,
+  message: string
+): Promise<GateReportEntry> {
+  const finishedAt = new Date();
+  await writeFile(logPaths.stdoutFile, '');
+  await writeFile(logPaths.stderrFile, `${message}\n`);
+  return createGateResult({
+    gate: { ...gate, command },
+    status: 'error',
+    exitCode: null,
+    startedAt,
+    finishedAt,
+    stdoutRef: logPaths.stdoutRef,
+    stderrRef: logPaths.stderrRef,
+    summary: message
+  });
 }
 
 export async function executeCommandGate(
@@ -60,6 +92,18 @@ export async function executeCommandGate(
   );
 
   const execution = context.evalConfig.execution;
+  if (
+    PROJECT_COMMAND_GATE_TYPES.has(gate.type) &&
+    execution?.isolation === undefined
+  ) {
+    return gateConfigError(
+      gate,
+      command,
+      logPaths,
+      startedAt,
+      'project command gates require explicit execution.isolation: container or none'
+    );
+  }
   const isolated = execution?.isolation === 'container';
   // v2 redact-only: when opted in, redact forbidden literals/tokens from the
   // persisted gate logs (no reject; gate pass/fail from exit code is unaffected).
@@ -79,20 +123,22 @@ export async function executeCommandGate(
     // resolve unchanged inside the container. Host PATH/env is NOT passed
     // through — the image provides the toolchain.
     if (!execution?.image) {
-      const finishedAt = new Date();
-      const message = 'execution.isolation=container requires execution.image';
-      await writeFile(logPaths.stdoutFile, '');
-      await writeFile(logPaths.stderrFile, `${message}\n`);
-      return createGateResult({
-        gate: { ...gate, command },
-        status: 'error',
-        exitCode: null,
+      return gateConfigError(
+        gate,
+        command,
+        logPaths,
         startedAt,
-        finishedAt,
-        stdoutRef: logPaths.stdoutRef,
-        stderrRef: logPaths.stderrRef,
-        summary: message
-      });
+        'execution.isolation=container requires execution.image'
+      );
+    }
+    if (!(await isContainerRuntimeAvailable())) {
+      return gateConfigError(
+        gate,
+        command,
+        logPaths,
+        startedAt,
+        'execution.isolation=container requires an available container runtime'
+      );
     }
     result = await runCommandInContainer(command, {
       image: execution.image,
@@ -109,6 +155,7 @@ export async function executeCommandGate(
       workdir: cwd,
       network: execution.network ?? 'none',
       env: { [STRUCTURED_METRICS_ENV]: metricsFile, ...gateEnv },
+      signal: context.signal,
       ...(timeoutMs ? { timeoutMs } : {})
     });
   } else {
@@ -119,6 +166,7 @@ export async function executeCommandGate(
         [STRUCTURED_METRICS_ENV]: metricsFile,
         ...gateEnv
       },
+      signal: context.signal,
       ...(timeoutMs ? { timeoutMs } : {}),
       ...(captureInMemory
         ? {}

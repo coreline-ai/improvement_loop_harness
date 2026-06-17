@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -52,6 +53,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://vibeloop:vibeloop@127.0.0.1:54329/vibeloop
       TEST_DATABASE_URL: postgresql://vibeloop:vibeloop@127.0.0.1:54329/vibeloop
+      VIBELOOP_UAT_EVIDENCE_DIR: ${{ github.workspace }}/.uat-evidence-postgres
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -66,6 +68,115 @@ jobs:
       - run: pnpm exec prisma migrate deploy
       - run: pnpm build
       - run: pnpm --filter @vibeloop/server test
+      - run: pnpm uat:postgres-contract
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: postgres-contract-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence-postgres
+          if-no-files-found: warn
+          retention-days: 14
+
+  uat-evidence:
+    name: controlled UAT evidence
+    runs-on: ubuntu-latest
+    env:
+      VIBELOOP_UAT_EVIDENCE_DIR: ${{ github.workspace }}/.uat-evidence
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm uat:repo-matrix
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: uat-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence
+          if-no-files-found: warn
+          retention-days: 14
+
+  adversary-live:
+    name: adversary live evidence
+    runs-on: ubuntu-latest
+    env:
+      VIBELOOP_UAT_EVIDENCE_DIR: ${{ github.workspace }}/.uat-evidence-adversary
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate
+      - run: docker pull node:22-alpine
+      - run: pnpm uat:adversary-live
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: adversary-live-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence-adversary
+          if-no-files-found: warn
+          retention-days: 14
+
+  release-evidence-audit:
+    name: release evidence audit
+    runs-on: ubuntu-latest
+    needs: [prisma-store, uat-evidence, adversary-live]
+    if: always()
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Download release evidence artifacts
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: '*evidence-${{ github.run_id }}-${{ github.run_attempt }}'
+          path: .ci-release-evidence
+          merge-multiple: true
+      - name: Audit downloaded release evidence
+        run: |
+          mkdir -p .ci-release-audit
+          set +e
+          node scripts/uat/release-evidence-audit.mjs --evidence-root .ci-release-evidence > .ci-release-audit/release-evidence-audit.json 2> .ci-release-audit/release-evidence-audit.stderr
+          status=$?
+          cat .ci-release-audit/release-evidence-audit.json
+          if [ -s .ci-release-audit/release-evidence-audit.stderr ]; then
+            cat .ci-release-audit/release-evidence-audit.stderr >&2
+          fi
+          {
+            echo "## Release evidence audit"
+            echo
+            echo "- Exit code: ${status}"
+            echo
+            echo '```json'
+            cat .ci-release-audit/release-evidence-audit.json
+            echo '```'
+            if [ -s .ci-release-audit/release-evidence-audit.stderr ]; then
+              echo
+              echo '```text'
+              cat .ci-release-audit/release-evidence-audit.stderr
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-evidence-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-release-audit
+          if-no-files-found: warn
+          retention-days: 14
 
   smoke:
     name: web smoke

@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
+import { validateAgentSpec, type AgentSpecPolicy } from '../agent-policy.js';
 import { ApiError, requireRecord } from '../errors.js';
 import { requestHash } from '../hash.js';
 import type { InProcessLoopQueue } from '../queue.js';
-import { ACTIVE_LOOP_STATUSES, TERMINAL_LOOP_STATUSES, type Store } from '../types.js';
+import { TERMINAL_LOOP_STATUSES, type Store } from '../types.js';
 
 type RetryMode = 'retry_same_base' | 'retry_latest_base' | 'retry_eval_only' | 'retry_critic_only';
 
@@ -26,7 +27,8 @@ async function appendStatusEvent(store: Store, loopId: string, type: string, sta
 export async function registerLoopRoutes(
   app: FastifyInstance,
   store: Store,
-  queue: InProcessLoopQueue
+  queue: InProcessLoopQueue,
+  agentSpecPolicy?: AgentSpecPolicy | undefined
 ): Promise<void> {
   app.post('/api/tasks/:taskId/loops', async (request, reply) => {
     const params = request.params as { taskId: string };
@@ -45,21 +47,29 @@ export async function registerLoopRoutes(
       return reply.code(200).send({ loop: existing, replay: true });
     }
 
-    const active = await store.findActiveLoop(params.taskId);
-    if (active) {
-      throw new ApiError(409, 'ACTIVE_LOOP_EXISTS', 'same task already has an active loop');
+    const agentSpec =
+      typeof body.agent_spec === 'string' ? body.agent_spec.trim() : null;
+    const agentValidation = validateAgentSpec(agentSpec, agentSpecPolicy);
+    if (!agentValidation.allowed) {
+      throw new ApiError(
+        400,
+        'AGENT_SPEC_NOT_ALLOWED',
+        agentValidation.reason ?? 'agent spec is not allowed'
+      );
     }
 
-    const loop = await store.createLoop({
+    const loop = await store.createLoopIfNoActive({
       taskId: params.taskId,
-      iteration: await store.nextLoopIteration(params.taskId),
       status: 'queued',
       baseCommit: typeof body.baseCommit === 'string' ? body.baseCommit : null,
       artifactRoot: typeof body.artifactRoot === 'string' ? body.artifactRoot : null,
-      agentSpec: typeof body.agent_spec === 'string' ? body.agent_spec : null,
+      agentSpec,
       idempotencyKey: key,
       requestHash: hash
     });
+    if (!loop) {
+      throw new ApiError(409, 'ACTIVE_LOOP_EXISTS', 'same task already has an active loop');
+    }
     queue.enqueue(loop, task);
     return reply.code(202).send({ loop, replay: false });
   });
@@ -86,8 +96,9 @@ export async function registerLoopRoutes(
       'LOOP_NOT_FOUND',
       'loop not found'
     );
+    const signalled = queue.cancel(loop.id);
     await appendStatusEvent(store, loop.id, 'loop.cancelled', updated.status);
-    return updated;
+    return { ...updated, cancellationSignalled: signalled };
   });
 
   app.post('/api/loops/:loopId/retry', async (request, reply) => {
@@ -99,18 +110,27 @@ export async function registerLoopRoutes(
     if (!RETRY_ALLOWED[mode]?.has(previous.status)) {
       throw new ApiError(409, 'RETRY_NOT_ALLOWED', `retry mode ${String(mode)} is not allowed from ${previous.status}`);
     }
-    const active = await store.findActiveLoop(previous.taskId);
-    if (active && active.id !== previous.id && ACTIVE_LOOP_STATUSES.has(active.status)) {
-      throw new ApiError(409, 'ACTIVE_LOOP_EXISTS', 'same task already has an active loop');
+    const agentValidation = validateAgentSpec(
+      previous.agentSpec ?? null,
+      agentSpecPolicy
+    );
+    if (!agentValidation.allowed) {
+      throw new ApiError(
+        400,
+        'AGENT_SPEC_NOT_ALLOWED',
+        agentValidation.reason ?? 'agent spec is not allowed'
+      );
     }
-    const loop = await store.createLoop({
+    const loop = await store.createLoopIfNoActive({
       taskId: previous.taskId,
-      iteration: await store.nextLoopIteration(previous.taskId),
       status: 'queued',
       baseCommit: mode === 'retry_latest_base' ? null : previous.baseCommit ?? null,
       artifactRoot: previous.artifactRoot ?? null,
       agentSpec: previous.agentSpec ?? null
     });
+    if (!loop) {
+      throw new ApiError(409, 'ACTIVE_LOOP_EXISTS', 'same task already has an active loop');
+    }
     await store.addLoopEvent(loop.id, 'loop.retry_created', {
       retry_of: previous.id,
       retry_mode: mode,

@@ -4,6 +4,7 @@ export interface AgentRunOptions {
   worktree: string;
   taskFile: string;
   env?: NodeJS.ProcessEnv | undefined;
+  signal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
   stdoutFile?: string | undefined;
   stderrFile?: string | undefined;
@@ -31,6 +32,7 @@ export class CommandAgentAdapter implements AgentAdapter {
     const result = await runCommand(this.buildCommand(options), {
       cwd: options.worktree,
       env: options.env ?? process.env,
+      signal: options.signal,
       ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
       stdoutFile: options.stdoutFile,
       stderrFile: options.stderrFile

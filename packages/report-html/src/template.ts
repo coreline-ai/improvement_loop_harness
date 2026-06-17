@@ -29,6 +29,15 @@ export interface HtmlDocumentOptions {
   body: string;
 }
 
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 export function htmlDocument(options: HtmlDocumentOptions): string {
   return [
     '<!doctype html>',
@@ -37,7 +46,7 @@ export function htmlDocument(options: HtmlDocumentOptions): string {
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; form-action 'none'\">",
-    `<title>${options.title}</title>`,
+    `<title>${escapeHtml(options.title)}</title>`,
     `<style>${INLINE_CSS}</style>`,
     '</head>',
     '<body>',

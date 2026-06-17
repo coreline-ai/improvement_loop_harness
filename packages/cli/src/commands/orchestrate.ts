@@ -2,7 +2,7 @@ import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Command } from 'commander';
 import {
-  discoverCandidates,
+  discoverCandidatesWithReport,
   generateTaskFromCandidate
 } from '@vibeloop/discovery';
 import {
@@ -17,9 +17,11 @@ import {
   commandQualityJudge,
   checkoutPromotionBranch,
   commitSelectedPatchOnCurrentBranch,
+  isPrCandidate,
   publishSelectedPatchDraftPr,
   runImprovementLoop
 } from '@vibeloop/sdk';
+import { buildTokenBudgetLoopOptions } from '../token-usage.js';
 
 interface OrchestrateCommandOptions {
   repo: string;
@@ -28,6 +30,9 @@ interface OrchestrateCommandOptions {
   challenger: string[];
   maxIssues?: string | undefined;
   maxCandidates?: string | undefined;
+  deadline?: string | undefined;
+  tokenBudgetTotal?: string | undefined;
+  tokenUsageUrl?: string | undefined;
   out?: string | undefined;
   projectId?: string | undefined;
   loopId?: string | undefined;
@@ -49,6 +54,12 @@ interface OrchestrateCommandOptions {
   evalTokenLikeReject?: boolean | undefined;
   evalMaxScanBytes?: string | undefined;
   evalRulepackLock?: string | undefined;
+  evalRulepackSemantic?: string | undefined;
+  evalRulepackSemanticImage?: string | undefined;
+  evalRulepackSemanticTimeoutMs?: string | undefined;
+  carryRulepack?: string | undefined;
+  carryRulepackImage?: string | undefined;
+  carryRulepackTimeoutMs?: string | undefined;
   evalHiddenTest: string[];
   promoteBranch?: string | undefined;
   promoteCommitMessagePrefix?: string | undefined;
@@ -69,6 +80,24 @@ function collect(value: string, previous: string[]): string[] {
 function globalDataDir(command: Command): string {
   return (command.parent?.opts<{ dataDir: string }>().dataDir ??
     command.opts<{ dataDir: string }>().dataDir) as string;
+}
+
+function warnRiskyFlags(options: OrchestrateCommandOptions): void {
+  if (options.githubDraftPr && options.skipFinalReverify) {
+    throw new Error(
+      '--skip-final-reverify cannot be used with --github-draft-pr; draft PR creation requires final re-execution'
+    );
+  }
+  if (options.skipFinalReverify) {
+    console.error(
+      'warning: --skip-final-reverify skips B2 final re-execution; only provenance hash binding remains'
+    );
+  }
+  if (options.allowDirty) {
+    console.error(
+      'warning: --allow-dirty permits auto-base runs from a dirty source repo'
+    );
+  }
 }
 
 async function exists(filePath: string): Promise<boolean> {
@@ -101,6 +130,18 @@ function parsePositiveInt(
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function parseNonNegativeInt(
+  value: string | undefined,
+  name: string
+): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
   }
   return parsed;
 }
@@ -190,6 +231,99 @@ function buildGeneratedArtifactLeak(options: {
   };
 }
 
+const PROJECT_COMMAND_GATE_TYPES = new Set<EvalGate['type']>([
+  'hard',
+  'task_acceptance',
+  'regression',
+  'security',
+  'performance',
+  'hidden_acceptance'
+]);
+
+function addRulepackSemanticGate(gates: EvalGate[]): EvalGate[] {
+  const conflictingGate = gates.find(
+    (gate) =>
+      gate.name === 'rulepack_semantic' &&
+      gate.command !== 'builtin:rulepack-semantic'
+  );
+  if (conflictingGate) {
+    throw new Error(
+      "--carry-rulepack cannot overlay eval with an existing 'rulepack_semantic' gate that uses a different command"
+    );
+  }
+
+  if (gates.some((gate) => gate.command === 'builtin:rulepack-semantic')) {
+    return gates.map((gate) =>
+      gate.command === 'builtin:rulepack-semantic'
+        ? {
+            ...gate,
+            name: gate.name || 'rulepack_semantic',
+            type: 'integrity',
+            required: true
+          }
+        : gate
+    );
+  }
+
+  const semanticGate: EvalGate = {
+    name: 'rulepack_semantic',
+    type: 'integrity',
+    command: 'builtin:rulepack-semantic',
+    required: true
+  };
+  const firstProjectGateIndex = gates.findIndex((gate) =>
+    PROJECT_COMMAND_GATE_TYPES.has(gate.type)
+  );
+  if (firstProjectGateIndex === -1) {
+    return [...gates, semanticGate];
+  }
+  return [
+    ...gates.slice(0, firstProjectGateIndex),
+    semanticGate,
+    ...gates.slice(firstProjectGateIndex)
+  ];
+}
+
+async function overlayRulepackSemanticEvalContract(options: {
+  evalFile: string;
+  evalConfig: EvalConfig;
+  outputPath: string;
+  rulepackFile: string;
+  image: string;
+  currentLoopId: string;
+  timeoutMs?: number | undefined;
+}): Promise<{ evalFile: string; evalConfig: EvalConfig; generated: boolean }> {
+  const protectedPaths = [...(options.evalConfig.protected_paths ?? [])];
+  if (
+    !path.isAbsolute(options.rulepackFile) &&
+    !protectedPaths.includes(options.rulepackFile)
+  ) {
+    protectedPaths.push(options.rulepackFile);
+  }
+
+  const evalConfig: EvalConfig = {
+    ...options.evalConfig,
+    ...(protectedPaths.length > 0 ? { protected_paths: protectedPaths } : {}),
+    gates: addRulepackSemanticGate(options.evalConfig.gates),
+    rulepack_semantic: {
+      file: options.rulepackFile,
+      image: options.image,
+      network: 'none',
+      current_loop_id: options.currentLoopId,
+      required_authority: 'fixed_next_loop_gate',
+      required_decision_impact: 'next_loop_only',
+      ...(options.timeoutMs ? { timeout_ms: options.timeoutMs } : {})
+    }
+  };
+
+  await mkdir(path.dirname(options.outputPath), { recursive: true });
+  await writeFile(
+    options.outputPath,
+    `${JSON.stringify(evalConfig, null, 2)}\n`
+  );
+  return { evalFile: options.outputPath, evalConfig, generated: false };
+}
+
 async function detectedProjectCommands(repoPath: string): Promise<EvalGate[]> {
   const packageJson = path.join(repoPath, 'package.json');
   if (!(await exists(packageJson))) return [];
@@ -211,6 +345,14 @@ async function generateMinimalEvalContract(options: {
   evalCommands: string[];
   artifactLeak?: ArtifactLeakConfig | undefined;
   rulepackLock?: string | undefined;
+  rulepackSemantic?:
+    | {
+        file: string;
+        image: string;
+        currentLoopId: string;
+        timeoutMs?: number | undefined;
+      }
+    | undefined;
   hiddenTests?: GeneratedHiddenTest[] | undefined;
   outputPath: string;
 }): Promise<{ evalFile: string; evalConfig: EvalConfig; generated: boolean }> {
@@ -230,6 +372,13 @@ async function generateMinimalEvalContract(options: {
   const protectedPaths = ['.env', '.env.*', 'eval.yaml', 'tests/hidden/'];
   if (options.rulepackLock && !path.isAbsolute(options.rulepackLock)) {
     protectedPaths.push(options.rulepackLock);
+  }
+  if (
+    options.rulepackSemantic?.file &&
+    !path.isAbsolute(options.rulepackSemantic.file) &&
+    !protectedPaths.includes(options.rulepackSemantic.file)
+  ) {
+    protectedPaths.push(options.rulepackSemantic.file);
   }
   for (const hidden of options.hiddenTests ?? []) {
     protectedPaths.push(hidden.target_path);
@@ -259,6 +408,7 @@ async function generateMinimalEvalContract(options: {
       min_evidence_present: 1,
       require_test_on_base_pass: true
     },
+    execution: { isolation: 'none' },
     gates: [
       {
         name: 'protected_files',
@@ -304,6 +454,16 @@ async function generateMinimalEvalContract(options: {
             }
           ]
         : []),
+      ...(options.rulepackSemantic
+        ? [
+            {
+              name: 'rulepack_semantic',
+              type: 'integrity' as const,
+              command: 'builtin:rulepack-semantic',
+              required: true
+            }
+          ]
+        : []),
       ...(options.hiddenTests ?? []).map((hidden) => ({
         name: hidden.name,
         type: 'hidden_acceptance' as const,
@@ -320,6 +480,21 @@ async function generateMinimalEvalContract(options: {
             file: options.rulepackLock,
             required_authority: 'fixed_next_loop_gate',
             required_decision_impact: 'next_loop_only'
+          }
+        }
+      : {}),
+    ...(options.rulepackSemantic
+      ? {
+          rulepack_semantic: {
+            file: options.rulepackSemantic.file,
+            image: options.rulepackSemantic.image,
+            network: 'none' as const,
+            current_loop_id: options.rulepackSemantic.currentLoopId,
+            required_authority: 'fixed_next_loop_gate' as const,
+            required_decision_impact: 'next_loop_only' as const,
+            ...(options.rulepackSemantic.timeoutMs
+              ? { timeout_ms: options.rulepackSemantic.timeoutMs }
+              : {})
           }
         }
       : {}),
@@ -413,6 +588,18 @@ export function registerOrchestrateCommand(program: Command): void {
       'hard ceiling on candidate runs per issue (cost backstop)',
       '24'
     )
+    .option(
+      '--deadline <ms>',
+      'wall-clock deadline in milliseconds per issue before launching another candidate'
+    )
+    .option(
+      '--token-budget-total <tokens>',
+      'provider token budget before launching another candidate across the orchestrated run (default applies with --token-usage-url or stats-capable --llm-proxy-url; override with VIBELOOP_TOKEN_BUDGET_TOTAL)'
+    )
+    .option(
+      '--token-usage-url <url>',
+      'HTTP(S) JSON usage endpoint returning {total_tokens} or {usage:{total_tokens}}; defaults to <llm-proxy-url>/__vibeloop_proxy_stats when a token budget is set'
+    )
     .option('--out <path>', 'artifact data directory override')
     .option('--project-id <id>', 'project id override')
     .option('--loop-id <id>', 'orchestrate run id override')
@@ -502,6 +689,30 @@ export function registerOrchestrateCommand(program: Command): void {
       'with --generate-eval, add builtin:rulepack-lock gate for a frozen next-loop rulepack lock (relative path is protected)'
     )
     .option(
+      '--eval-rulepack-semantic <path>',
+      'with --generate-eval, add builtin:rulepack-semantic required gate for an executable frozen next-loop rulepack'
+    )
+    .option(
+      '--eval-rulepack-semantic-image <image>',
+      'container image for --eval-rulepack-semantic execution'
+    )
+    .option(
+      '--eval-rulepack-semantic-timeout-ms <n>',
+      'per semantic-rule timeout for --eval-rulepack-semantic'
+    )
+    .option(
+      '--carry-rulepack <path>',
+      'carry a frozen next-loop rulepack into the orchestrated eval contract (works with --eval or --generate-eval)'
+    )
+    .option(
+      '--carry-rulepack-image <image>',
+      'container image for --carry-rulepack semantic execution'
+    )
+    .option(
+      '--carry-rulepack-timeout-ms <n>',
+      'per semantic-rule timeout for --carry-rulepack'
+    )
+    .option(
       '--eval-hidden-test <name=source:target:command>',
       'with --generate-eval, add an explicit hidden acceptance test stored outside the agent context (repeatable; no LLM-generated hidden tests)',
       collect,
@@ -554,6 +765,7 @@ export function registerOrchestrateCommand(program: Command): void {
       'VibeLoop'
     )
     .action(async (options: OrchestrateCommandOptions, command: Command) => {
+      warnRiskyFlags(options);
       if (options.agent.length === 0) {
         throw new Error('orchestrate requires at least one --agent <spec>');
       }
@@ -565,6 +777,8 @@ export function registerOrchestrateCommand(program: Command): void {
       if (!Number.isInteger(maxCandidates) || maxCandidates < 1) {
         throw new Error('--max-candidates must be a positive integer');
       }
+      const deadlineMs = parseNonNegativeInt(options.deadline, '--deadline');
+      const tokenBudgetOptions = buildTokenBudgetLoopOptions(options);
       if (options.githubDraftPr && !options.promoteBranch) {
         throw new Error(
           'orchestrate --github-draft-pr requires --promote-branch so fixes are applied locally before rediscovery'
@@ -595,10 +809,43 @@ export function registerOrchestrateCommand(program: Command): void {
           '--eval-max-scan-bytes'
         )
       });
+      if (options.evalRulepackSemantic && !options.evalRulepackSemanticImage) {
+        throw new Error(
+          '--eval-rulepack-semantic requires --eval-rulepack-semantic-image <image>'
+        );
+      }
+      if (options.carryRulepack && !options.carryRulepackImage) {
+        throw new Error(
+          '--carry-rulepack requires --carry-rulepack-image <image>'
+        );
+      }
+      if (options.evalRulepackSemantic && options.carryRulepack) {
+        throw new Error(
+          '--carry-rulepack cannot be combined with --eval-rulepack-semantic; use one semantic rulepack source'
+        );
+      }
+      const semanticTimeoutMs = parsePositiveInt(
+        options.evalRulepackSemanticTimeoutMs,
+        '--eval-rulepack-semantic-timeout-ms'
+      );
+      const carryRulepackTimeoutMs = parsePositiveInt(
+        options.carryRulepackTimeoutMs,
+        '--carry-rulepack-timeout-ms'
+      );
 
       const dataDir = options.out ?? globalDataDir(command);
       const projectId = options.projectId ?? 'orchestrate';
       const baseLoopId = options.loopId ?? `orchestrate-${Date.now()}`;
+      const carriedRulepack = options.carryRulepack
+        ? {
+            file: options.carryRulepack,
+            image: options.carryRulepackImage!,
+            currentLoopId: baseLoopId,
+            ...(carryRulepackTimeoutMs
+              ? { timeoutMs: carryRulepackTimeoutMs }
+              : {})
+          }
+        : undefined;
 
       const requestedEvalPath =
         options.eval ?? path.join(options.repo, 'eval.yaml');
@@ -616,18 +863,58 @@ export function registerOrchestrateCommand(program: Command): void {
           `orchestrate requires an eval.yaml contract for discovery + verification (looked at ${requestedEvalPath}); pass --eval or --generate-eval`
         );
       }
+      if (requestedEvalExists && options.evalRulepackSemantic) {
+        throw new Error(
+          '--eval-rulepack-semantic only applies with --generate-eval; use --carry-rulepack to overlay an existing eval'
+        );
+      }
       const evalSource = requestedEvalExists
-        ? {
-            evalFile: requestedEvalPath,
-            evalConfig: await loadEvalConfig(requestedEvalPath),
-            generated: false
-          }
+        ? carriedRulepack
+          ? await overlayRulepackSemanticEvalContract({
+              evalFile: requestedEvalPath,
+              evalConfig: await loadEvalConfig(requestedEvalPath),
+              outputPath: path.join(
+                dataDir,
+                'projects',
+                projectId,
+                'orchestrate',
+                baseLoopId,
+                'eval.carry-rulepack.json'
+              ),
+              rulepackFile: carriedRulepack.file,
+              image: carriedRulepack.image,
+              currentLoopId: carriedRulepack.currentLoopId,
+              ...(carriedRulepack.timeoutMs
+                ? { timeoutMs: carriedRulepack.timeoutMs }
+                : {})
+            })
+          : {
+              evalFile: requestedEvalPath,
+              evalConfig: await loadEvalConfig(requestedEvalPath),
+              generated: false
+            }
         : await generateMinimalEvalContract({
             repoPath: options.repo,
             projectId,
             evalCommands: options.evalCommand ?? [],
             artifactLeak: generatedArtifactLeak,
             rulepackLock: options.evalRulepackLock,
+            ...(carriedRulepack
+              ? {
+                  rulepackSemantic: carriedRulepack
+                }
+              : options.evalRulepackSemantic
+                ? {
+                    rulepackSemantic: {
+                      file: options.evalRulepackSemantic,
+                      image: options.evalRulepackSemanticImage!,
+                      currentLoopId: baseLoopId,
+                      ...(semanticTimeoutMs
+                        ? { timeoutMs: semanticTimeoutMs }
+                        : {})
+                    }
+                  }
+                : {}),
             hiddenTests: options.evalHiddenTest.map(parseGeneratedHiddenTest),
             outputPath: generatedEvalPath
           });
@@ -671,21 +958,34 @@ export function registerOrchestrateCommand(program: Command): void {
         const issues: Array<Record<string, unknown>> = [];
         const discoveryReports: string[] = [];
         let totalDiscovered = 0;
+        let totalRawDiscovered = 0;
+        let totalDroppedByDiscoveryCap = 0;
         let staticCandidates:
-          | Awaited<ReturnType<typeof discoverCandidates>>
+          | Awaited<
+              ReturnType<typeof discoverCandidatesWithReport>
+            >['candidates']
           | undefined;
         for (let index = 0; index < maxIssues; index += 1) {
           if (controller.signal.aborted) break;
           let candidates:
-            | Awaited<ReturnType<typeof discoverCandidates>>
+            | Awaited<
+                ReturnType<typeof discoverCandidatesWithReport>
+              >['candidates']
+            | undefined;
+          let discoveryReport:
+            | Awaited<ReturnType<typeof discoverCandidatesWithReport>>['report']
             | undefined;
           if (options.promoteBranch || !staticCandidates) {
-            candidates = await discoverCandidates({
+            const discovery = await discoverCandidatesWithReport({
               repoPath: options.repo,
               evalConfig
             });
+            candidates = discovery.candidates;
+            discoveryReport = discovery.report;
             if (!options.promoteBranch) staticCandidates = candidates;
             totalDiscovered += candidates.length;
+            totalRawDiscovered += discoveryReport.raw_count;
+            totalDroppedByDiscoveryCap += discoveryReport.dropped_count;
             const discoveryReportPath = path.join(
               discoveryDir,
               options.promoteBranch
@@ -704,6 +1004,9 @@ export function registerOrchestrateCommand(program: Command): void {
                   generated_eval: evalSource.generated,
                   base_commit: currentBaseCommit ?? null,
                   discovered: candidates.length,
+                  raw_discovered: discoveryReport.raw_count,
+                  dropped_by_discovery_cap: discoveryReport.dropped_count,
+                  discovery_cap: discoveryReport,
                   candidates
                 },
                 null,
@@ -768,6 +1071,8 @@ export function registerOrchestrateCommand(program: Command): void {
               signal: controller.signal,
               skipDependencyInstall: options.skipDependencyInstall,
               maxCandidates,
+              deadlineMs,
+              ...tokenBudgetOptions,
               skipFinalReverify: options.skipFinalReverify,
               allowDirty: options.allowDirty,
               ...(options.qualityJudge
@@ -800,6 +1105,9 @@ export function registerOrchestrateCommand(program: Command): void {
                 ? await commitSelectedPatchOnCurrentBranch({
                     repoPath: options.repo,
                     patchPath: selectedPatch,
+                    expectedPatchHash:
+                      result.finalVerification?.candidate_patch_hash,
+                    artifactLeak: issueEvalConfig.artifact_leak,
                     commitMessage: `${options.promoteCommitMessagePrefix}: ${generated.task.id}`
                   })
                 : null;
@@ -816,12 +1124,15 @@ export function registerOrchestrateCommand(program: Command): void {
                           await readFile(result.selected.reportPath, 'utf8')
                         ) as Record<string, unknown>)
                       : undefined;
-                    const branchName = `${options.githubBranchPrefix ?? 'pr-candidate'}/${generated.task.id}`;
+                    const branchName = `${options.githubBranchPrefix ?? 'pr-candidate'}/${baseLoopId}-i${index}/${generated.task.id}`;
                     const published = await publishSelectedPatchDraftPr({
                       repoPath: options.repo,
                       baseRef: currentPublishBaseRef,
                       branchName,
                       patchPath: selectedPatch,
+                      expectedPatchHash:
+                        result.finalVerification?.candidate_patch_hash,
+                      artifactLeak: issueEvalConfig.artifact_leak,
                       commitMessage: `${options.promoteCommitMessagePrefix}: ${generated.task.id}`,
                       githubRepo: options.githubRepo!,
                       token: githubToken,
@@ -848,7 +1159,13 @@ export function registerOrchestrateCommand(program: Command): void {
               source: candidate.source,
               task_id: generated.task.id,
               selected_candidate_id: result.selected?.candidateId ?? null,
-              pr_candidate: !!result.selected,
+              pr_candidate: isPrCandidate({
+                decision: result.selected?.decision ?? null,
+                allPass: result.selected?.decision === 'accept',
+                qualified: result.selected?.qualified ?? null,
+                selected: result.selected,
+                finalVerification: result.finalVerification ?? null
+              }),
               issue_eval_file: issueEvalPath,
               selected_patch: selectedPatch,
               final_verification: result.finalVerification ?? null,
@@ -880,22 +1197,49 @@ export function registerOrchestrateCommand(program: Command): void {
         const prCandidates = issues.filter(
           (issue) => issue.pr_candidate
         ).length;
+        const errorCount = issues.filter(
+          (issue) => typeof issue.error === 'string'
+        ).length;
+        const status =
+          prCandidates > 0
+            ? 'accepted'
+            : errorCount > 0
+              ? 'failed'
+              : 'rejected';
         process.exitCode =
-          prCandidates > 0 ? EXIT_CODES.accept : EXIT_CODES.reject;
+          status === 'accepted'
+            ? EXIT_CODES.accept
+            : status === 'failed'
+              ? EXIT_CODES.failed
+              : EXIT_CODES.reject;
         console.log(
           JSON.stringify(
             {
               mode: 'auto',
               scenario: 'orchestrate',
+              status,
               loop_id: baseLoopId,
               project_id: projectId,
               repo: options.repo,
               eval_file: evalPath,
               generated_eval: evalSource.generated,
+              carried_rulepack: carriedRulepack
+                ? {
+                    file: carriedRulepack.file,
+                    image: carriedRulepack.image,
+                    current_loop_id: carriedRulepack.currentLoopId,
+                    ...(carriedRulepack.timeoutMs
+                      ? { timeout_ms: carriedRulepack.timeoutMs }
+                      : {})
+                  }
+                : null,
               discovered: totalDiscovered,
+              raw_discovered: totalRawDiscovered,
+              dropped_by_discovery_cap: totalDroppedByDiscoveryCap,
               processed: issues.length,
               max_issues: maxIssues,
               pr_candidates: prCandidates,
+              error_count: errorCount,
               false_pass: 0,
               discovery_report: discoveryReports[0] ?? null,
               discovery_reports: discoveryReports,

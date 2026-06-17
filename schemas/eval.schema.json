@@ -331,15 +331,34 @@
         "required_decision_impact": { "const": "next_loop_only" }
       }
     },
+    "rulepack_semantic": {
+      "description": "Optional executable frozen next-loop rulepack semantic gate. Rules run only in R1 container isolation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "image"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "image": { "type": "string", "minLength": 1 },
+        "network": {
+          "type": "string",
+          "enum": ["none", "default"],
+          "default": "none"
+        },
+        "timeout_ms": { "type": "integer", "minimum": 1 },
+        "current_loop_id": { "type": "string", "minLength": 1 },
+        "required_authority": { "const": "fixed_next_loop_gate" },
+        "required_decision_impact": { "const": "next_loop_only" }
+      }
+    },
     "execution": {
-      "description": "R1: OS-level isolation for project command gates. isolation=container runs them in a throwaway container (default --network none). Absent = host execution (backward compatible). See SECURITY_MODEL.md §2/§6.",
+      "description": "R1: OS-level isolation for project command gates. isolation=container runs them in a throwaway container (default --network none). Absent = project command gates fail closed; use isolation=none only as an explicit host-execution opt-out. See SECURITY_MODEL.md §2/§6.",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "isolation": {
           "type": "string",
           "enum": ["none", "container"],
-          "default": "none"
+          "description": "none is an explicit host-execution opt-out; container is the isolated path."
         },
         "image": {
           "type": "string",

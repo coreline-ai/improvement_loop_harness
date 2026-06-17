@@ -108,19 +108,30 @@ export interface EvalConfig {
   artifact_leak?: ArtifactLeakConfig;
   /** Optional frozen next-loop rulepack lock that must remain fixed and replay-safe. */
   rulepack_lock?: RulepackLockConfig;
+  /** Optional executable frozen rulepack semantic gate. */
+  rulepack_semantic?: RulepackSemanticConfig;
   /**
    * R1: OS-level isolation for project command gates (which run agent-modified
    * code == arbitrary code execution). When `isolation: container`, project
    * command gates run inside a throwaway container (default `--network none`).
-   * Absent ⇒ host execution with worktree/env-scrub/guard-first (backward
-   * compatible). See SECURITY_MODEL.md §2/§6.
+   * Absent ⇒ project command gates fail closed. Use `isolation: none` only as
+   * an explicit host-execution opt-out. See SECURITY_MODEL.md §2/§6.
    */
   execution?: ExecutionConfig;
   gates: EvalGate[];
 }
 
+export interface RulepackSemanticConfig extends RulepackLockConfig {
+  /** Container image used to execute frozen semantic rules under R1 isolation. */
+  image: string;
+  network?: 'none' | 'default';
+  timeout_ms?: number;
+  /** Current loop id; semantic execution rejects rulepacks learned in this same loop. */
+  current_loop_id?: string;
+}
+
 export interface ExecutionConfig {
-  /** 'none' (host; default) or 'container' (isolated project command gates). */
+  /** 'none' (explicit host opt-out) or 'container' (isolated project command gates). */
   isolation?: 'none' | 'container';
   /** Container image for isolated gates (required when isolation=container). */
   image?: string;

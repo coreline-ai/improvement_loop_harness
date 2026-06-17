@@ -7,11 +7,37 @@ export function gateLogRefs(gateName: string): {
   stdoutRef: string;
   stderrRef: string;
 } {
-  const safeName = gateName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safeName = safeGateLogName(gateName);
   return {
     stdoutRef: `logs/gates/${safeName}.stdout.log`,
     stderrRef: `logs/gates/${safeName}.stderr.log`
   };
+}
+
+function safeGateLogName(gateName: string): string {
+  return gateName.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+export function assertUniqueGateNames(
+  gates: ReadonlyArray<{ name: string }>
+): void {
+  const names = new Map<string, number>();
+  const logNames = new Map<string, string>();
+  for (const gate of gates) {
+    names.set(gate.name, (names.get(gate.name) ?? 0) + 1);
+    const safeName = safeGateLogName(gate.name);
+    const existing = logNames.get(safeName);
+    if (existing && existing !== gate.name) {
+      throw new Error(
+        `Gate names '${existing}' and '${gate.name}' collide on log artifact name '${safeName}'`
+      );
+    }
+    logNames.set(safeName, gate.name);
+  }
+  const duplicate = [...names.entries()].find(([, count]) => count > 1);
+  if (duplicate) {
+    throw new Error(`Duplicate gate name '${duplicate[0]}' is not allowed`);
+  }
 }
 
 export function gateLogPaths(
@@ -84,6 +110,7 @@ export function createGateReport(
   gates: GateReportEntry[],
   generatedAt = new Date()
 ): GateReport {
+  assertUniqueGateNames(gates);
   return {
     schema_version: '1.0',
     generated_at: generatedAt.toISOString(),

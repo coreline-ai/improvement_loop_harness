@@ -131,6 +131,8 @@ rejected/failed/cancelled -> 불가
 
 ## 8. 구현 순서 체크리스트
 
+> 상태 주석(2026-06-15): 아래 체크리스트는 MVP-0 최초 구현 계획의 historical snapshot이다. MVP-0 검증 커널은 3차 검토에서 완료 확인됐으며, 현재 진행률 집계용 source of truth는 `docs/README.md`와 `docs/RELEASE_GATE_MATRIX.md`다. 체크박스는 과거 계획 구조 보존을 위해 그대로 둔다.
+
 - [ ] `task.schema.json` 확정
 - [ ] `eval.schema.json` 확정
 - [ ] `eval-report.schema.json` 확정

@@ -1,4 +1,9 @@
 import { getDataDir } from '@vibeloop/shared';
+import {
+  agentSpecPolicyFromEnv,
+  validateAgentSpec,
+  type AgentSpecPolicy
+} from './agent-policy.js';
 import { createApp } from './app.js';
 import { MemoryStore } from './memory-store.js';
 import { PrismaStore } from './prisma-store.js';
@@ -11,6 +16,7 @@ export interface ServerConfig {
   port: number;
   dataDir: string;
   agentSpec: string;
+  agentSpecPolicy: AgentSpecPolicy;
   proxyBaseUrl?: string | undefined;
   skipDependencyInstall: boolean;
   storeMode: 'memory' | 'prisma';
@@ -34,12 +40,23 @@ export function loadServerConfig(env: NodeJS.ProcessEnv = process.env): ServerCo
   if (!storeMode) {
     throw new Error('DATABASE_URL is required unless VIBELOOP_STORE=memory is set');
   }
+  const agentSpec = env.VIBELOOP_AGENT_SPEC ?? 'codex';
+  const agentSpecPolicy = agentSpecPolicyFromEnv(env);
+  const agentValidation = validateAgentSpec(agentSpec, agentSpecPolicy);
+  if (!agentValidation.allowed) {
+    throw new Error(
+      `VIBELOOP_AGENT_SPEC is not allowed by server policy: ${
+        agentValidation.reason ?? agentSpec
+      }`
+    );
+  }
   return {
     token,
     host: env.HOST ?? '127.0.0.1',
     port: Number(env.PORT ?? 3001),
     dataDir: getDataDir(env),
-    agentSpec: env.VIBELOOP_AGENT_SPEC ?? 'codex',
+    agentSpec,
+    agentSpecPolicy,
     ...(env.VIBELOOP_PROXY_BASE_URL ? { proxyBaseUrl: env.VIBELOOP_PROXY_BASE_URL } : {}),
     skipDependencyInstall: envFlag(env.VIBELOOP_SKIP_DEPENDENCY_INSTALL),
     storeMode
@@ -64,7 +81,13 @@ export async function startServer(env: NodeJS.ProcessEnv = process.env): Promise
     proxyBaseUrl: config.proxyBaseUrl,
     skipDependencyInstall: config.skipDependencyInstall
   });
-  const app = await createApp({ token: config.token, store, runner, logger: true });
+  const app = await createApp({
+    token: config.token,
+    store,
+    runner,
+    logger: true,
+    agentSpecPolicy: config.agentSpecPolicy
+  });
   await app.listen({ host: config.host, port: config.port });
   const address = app.server.address();
   const port = typeof address === 'object' && address ? address.port : config.port;

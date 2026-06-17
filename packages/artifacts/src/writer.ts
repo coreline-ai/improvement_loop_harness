@@ -8,7 +8,7 @@ import {
 } from 'node:fs/promises';
 import path from 'node:path';
 import { ArtifactImmutableError, ArtifactPathError } from './errors.js';
-import { passthroughRedactor, type Redactor } from './redaction.js';
+import { defaultRedactor, type Redactor } from './redaction.js';
 import type { RunManifest } from './types.js';
 
 export interface WriteArtifactOptions {
@@ -151,8 +151,11 @@ export async function writeArtifact(
 ): Promise<string> {
   await assertRunIsMutable(runRoot);
   const target = await assertWritableTarget(runRoot, relativePath);
-  const redactor = options.redactor ?? passthroughRedactor;
-  const output = typeof content === 'string' ? redactor(content) : content;
+  const redactor = options.redactor ?? defaultRedactor;
+  const output =
+    typeof content === 'string'
+      ? redactor(content)
+      : Buffer.from(redactor(content.toString('utf8')));
   await writeFile(target, output);
   return target;
 }

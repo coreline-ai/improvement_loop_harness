@@ -105,6 +105,43 @@ describe('schema registry', () => {
       )
     ).not.toThrow();
   });
+
+  it('requires an image for executable rulepack semantic gates', () => {
+    const base = {
+      schema_version: '1.0',
+      project: 'rulepack-semantic',
+      gates: [
+        {
+          name: 'rulepack_semantic',
+          type: 'integrity',
+          command: 'builtin:rulepack-semantic',
+          required: true
+        }
+      ]
+    };
+    expect(() =>
+      validateOrThrow(
+        EVAL_SCHEMA_ID,
+        { ...base, rulepack_semantic: { file: 'policy/rulepack.lock.json' } },
+        'rulepack-semantic-no-image'
+      )
+    ).toThrow(SchemaValidationError);
+    expect(() =>
+      validateOrThrow(
+        EVAL_SCHEMA_ID,
+        {
+          ...base,
+          rulepack_semantic: {
+            file: 'policy/rulepack.lock.json',
+            image: 'node:22-alpine',
+            network: 'none',
+            current_loop_id: 'loop-n-plus-one'
+          }
+        },
+        'rulepack-semantic-with-image'
+      )
+    ).not.toThrow();
+  });
 });
 
 describe('loadTask', () => {

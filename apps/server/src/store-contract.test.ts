@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryStore } from './memory-store.js';
+import { isCandidateSelectableForMode } from './orchestrator/scheduler.js';
 import { createPrismaClient, PrismaStore } from './prisma-store.js';
-import type { Store } from './types.js';
+import type { LoopRunRecord, Store } from './types.js';
 
 interface StoreHarness {
   name: string;
@@ -80,8 +81,13 @@ describe.each(harnesses)('$name contract', (harness) => {
 
       expect(await store.findLoopByIdempotency(task.id, 'idem-1')).toMatchObject({ id: loop.id, requestHash: 'hash-1' });
       expect(await store.findActiveLoop(task.id)).toMatchObject({ id: loop.id });
+      expect(await store.createLoopIfNoActive({ taskId: task.id, status: 'queued' })).toBeNull();
       await store.updateLoop(loop.id, { status: 'accepted', decision: 'accept', candidateCommit: 'candidate-1' });
       expect(await store.findActiveLoop(task.id)).toBeNull();
+      await expect(store.createLoopIfNoActive({ taskId: task.id, status: 'queued' })).resolves.toMatchObject({
+        iteration: 2,
+        status: 'queued'
+      });
 
       await store.addLoopEvent(loop.id, 'loop.queued', { status: 'queued' });
       await store.addLoopEvent(loop.id, 'loop.completed', { status: 'accepted' });
@@ -149,13 +155,31 @@ describe.each(harnesses)('$name contract', (harness) => {
         source: 'manual',
         fingerprint: 'same-fingerprint',
         title: 'Candidate one',
+        trustLevel: 'low',
+        injectionIndicators: ['instruction_override'],
+        reproCommand: 'npm test -- --runInBand',
         status: 'proposed'
       });
       await store.updateCandidate(candidate.id, { status: 'dismissed', dismissReason: 'not_relevant' });
-      expect(await store.findCandidateByFingerprint(project.id, 'same-fingerprint')).toMatchObject({
+      const persistedCandidate = await store.findCandidateByFingerprint(project.id, 'same-fingerprint');
+      expect(persistedCandidate).toMatchObject({
         id: candidate.id,
-        status: 'dismissed'
+        status: 'dismissed',
+        trustLevel: 'low',
+        injectionIndicators: ['instruction_override'],
+        reproCommand: 'npm test -- --runInBand'
       });
+      expect(persistedCandidate).not.toBeNull();
+      expect(
+        isCandidateSelectableForMode(
+          {
+            ...persistedCandidate!,
+            status: 'proposed',
+            riskAreaHint: 'none'
+          },
+          'auto'
+        )
+      ).toBe(false);
       await expect(
         store.createCandidate({
           projectId: project.id,
@@ -163,7 +187,9 @@ describe.each(harnesses)('$name contract', (harness) => {
           fingerprint: 'same-fingerprint',
           title: 'Duplicate candidate'
         })
-      ).rejects.toThrow();
+      ).rejects.toThrow(
+        `candidate fingerprint already exists for project ${project.id}: same-fingerprint`
+      );
 
       await store.createPullRequest({ loopRunId: loop.id, branchName: 'vibeloop/contract', status: 'draft_created' });
       expect(await store.countOpenDraftPullRequests(project.id)).toBe(1);
@@ -184,6 +210,47 @@ describe.each(harnesses)('$name contract', (harness) => {
       const loop = await store.createLoop({ taskId: task.id, iteration: 1, status: 'queued' });
       await Promise.all(Array.from({ length: 10 }, (_, index) => store.addLoopEvent(loop.id, `event.${index}`)));
       expect((await store.listLoopEventsAfter(loop.id, 0)).map((event) => event.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('creates only one active loop when multiple requests race for the same task', async () => {
+    const { store, cleanup } = await harness.create();
+    try {
+      const { task } = await seedProjectTask(store);
+      const attempts = await Promise.all(
+        Array.from({ length: 8 }, (_entry, index) =>
+          store.createLoopIfNoActive({
+            taskId: task.id,
+            status: 'queued',
+            idempotencyKey: `race-${index}`,
+            requestHash: `race-hash-${index}`
+          })
+        )
+      );
+      const created = attempts.filter(
+        (loop): loop is LoopRunRecord => loop !== null
+      );
+
+      expect(created).toHaveLength(1);
+      expect(created[0]?.iteration).toBe(1);
+      expect(await store.findActiveLoop(task.id)).toMatchObject({
+        id: created[0]?.id
+      });
+
+      await store.updateLoop(created[0]!.id, {
+        status: 'accepted',
+        decision: 'accept'
+      });
+      await expect(
+        store.createLoopIfNoActive({
+          taskId: task.id,
+          status: 'queued',
+          idempotencyKey: 'race-next',
+          requestHash: 'race-next-hash'
+        })
+      ).resolves.toMatchObject({ iteration: 2, status: 'queued' });
     } finally {
       await cleanup();
     }

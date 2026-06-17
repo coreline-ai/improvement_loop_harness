@@ -51,6 +51,12 @@ export interface AdversaryM2ConfirmationReport {
   proposal_count: number;
   confirmed_count: number;
   all_confirmed: boolean;
+  execution?: {
+    image: string;
+    test_command: string;
+    network: 'none' | 'default';
+    timeout_ms?: number | undefined;
+  } | null;
   next_step:
     | 'execute_required'
     | 'm4_replay_freeze_required'
@@ -161,6 +167,17 @@ export async function confirmAdversaryM2Handoff(
     proposal_count: handoff.proposals.length,
     confirmed_count: confirmedCount,
     all_confirmed: allConfirmed,
+    execution:
+      options.execute && options.execution
+        ? {
+            image: options.execution.image,
+            test_command: options.execution.testCommand,
+            network: options.execution.network ?? 'none',
+            ...(options.execution.timeoutMs
+              ? { timeout_ms: options.execution.timeoutMs }
+              : {})
+          }
+        : null,
     next_step: !executed
       ? 'execute_required'
       : allConfirmed

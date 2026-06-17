@@ -47,15 +47,38 @@ function redact(value) {
   return value;
 }
 
-// Single canonical PR-candidate predicate, identical across CLI/Skill/server:
-//   decision = accept (implies ALL_PASS + hidden/protected/scope guards) AND the
-//   deterministic quality gate is met (quality-report.status != 'fail').
-function isPrCandidate(report, qualityStatus) {
+function qualityIsQualified(qualityStatus) {
+  return qualityStatus === 'pass' || qualityStatus === 'not_configured';
+}
+
+function fallbackIsPrCandidate(evidence) {
+  const requiresSelection =
+    'selected' in evidence || 'finalVerification' in evidence;
+  if (
+    requiresSelection &&
+    (evidence.selected === null || evidence.selected === undefined)
+  ) {
+    return false;
+  }
   return (
-    report.decision === 'accept' &&
-    report.decision_reasons?.[0]?.code === 'ALL_PASS' &&
-    qualityStatus !== 'fail'
+    evidence.decision === 'accept' &&
+    evidence.allPass === true &&
+    evidence.qualified === true &&
+    (!('finalVerification' in evidence) ||
+      evidence.finalVerification?.passed === true)
   );
+}
+
+async function loadPrCandidatePredicate() {
+  try {
+    const sdk = await import('@vibeloop/sdk');
+    if (typeof sdk.isPrCandidate === 'function') {
+      return sdk.isPrCandidate;
+    }
+  } catch {
+    // The packaged skill can run standalone before workspace packages are built.
+  }
+  return fallbackIsPrCandidate;
 }
 
 function nextAction(report, failedGates, prCandidate, qualityStatus) {
@@ -105,6 +128,7 @@ const adversaryReview = selectionReport?.adversary_review ?? null;
 const advisoryReviewRecommended =
   adversaryReview?.requires_human_review_signal === true;
 const qualityStatus = await readQualityStatus(reportPath);
+const sharedIsPrCandidate = await loadPrCandidatePredicate();
 const failedGates = (report.gate_runs ?? [])
   .filter((gate) => gate.required && gate.status !== 'pass')
   .map((gate) => ({
@@ -113,12 +137,24 @@ const failedGates = (report.gate_runs ?? [])
     status: gate.status,
     summary: gate.summary ?? null
   }));
-const prCandidate = isPrCandidate(report, qualityStatus);
+const prCandidate = sharedIsPrCandidate({
+  decision: report.decision ?? null,
+  allPass: report.decision_reasons?.[0]?.code === 'ALL_PASS',
+  qualified: qualityIsQualified(qualityStatus),
+  ...(selectionReport
+    ? {
+        selected: selectionReport.selected_candidate_id
+          ? { candidateId: selectionReport.selected_candidate_id }
+          : null,
+        finalVerification: selectionReport.final_verification ?? null
+      }
+    : {})
+});
 const summary = redact({
   decision: report.decision ?? null,
   reason: report.decision_reasons?.[0]?.code ?? null,
   qualityStatus,
-  qualified: qualityStatus !== 'fail',
+  qualified: qualityIsQualified(qualityStatus),
   prCandidate,
   changedFiles: (report.changed_files ?? []).map((file) => file.path),
   failedGates,

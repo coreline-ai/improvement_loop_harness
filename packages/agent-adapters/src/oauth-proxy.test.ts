@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { describe, expect, it } from 'vitest';
 import {
   buildCodexOAuthCommand,
+  codexOAuthProxyStatsUrl,
   preflightExternalOAuthProxy,
   startCodexOAuthProxy
 } from './oauth-proxy.js';
@@ -86,6 +87,53 @@ describe('codex oauth proxy helpers', () => {
       expect(proxy.stats.auth_header_missing).toBe(false);
       expect(proxy.stats.usage.total_tokens).toBe(5);
       expect(JSON.stringify(proxy.logs)).not.toContain('sk-secret-token-value');
+    } finally {
+      await proxy.close();
+      await upstream.close();
+    }
+  });
+
+  it('serves sanitized proxy usage stats without counting the stats read', async () => {
+    const token = 'Bearer sk-secret-token-value';
+    const upstream = await withJsonServer(() => ({
+      ok: true,
+      usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 }
+    }));
+    const proxy = await startCodexOAuthProxy({
+      model: 'gpt-test',
+      upstreamBaseUrl: upstream.baseUrl
+    });
+    try {
+      const modelResponse = await fetch(`${proxy.baseUrl}/v1/models`);
+      expect(modelResponse.status).toBe(200);
+
+      const response = await fetch(`${proxy.baseUrl}/v1/responses`, {
+        method: 'POST',
+        headers: { authorization: token, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: 'gpt-test', input: 'hello' })
+      });
+      expect(response.status).toBe(200);
+
+      const beforeStatsRead = proxy.stats.requests;
+      const statsResponse = await fetch(codexOAuthProxyStatsUrl(proxy.baseUrl));
+      const stats = (await statsResponse.json()) as {
+        mode: string;
+        requests: number;
+        model_requests: number;
+        response_requests: number;
+        auth_header_seen: boolean;
+        usage: { total_tokens: number };
+      };
+
+      expect(statsResponse.status).toBe(200);
+      expect(stats.mode).toBe('internal-oauth-forwarder');
+      expect(stats.requests).toBe(beforeStatsRead);
+      expect(stats.model_requests).toBe(1);
+      expect(stats.response_requests).toBe(1);
+      expect(stats.auth_header_seen).toBe(true);
+      expect(stats.usage.total_tokens).toBe(18);
+      expect(proxy.stats.requests).toBe(beforeStatsRead);
+      expect(JSON.stringify(stats)).not.toContain('sk-secret-token-value');
     } finally {
       await proxy.close();
       await upstream.close();

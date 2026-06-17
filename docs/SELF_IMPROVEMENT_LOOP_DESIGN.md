@@ -183,12 +183,12 @@ accepted  = verified ∧ qualified ∧ policy_pass ∧ risk_pass ∧ provenance_
 selected  = accepted 후보 중 deterministic score/tie-break 통과
 ```
 
-**최종 결정 (2026-06-13): `ALL_PASS`는 재정의하지 않는다.** `ALL_PASS`는 Verifier correctness 판정(= `verified`, decision rank-14 reason code)으로 **그대로 유지**한다. Evaluator를 포함하도록 확장하지 않는다 — 확장하면 `decision/rules.ts`·`EVAL_ENGINE_SPEC §8.1` 우선순위표·`eval-report.schema.json`·모든 fixture·6차 검토에서 검증된 의미를 전부 흔든다(회귀 비용 큼, 이득 작음).
+**최종 결정 (2026-06-13): `ALL_PASS`는 재정의하지 않는다.** `ALL_PASS`는 Verifier correctness 판정(= `verified`, decision rank-15 reason code)으로 **그대로 유지**한다. Evaluator를 포함하도록 확장하지 않는다 — 확장하면 `decision/rules.ts`·`EVAL_ENGINE_SPEC §8.1` 우선순위표·`eval-report.schema.json`·모든 fixture·6차 검토에서 검증된 의미를 전부 흔든다(회귀 비용 큼, 이득 작음).
 
 대신:
 
 - `qualified`(Evaluator 통과)는 **decision engine 밖의 별도 quality-layer 상태**다. 품질 실패는 decision reason code가 아니라 `quality_report.status`(`fail`/`inconclusive`/`needs_refinement`)로 기록한다.
-- decision engine 14규칙은 **correctness 전용으로 불변**.
+- decision engine 15규칙은 **correctness 전용으로 불변**.
 - **PR 후보 자격 = `accepted ∧ selected`** = `verified(=ALL_PASS) ∧ qualified ∧ policy_pass ∧ risk_pass ∧ provenance_pass ∧ Arbiter selected`.
 
 즉 correctness(검증자)와 quality(평가자)를 **이름과 코드 경로에서 분리**한다. `EVAL_ENGINE_SPEC.md`에는 이 결정(ALL_PASS 불변 + quality는 별도 layer)을 반영한다.
@@ -382,6 +382,7 @@ Arbiter 산출물은 `reports/selection-report.json`에 저장하고 rulepack ha
 - 학습 자산은 untrusted다. 구조화 요약만 저장하고 objective/프롬프트에 원문 주입을 금지한다.
 - 학습은 현재 loop의 통과 바를 낮추지 않는다.
 - 새 룰 후보는 shadow/replay를 통과해야 다음 loop rulepack candidate가 된다.
+- replay-safe frozen rulepack은 `builtin:rulepack-semantic`으로 다음 loop의 required integrity gate가 될 수 있다. 실행은 R1 격리·`network=none`·hash-bound spec만 허용하며, 같은 loop 적용은 fail-closed다.
 
 Shadow rule learning:
 
@@ -413,6 +414,7 @@ loop artifacts + failures + adversary proposals
   - verify candidate
   - evaluate quality
   - filter adversary proposals
+  - execute frozen rulepack semantic gates
   - arbitrate selected candidate
 
 @vibeloop/agent-adapters
@@ -424,6 +426,7 @@ loop artifacts + failures + adversary proposals
   - runAutonomousBestKnownLoop()
   - candidate pool orchestration
   - refinement loop
+  - adversary rulepack candidate/replay/freeze/inspect
   - PR candidate handoff
 
 CLI / API / Skill
@@ -475,16 +478,24 @@ M3 [구현 완료]  bounded same-issue refinement
 M5 [구현 완료]  Skill-first 제품화
     - `vibeloop improve` CLI + Skill fix-and-improve 모드. (b9e869f)
 
-M2 [부분: 결정론 필터만]  Adversary proposal filter
+M2 [부분 구현]  Adversary proposal filter + isolated confirmation substrate
     - filterAdversaryProposal (eval-engine): 정적 고정 필터(scope/objective/no-weakening/
       no-hidden-leak/bounded-cost) 구현. (0888ef3)
-    - 미구현(게이트): Adversary LLM 실행 + proposal 테스트 EXECUTION(ephemeral gate)은
-      미신뢰 LLM 생성 코드 실행 → R1 격리 하드 전제. R1 이후.
+    - improve/orchestrate `--adversary-review`는 advisory-only M2 handoff를 생성하고,
+      `adversary-confirm`은 R1 격리 실행 또는 dry-run 경계로 확인한다.
+    - 남은 증거: 실제 live adversary M2 실행 lane과 광범위 corpus.
 
-M4 [부분: 결정론 안전핵만]  shadow rule learning
+M4 [부분 구현]  shadow rule learning + frozen semantic gate core
     - diffRulepack(append-only) + decideShadowPromotion(승격 게이트) 구현. (1ca7c1a)
-    - 미구현(의존): replay-corpus EXECUTION(룰 실행)은 rulepack-runner/policy.lock
-      인프라(160413 Phase 2) 의존. 그 이후.
+    - `adversary-rulepack-candidate` → `adversary-rulepack-replay-corpus` →
+      `adversary-rulepack-replay` → `adversary-rulepack-freeze`로 replay-safe
+      frozen lock을 만들 수 있다.
+    - `builtin:rulepack-semantic`은 frozen executable spec을 다음 loop required
+      gate로 실행한다. 적용 경로는 `orchestrate --generate-eval`의
+      `--eval-rulepack-semantic`, 기존 eval을 승계 overlay하는
+      `orchestrate --carry-rulepack`, 단일 루프 `improve --rulepack-semantic`이다.
+      `rulepack inspect`는 lock validity와 `semantic_ready`를 요약한다.
+    - 남은 증거: live adversary lane + broad M4 semantic corpus + 운영 재현 evidence.
 ```
 
 병행 전제: 컨테이너/네트워크 격리(R1)는 무인 상시 가동의 별도 보안 전제이며, **M2의 Adversary 테스트 실행의 하드 전제**다.

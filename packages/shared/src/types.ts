@@ -10,6 +10,7 @@ export type GateType =
   | 'task_acceptance'
   | 'regression'
   | 'performance'
+  | 'hidden_acceptance'
   | 'advisory';
 
 export interface GateResult {

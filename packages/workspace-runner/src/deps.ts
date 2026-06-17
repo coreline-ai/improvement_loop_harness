@@ -1,10 +1,21 @@
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { access, cp, mkdir, readFile, rm, stat } from 'node:fs/promises';
+import {
+  access,
+  cp,
+  mkdir,
+  readdir,
+  readFile,
+  readlink,
+  rm,
+  stat,
+  writeFile
+} from 'node:fs/promises';
 import path from 'node:path';
 import { DependencyProvisionError } from './errors.js';
+import { scrubEnv } from './env.js';
 
-export type DependencyManager = 'npm' | 'pnpm';
+export type DependencyManager = 'npm' | 'pnpm' | 'yarn';
 export type DependencyProvisionStatus = 'cache_hit' | 'cache_miss' | 'skipped';
 
 export interface DependencyLockfile {
@@ -35,8 +46,23 @@ export interface DependencyProvisionResult {
 const LOCKFILE_MANAGERS: Array<{ name: string; manager: DependencyManager }> = [
   { name: 'pnpm-lock.yaml', manager: 'pnpm' },
   { name: 'package-lock.json', manager: 'npm' },
-  { name: 'npm-shrinkwrap.json', manager: 'npm' }
+  { name: 'npm-shrinkwrap.json', manager: 'npm' },
+  { name: 'yarn.lock', manager: 'yarn' }
 ];
+const CACHE_INTEGRITY_MANIFEST = 'node_modules.integrity.json';
+
+interface CacheIntegrityEntry {
+  path: string;
+  type: 'file' | 'symlink';
+  sha256?: string;
+  size_bytes?: number;
+  target?: string;
+}
+
+interface CacheIntegrityManifest {
+  schema_version: '1.0';
+  files: CacheIntegrityEntry[];
+}
 
 async function exists(filePath: string): Promise<boolean> {
   try {
@@ -51,6 +77,91 @@ async function sha256File(filePath: string): Promise<string> {
   return createHash('sha256')
     .update(await readFile(filePath))
     .digest('hex');
+}
+
+async function walkIntegrityEntries(
+  root: string,
+  directory = root
+): Promise<CacheIntegrityEntry[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const results = await Promise.all(
+    entries.map(async (entry) => {
+      const absolutePath = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        return walkIntegrityEntries(root, absolutePath);
+      }
+      const relativePath = path
+        .relative(root, absolutePath)
+        .split(path.sep)
+        .join('/');
+      if (entry.isFile()) {
+        const fileStat = await stat(absolutePath);
+        return [
+          {
+            path: relativePath,
+            type: 'file' as const,
+            sha256: await sha256File(absolutePath),
+            size_bytes: fileStat.size
+          }
+        ];
+      }
+      if (entry.isSymbolicLink()) {
+        return [
+          {
+            path: relativePath,
+            type: 'symlink' as const,
+            target: await readlink(absolutePath)
+          }
+        ];
+      }
+      return [];
+    })
+  );
+  return results.flat().sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function buildCacheIntegrityManifest(
+  cachePath: string
+): Promise<CacheIntegrityManifest> {
+  return {
+    schema_version: '1.0',
+    files: await walkIntegrityEntries(cachePath)
+  };
+}
+
+function integrityManifestPath(cachePath: string): string {
+  return path.join(path.dirname(cachePath), CACHE_INTEGRITY_MANIFEST);
+}
+
+async function writeCacheIntegrityManifest(cachePath: string): Promise<void> {
+  const manifest = await buildCacheIntegrityManifest(cachePath);
+  await writeFile(
+    integrityManifestPath(cachePath),
+    `${JSON.stringify(manifest, null, 2)}\n`
+  );
+}
+
+function cacheManifestEquals(
+  actual: CacheIntegrityManifest,
+  expected: CacheIntegrityManifest
+): boolean {
+  return JSON.stringify(actual) === JSON.stringify(expected);
+}
+
+async function verifyCacheIntegrity(cachePath: string): Promise<boolean> {
+  const manifestPath = integrityManifestPath(cachePath);
+  try {
+    const expected = JSON.parse(
+      await readFile(manifestPath, 'utf8')
+    ) as CacheIntegrityManifest;
+    if (expected.schema_version !== '1.0' || !Array.isArray(expected.files)) {
+      return false;
+    }
+    const actual = await buildCacheIntegrityManifest(cachePath);
+    return cacheManifestEquals(actual, expected);
+  } catch {
+    return false;
+  }
 }
 
 export async function detectDependencyLockfile(
@@ -95,22 +206,49 @@ function installCommand(lockfile: DependencyLockfile): {
   args: string[];
 } {
   if (lockfile.manager === 'pnpm') {
-    return { command: 'pnpm', args: ['install', '--frozen-lockfile'] };
+    return {
+      command: 'pnpm',
+      args: ['install', '--frozen-lockfile', '--ignore-scripts']
+    };
   }
-  return { command: 'npm', args: ['ci'] };
+  if (lockfile.manager === 'yarn') {
+    return {
+      command: 'yarn',
+      args: ['install', '--frozen-lockfile', '--ignore-scripts']
+    };
+  }
+  return { command: 'npm', args: ['ci', '--ignore-scripts'] };
 }
 
-async function runDefaultInstaller(
+function corepackInstallCommand(lockfile: DependencyLockfile): {
+  command: string;
+  args: string[];
+} | undefined {
+  if (lockfile.manager === 'pnpm') {
+    return {
+      command: 'corepack',
+      args: ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts']
+    };
+  }
+  if (lockfile.manager === 'yarn') {
+    return {
+      command: 'corepack',
+      args: ['yarn', 'install', '--frozen-lockfile', '--ignore-scripts']
+    };
+  }
+  return undefined;
+}
+
+async function runInstallerProcess(
   workspaceRoot: string,
-  lockfile: DependencyLockfile,
-  env?: NodeJS.ProcessEnv
+  command: { command: string; args: string[] },
+  env: NodeJS.ProcessEnv
 ): Promise<void> {
-  const command = installCommand(lockfile);
   await new Promise<void>((resolve, reject) => {
     let stderr = '';
     const subprocess = spawn(command.command, command.args, {
       cwd: workspaceRoot,
-      env: env ?? process.env,
+      env,
       stdio: ['ignore', 'ignore', 'pipe']
     });
     subprocess.stderr.setEncoding('utf8');
@@ -132,6 +270,34 @@ async function runDefaultInstaller(
   });
 }
 
+async function runDefaultInstaller(
+  workspaceRoot: string,
+  lockfile: DependencyLockfile,
+  env?: NodeJS.ProcessEnv
+): Promise<void> {
+  const command = installCommand(lockfile);
+  const installEnv = scrubEnv(env ?? process.env);
+  if (installEnv.HOME) {
+    await mkdir(installEnv.HOME, { recursive: true, mode: 0o700 });
+  }
+  try {
+    await runInstallerProcess(workspaceRoot, command, installEnv);
+  } catch (error) {
+    const fallback = corepackInstallCommand(lockfile);
+    if (
+      fallback &&
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    ) {
+      await runInstallerProcess(workspaceRoot, fallback, installEnv);
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function provisionDependencies(
   options: DependencyProvisionOptions
 ): Promise<DependencyProvisionResult> {
@@ -149,14 +315,17 @@ export async function provisionDependencies(
   const workspaceNodeModules = path.join(options.workspaceRoot, 'node_modules');
 
   if (await exists(cachePath)) {
-    await copyNodeModules(cachePath, workspaceNodeModules);
-    return {
-      status: 'cache_hit',
-      manager: lockfile.manager,
-      lockfilePath: lockfile.path,
-      cacheKey,
-      cachePath
-    };
+    if (await verifyCacheIntegrity(cachePath)) {
+      await copyNodeModules(cachePath, workspaceNodeModules);
+      return {
+        status: 'cache_hit',
+        manager: lockfile.manager,
+        lockfilePath: lockfile.path,
+        cacheKey,
+        cachePath
+      };
+    }
+    await rm(path.dirname(cachePath), { recursive: true, force: true });
   }
 
   if (options.installer) {
@@ -175,6 +344,7 @@ export async function provisionDependencies(
   }
 
   await copyNodeModules(workspaceNodeModules, cachePath);
+  await writeCacheIntegrityManifest(cachePath);
   return {
     status: 'cache_miss',
     manager: lockfile.manager,

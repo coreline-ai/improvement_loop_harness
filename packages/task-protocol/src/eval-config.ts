@@ -25,6 +25,7 @@ export const BUILTIN_GUARD_COMMANDS = new Set([
   'test-integrity',
   'artifact-leak',
   'rulepack-lock',
+  'rulepack-semantic',
   'snapshot-delta'
 ]);
 

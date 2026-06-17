@@ -27,6 +27,8 @@ evaluator:
   forbid_protected: true
   target_paths:
     - src/cart.cjs
+execution:
+  isolation: none
 hidden_acceptance:
   tests:
     - name: hidden_cart_mixed_quantities

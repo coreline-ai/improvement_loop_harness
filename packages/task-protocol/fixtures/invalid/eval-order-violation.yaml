@@ -1,5 +1,7 @@
 schema_version: "1.0"
 project: vibeloop-web
+execution:
+  isolation: none
 gates:
   - name: typecheck
     type: hard

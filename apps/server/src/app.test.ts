@@ -203,6 +203,27 @@ class BlockingRunner {
   };
 }
 
+class ControllableRunner {
+  signal: AbortSignal | undefined;
+  started = false;
+  private resolveResult: ((result: LoopRunnerResult) => void) | undefined;
+
+  run = async (input: LoopRunnerInput): Promise<LoopRunnerResult> => {
+    this.started = true;
+    this.signal = input.signal;
+    return new Promise((resolve) => {
+      this.resolveResult = resolve;
+    });
+  };
+
+  resolve(result: LoopRunnerResult): void {
+    if (!this.resolveResult) {
+      throw new Error('runner has not started');
+    }
+    this.resolveResult(result);
+  }
+}
+
 function sseIds(body: string): string[] {
   return body
     .split(/\n/)
@@ -222,6 +243,52 @@ describe('Fastify API auth and loop orchestration', () => {
 
     expect(response.statusCode).toBe(401);
     expect(response.json()).toMatchObject({ error: { code: 'UNAUTHORIZED' } });
+  });
+
+  it('sets security headers on API responses', async () => {
+    const app = await createApp({
+      token: TOKEN,
+      store: new MemoryStore(),
+      sseReplayOnly: true
+    });
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/projects',
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-content-type-options']).toBe('nosniff');
+    expect(response.headers['x-frame-options']).toBe('DENY');
+    expect(response.headers['referrer-policy']).toBe('no-referrer');
+    expect(response.headers['content-security-policy']).toContain(
+      "default-src 'none'"
+    );
+  });
+
+  it('rate limits repeated API requests from the same client', async () => {
+    const app = await createApp({
+      token: TOKEN,
+      store: new MemoryStore(),
+      sseReplayOnly: true,
+      security: { rateLimitMax: 1, rateLimitWindowMs: 60_000 }
+    });
+    const first = await app.inject({
+      method: 'GET',
+      url: '/api/projects',
+      headers: authHeaders()
+    });
+    const second = await app.inject({
+      method: 'GET',
+      url: '/api/projects',
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(429);
+    expect(second.json()).toMatchObject({ error: { code: 'RATE_LIMITED' } });
   });
 
   it('validates stored task YAML through task-protocol', async () => {
@@ -290,6 +357,128 @@ describe('Fastify API auth and loop orchestration', () => {
     expect(activeConflict.json()).toMatchObject({
       error: { code: 'ACTIVE_LOOP_EXISTS' }
     });
+  });
+
+  it('rejects command agent specs by default while allowing built-in server agents', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    const { task: mockTask } = await seedProjectTask(store);
+    const { task: unknownTask } = await seedProjectTask(store);
+    const app = await createApp({ token: TOKEN, store, sseReplayOnly: true });
+
+    const commandAgent = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/loops`,
+      headers: authHeaders({ 'idempotency-key': 'key-command' }),
+      payload: { agent_spec: 'command:node -e "process.exit(0)"' }
+    });
+    const codexAgent = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/loops`,
+      headers: authHeaders({ 'idempotency-key': 'key-codex' }),
+      payload: { agent_spec: 'codex' }
+    });
+    const mockAgent = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${mockTask.id}/loops`,
+      headers: authHeaders({ 'idempotency-key': 'key-mock' }),
+      payload: { agent_spec: 'mock:/tmp/scenario.json' }
+    });
+    const unknownAgent = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${unknownTask.id}/loops`,
+      headers: authHeaders({ 'idempotency-key': 'key-unknown' }),
+      payload: { agent_spec: 'shell:node -e "process.exit(0)"' }
+    });
+    await app.close();
+
+    expect(commandAgent.statusCode).toBe(400);
+    expect(commandAgent.json()).toMatchObject({
+      error: { code: 'AGENT_SPEC_NOT_ALLOWED' }
+    });
+    expect(codexAgent.statusCode).toBe(202);
+    expect(codexAgent.json()).toMatchObject({
+      loop: { agentSpec: 'codex' }
+    });
+    expect(mockAgent.statusCode).toBe(202);
+    expect(mockAgent.json()).toMatchObject({
+      loop: { agentSpec: 'mock:/tmp/scenario.json' }
+    });
+    expect(unknownAgent.statusCode).toBe(400);
+    expect(unknownAgent.json()).toMatchObject({
+      error: { code: 'AGENT_SPEC_NOT_ALLOWED' }
+    });
+  });
+
+  it('keeps command agent specs rejected even with explicit server opt-in until an isolated adapter exists', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      agentSpecPolicy: {
+        allowCommandAgent: true,
+        allowedSpecs: ['codex', 'mock:*', 'command:*']
+      }
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/loops`,
+      headers: authHeaders({ 'idempotency-key': 'key-command' }),
+      payload: { agent_spec: 'command:node -e "process.exit(0)"' }
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: { code: 'AGENT_SPEC_NOT_ALLOWED' }
+    });
+  });
+
+  it('aborts active API loops and preserves cancelled state over late runner results', async () => {
+    const store = new MemoryStore();
+    const { task } = await seedProjectTask(store);
+    const runner = new ControllableRunner();
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      runner: runner.run
+    });
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/tasks/${task.id}/loops`,
+      headers: authHeaders({ 'idempotency-key': 'key-cancel' }),
+      payload: {}
+    });
+    const loopId = (created.json() as { loop: { id: string } }).loop.id;
+    await waitFor(async () => runner.started);
+
+    const cancelled = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loopId}/cancel`,
+      headers: authHeaders()
+    });
+    runner.resolve({ status: 'accepted', decision: 'accept' });
+    await waitFor(async () =>
+      (await store.listLoopEventsAfter(loopId, 0)).some(
+        (event) => event.type === 'loop.result_ignored'
+      )
+    );
+    const loop = await store.getLoop(loopId);
+    await app.close();
+
+    expect(created.statusCode).toBe(202);
+    expect(cancelled.statusCode).toBe(200);
+    expect(cancelled.json()).toMatchObject({
+      status: 'cancelled',
+      cancellationSignalled: true
+    });
+    expect(runner.signal?.aborted).toBe(true);
+    expect(loop).toMatchObject({ status: 'cancelled', decision: null });
   });
 
   it('replays SSE events after Last-Event-ID without duplicates and with monotonic seq ids', async () => {

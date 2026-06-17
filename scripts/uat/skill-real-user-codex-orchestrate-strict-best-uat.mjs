@@ -29,6 +29,12 @@ import {
   buildCodexOAuthCommand,
   startCodexOAuthProxy
 } from '../../packages/agent-adapters/dist/index.js';
+import {
+  shouldPruneUatTmp,
+  writeUatEvidenceBundle,
+  writeUatEvidenceLedger
+} from './evidence-bundle.mjs';
+import { tokenBudgetCliArgs, tokenBudgetLedger } from './token-budget.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -38,9 +44,11 @@ const model = process.env.VIBELOOP_UAT_MODEL || 'gpt-5.5';
 const reasoningEffort = process.env.VIBELOOP_UAT_REASONING_EFFORT || 'xhigh';
 const owner = process.env.VIBELOOP_UAT_GITHUB_OWNER || 'coreline-ai';
 const keepRemote = process.env.VIBELOOP_UAT_KEEP_REMOTE === '1';
-const keepTmp = process.env.VIBELOOP_UAT_KEEP_TMP === '1';
+const pruneTmp = shouldPruneUatTmp();
 const maxIssues = Number(process.env.VIBELOOP_UAT_RU3_MAX_ISSUES || '2');
-const maxCandidates = Number(process.env.VIBELOOP_UAT_RU3_MAX_CANDIDATES || '2');
+const maxCandidates = Number(
+  process.env.VIBELOOP_UAT_RU3_MAX_CANDIDATES || '2'
+);
 const hiddenSentinel = 'SECRET_HIDDEN_EXPECTATION';
 
 function run(command, args, options = {}) {
@@ -90,7 +98,9 @@ async function git(cwd, args) {
 }
 
 function blocked(reason, details = {}) {
-  console.log(JSON.stringify({ status: 'blocked', reason, ...details }, null, 2));
+  console.log(
+    JSON.stringify({ status: 'blocked', reason, ...details }, null, 2)
+  );
   process.exitCode = 20;
 }
 
@@ -112,19 +122,18 @@ function assertNoHiddenLeak(label, value) {
   }
 }
 
-
 async function writeVerboseComparatorAgent(file) {
   await writeFile(
     file,
     [
       '#!/usr/bin/env node',
       "const fs = require('node:fs');",
-      "const taskFile = process.env.VIBELOOP_TASK_FILE;",
+      'const taskFile = process.env.VIBELOOP_TASK_FILE;',
       "if (!taskFile) throw new Error('missing VIBELOOP_TASK_FILE');",
       "const task = JSON.parse(fs.readFileSync(taskFile, 'utf8'));",
       "const target = task.write_scope?.allowed?.[0] || '';",
       "if (target === 'src/cart-total.cjs') {",
-      "  fs.writeFileSync(target, [",
+      '  fs.writeFileSync(target, [',
       "    'function calculateTotal(items) {',",
       "    '  const safeItems = Array.isArray(items) ? items : [];',",
       "    '  return safeItems.reduce((runningTotal, item) => {',",
@@ -139,7 +148,7 @@ async function writeVerboseComparatorAgent(file) {
       "  ].join('\\n'));",
       "  console.log('verbose comparator fixed cart-total');",
       "} else if (target === 'src/sku.cjs') {",
-      "  fs.writeFileSync(target, [",
+      '  fs.writeFileSync(target, [',
       "    'function normalizeSku(value) {',",
       "    '  const rawValue = String(value);',",
       "    '  const trimmedValue = rawValue.trim();',",
@@ -151,9 +160,9 @@ async function writeVerboseComparatorAgent(file) {
       "    ''",
       "  ].join('\\n'));",
       "  console.log('verbose comparator fixed sku');",
-      "} else {",
-      "  throw new Error(`unsupported strict-best comparator target: ${target}`);",
-      "}",
+      '} else {',
+      '  throw new Error(`unsupported strict-best comparator target: ${target}`);',
+      '}',
       ''
     ].join('\n'),
     { mode: 0o755 }
@@ -228,7 +237,8 @@ async function writeFailingDiscoveryTests(localRepo) {
 }
 
 async function githubToken() {
-  if (process.env.VIBELOOP_GITHUB_TOKEN) return process.env.VIBELOOP_GITHUB_TOKEN;
+  if (process.env.VIBELOOP_GITHUB_TOKEN)
+    return process.env.VIBELOOP_GITHUB_TOKEN;
   if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN;
   const token = await run('gh', ['auth', 'token']);
   if (token.code !== 0 || token.stdout.trim().length === 0) return null;
@@ -261,13 +271,20 @@ async function main() {
     throw new Error('VIBELOOP_UAT_RU3_MAX_ISSUES must be a positive integer');
   }
   if (!Number.isInteger(maxCandidates) || maxCandidates < 1) {
-    throw new Error('VIBELOOP_UAT_RU3_MAX_CANDIDATES must be a positive integer');
+    throw new Error(
+      'VIBELOOP_UAT_RU3_MAX_CANDIDATES must be a positive integer'
+    );
   }
 
   if ((await run('codex', ['--version'])).code !== 0) {
     return blocked('CODEX_CLI_NOT_AVAILABLE');
   }
-  const login = await run('codex', ['-c', 'service_tier=fast', 'login', 'status']);
+  const login = await run('codex', [
+    '-c',
+    'service_tier=fast',
+    'login',
+    'status'
+  ]);
   const loginText = `${login.stdout}${login.stderr}`;
   if (login.code !== 0 || !/Logged in/i.test(loginText)) {
     return blocked('CODEX_CHATGPT_LOGIN_NOT_AVAILABLE', {
@@ -284,7 +301,9 @@ async function main() {
   const tag = `${process.pid}-${Date.now()}`;
   const repoName = `vibeloop-realuser-ru3-strict-${tag}`;
   const fullRepo = `${owner}/${repoName}`;
-  const tmpRoot = await mkdtemp(path.join(os.homedir(), '.vibeloop-realuser-ru3-strict-'));
+  const tmpRoot = await mkdtemp(
+    path.join(os.homedir(), '.vibeloop-realuser-ru3-strict-')
+  );
   const dataDir = path.join(tmpRoot, 'data');
   const localRepo = path.join(tmpRoot, 'project');
   const verboseAgent = path.join(tmpRoot, 'verbose-accepted-agent.cjs');
@@ -298,9 +317,15 @@ async function main() {
     await git(localRepo, ['config', 'user.email', 'realuser-ru3@example.test']);
     await git(localRepo, ['config', 'user.name', 'VibeLoop Real User RU3']);
     await git(localRepo, ['add', '-A']);
-    await git(localRepo, ['commit', '-m', 'seed: ru3 strict-best auto-discovery bugs + failing tests']);
+    await git(localRepo, [
+      'commit',
+      '-m',
+      'seed: ru3 strict-best auto-discovery bugs + failing tests'
+    ]);
     await writeVerboseComparatorAgent(verboseAgent);
-    const baseCommit = (await git(localRepo, ['rev-parse', 'HEAD'])).stdout.trim();
+    const baseCommit = (
+      await git(localRepo, ['rev-parse', 'HEAD'])
+    ).stdout.trim();
 
     const created = await run('gh', [
       'repo',
@@ -314,7 +339,9 @@ async function main() {
       '--push'
     ]);
     if (created.code !== 0) {
-      return blocked('GH_REPO_CREATE_FAILED', { stderr: created.stderr.trim() });
+      return blocked('GH_REPO_CREATE_FAILED', {
+        stderr: created.stderr.trim()
+      });
     }
 
     proxy = await startCodexOAuthProxy({
@@ -331,6 +358,7 @@ async function main() {
       reasoningEffort,
       requiresOpenaiAuth: true
     });
+    const tokenBudgetArgs = tokenBudgetCliArgs(proxy.baseUrl);
     const verboseAgentSpec = `command:node ${verboseAgent}`;
 
     const env = {
@@ -363,6 +391,7 @@ async function main() {
         String(maxIssues),
         '--max-candidates',
         String(maxCandidates),
+        ...tokenBudgetArgs,
         '--promote-branch',
         'vibeloop/ru3-strict-integration',
         '--promote-commit-message-prefix',
@@ -440,7 +469,9 @@ async function main() {
       proxyAuthHeaderSeen &&
       !hiddenLeak;
     const fullAutonomousImprovementPass =
-      verificationPass && strictImprovementEveryIssue && realCodexSelectedEveryIssue;
+      verificationPass &&
+      strictImprovementEveryIssue &&
+      realCodexSelectedEveryIssue;
 
     const ledger = {
       status: !verificationPass
@@ -454,6 +485,7 @@ async function main() {
         'vibeloop orchestrate --generate-eval --promote-branch --github-draft-pr --challenger',
       builder: { real_llm: false, role: 'accepted_verbose_comparator' },
       challenger: { real_llm: true, model, via: 'chatgpt-oauth-proxy' },
+      token_budget: tokenBudgetLedger(),
       github: {
         repo: fullRepo,
         url: `https://github.com/${fullRepo}`,
@@ -507,7 +539,9 @@ async function main() {
         final_test_stdout: path.join(tmpRoot, 'final-test.stdout.log'),
         final_test_stderr: path.join(tmpRoot, 'final-test.stderr.log'),
         discovery_reports: out.discovery_reports ?? [],
-        selection_reports: issues.map((issue) => issue.selection_report).filter(Boolean)
+        selection_reports: issues
+          .map((issue) => issue.selection_report)
+          .filter(Boolean)
       },
       discovery_report_summaries: discoveryReports.map((report) => ({
         iteration: report.iteration,
@@ -524,6 +558,45 @@ async function main() {
             'generated eval is visible-test/minimal; hidden/adversary semantic eval generation remains future work'
           ]
     };
+    const evidenceBundle = await writeUatEvidenceBundle({
+      scenario: ledger.scenario,
+      runId: `realuser-ru3-strict-${tag}`,
+      tmpRoot,
+      dataDir,
+      output: out,
+      proxyStats: proxy?.stats,
+      extraFiles: [
+        {
+          label: 'orchestrate_stdout',
+          path: path.join(tmpRoot, 'orchestrate.stdout.log')
+        },
+        {
+          label: 'orchestrate_stderr',
+          path: path.join(tmpRoot, 'orchestrate.stderr.log')
+        },
+        {
+          label: 'final_test_stdout',
+          path: path.join(tmpRoot, 'final-test.stdout.log')
+        },
+        {
+          label: 'final_test_stderr',
+          path: path.join(tmpRoot, 'final-test.stderr.log')
+        }
+      ],
+      extraJson: {
+        github: ledger.github,
+        verification_predicate: ledger.verification_predicate
+      }
+    });
+    ledger.evidence = {
+      ...ledger.evidence,
+      evidence_bundle: evidenceBundle.bundle_dir,
+      evidence_manifest: evidenceBundle.manifest_path,
+      evidence_ledger: path.join(evidenceBundle.bundle_dir, 'ledger.json'),
+      evidence_copied_count: evidenceBundle.copied_count,
+      evidence_missing_count: evidenceBundle.missing_count,
+      tmp_prune_requested: pruneTmp
+    };
 
     if (
       ledger.status === 'REAL_USER_RU3_FULL_IMPROVEMENT_PASS' &&
@@ -535,17 +608,22 @@ async function main() {
       ledger.status === 'REAL_USER_RU3_FULL_IMPROVEMENT_PASS' &&
       !ledger.full_autonomous_improvement_pass
     ) {
-      throw new Error('strict full-pass invariant violated: PASS status requires full_autonomous_improvement_pass=true');
+      throw new Error(
+        'strict full-pass invariant violated: PASS status requires full_autonomous_improvement_pass=true'
+      );
     }
     if (
       ledger.full_autonomous_improvement_pass !==
-      (verificationPass && strictImprovementEveryIssue && realCodexSelectedEveryIssue)
+      (verificationPass &&
+        strictImprovementEveryIssue &&
+        realCodexSelectedEveryIssue)
     ) {
       throw new Error(
         'strict full-pass invariant violated: full_autonomous_improvement_pass must equal verificationPass && strictImprovementEveryIssue && realCodexSelectedEveryIssue'
       );
     }
     assertNoHiddenLeak('ledger', ledger);
+    await writeUatEvidenceLedger(evidenceBundle, ledger);
     console.log(JSON.stringify(ledger, null, 2));
     if (ledger.status !== 'REAL_USER_RU3_FULL_IMPROVEMENT_PASS') {
       process.exitCode = 1;
@@ -554,10 +632,13 @@ async function main() {
     if (proxy) await proxy.close().catch(() => undefined);
     if (!keepRemote) {
       const del = await run('gh', ['repo', 'delete', fullRepo, '--yes']);
-      if (del.code !== 0) await run('gh', ['repo', 'archive', fullRepo, '--yes']);
+      if (del.code !== 0)
+        await run('gh', ['repo', 'archive', fullRepo, '--yes']);
     }
-    if (!keepTmp) {
-      await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+    if (pruneTmp) {
+      await rm(tmpRoot, { recursive: true, force: true }).catch(
+        () => undefined
+      );
     }
   }
 }

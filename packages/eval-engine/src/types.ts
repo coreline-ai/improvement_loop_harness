@@ -5,6 +5,7 @@ import type {
   TaskDefinition
 } from '@vibeloop/task-protocol';
 import type { GitMetadataSnapshot } from '@vibeloop/workspace-runner';
+import type { RunFrozenRulepackOptions } from './rulepack-runner.js';
 
 export type GateStatus = 'pass' | 'fail' | 'error' | 'skipped';
 
@@ -25,12 +26,19 @@ export interface GateRunContext {
   worktreeRoot: string;
   artifactRoot: string;
   env?: NodeJS.ProcessEnv | undefined;
+  signal?: AbortSignal | undefined;
   changedFiles: GuardChangedFile[];
   gitMetadataBefore?: GitMetadataSnapshot | undefined;
   gitMetadataAfter?: GitMetadataSnapshot | undefined;
   /** Precomputed artifact-leak scan result (the scan runs in the kernel where the
    *  agent output is available; the builtin gate only surfaces this verdict). */
   artifactLeak?: GuardCheckResult | undefined;
+  rulepackSemanticRuntimeAvailable?:
+    | RunFrozenRulepackOptions['runtimeAvailable']
+    | undefined;
+  rulepackSemanticCommandRunner?:
+    | RunFrozenRulepackOptions['commandRunner']
+    | undefined;
 }
 
 export interface GateReportEntry {

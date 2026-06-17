@@ -1,4 +1,5 @@
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import nock from 'nock';
@@ -10,7 +11,11 @@ import {
   GitHubApiError,
   parseGitHubRepo
 } from './pull-request.js';
-import { defaultBranchName, prepareBranchAndPush } from './branch.js';
+import {
+  defaultBranchName,
+  deleteRemoteBranch,
+  prepareBranchAndPush
+} from './branch.js';
 
 async function tempDir(prefix: string): Promise<string> {
   return mkdtemp(path.join(os.tmpdir(), prefix));
@@ -80,9 +85,113 @@ describe('GitHub draft PR integration', () => {
     const remoteHead = (
       await repo.git(['ls-remote', bareRemote, branch.branchName])
     ).trim();
+    const currentBranch = (
+      await repo.git(['branch', '--show-current'])
+    ).trim();
+    const originalReadme = await readFile(
+      path.join(repo.repoPath, 'README.md'),
+      'utf8'
+    );
+    const originalStatus = await repo.git(['status', '--short']);
+
     expect(branch.headSha).toMatch(/^[a-f0-9]{40}$/);
+    expect(branch.remotePreexisting).toBe(false);
     expect(retry.headSha).toMatch(/^[a-f0-9]{40}$/);
+    expect(retry.remotePreexisting).toBe(true);
     expect(remoteHead).toContain(retry.headSha);
+    expect(currentBranch).toBe('main');
+    expect(originalReadme).not.toContain('patched');
+    expect(originalStatus).toBe('');
+  });
+
+  it('deletes a remote branch for draft PR rollback cleanup', async () => {
+    const repo = await createTempGitRepo();
+    const bareRemote = await tempDir('vibeloop-github-remote-');
+    await repo.git(['init', '--bare', bareRemote]);
+    await repo.git(['remote', 'add', 'origin', bareRemote]);
+    await repo.git(['push', 'origin', 'main']);
+    const patchPath = path.join(
+      await tempDir('vibeloop-github-patch-'),
+      'candidate.patch'
+    );
+    await writeFile(
+      patchPath,
+      [
+        'diff --git a/README.md b/README.md',
+        '--- a/README.md',
+        '+++ b/README.md',
+        '@@ -1 +1,2 @@',
+        ' # fixture repo',
+        '+patched',
+        ''
+      ].join('\n')
+    );
+    const branchName = defaultBranchName('loop-rollback');
+    await prepareBranchAndPush({
+      repoPath: repo.repoPath,
+      baseRef: 'main',
+      branchName,
+      candidatePatchPath: patchPath,
+      commitMessage: 'apply candidate patch',
+      pushUrl: bareRemote
+    });
+
+    await deleteRemoteBranch({
+      repoPath: repo.repoPath,
+      pushUrl: bareRemote,
+      branchName
+    });
+
+    const remoteHead = await repo.git([
+      'ls-remote',
+      bareRemote,
+      `refs/heads/${branchName}`
+    ]);
+    expect(remoteHead.trim()).toBe('');
+  });
+
+  it('refuses to push when candidate.patch no longer matches the expected hash', async () => {
+    const repo = await createTempGitRepo();
+    const bareRemote = await tempDir('vibeloop-github-remote-');
+    await repo.git(['init', '--bare', bareRemote]);
+    await repo.git(['remote', 'add', 'origin', bareRemote]);
+    await repo.git(['push', 'origin', 'main']);
+    const patchPath = path.join(
+      await tempDir('vibeloop-github-patch-'),
+      'candidate.patch'
+    );
+    await writeFile(
+      patchPath,
+      [
+        'diff --git a/README.md b/README.md',
+        '--- a/README.md',
+        '+++ b/README.md',
+        '@@ -1 +1,2 @@',
+        ' # fixture repo',
+        '+patched',
+        ''
+      ].join('\n')
+    );
+    const staleHash = createHash('sha256').update('stale patch').digest('hex');
+
+    await expect(
+      prepareBranchAndPush({
+        repoPath: repo.repoPath,
+        baseRef: 'main',
+        branchName: defaultBranchName('loop-stale-patch'),
+        candidatePatchPath: patchPath,
+        expectedPatchHash: staleHash,
+        commitMessage: 'apply candidate patch',
+        pushUrl: bareRemote
+      })
+    ).rejects.toThrow(/candidate patch hash mismatch/i);
+
+    const remoteHead = await repo.git([
+      'ls-remote',
+      bareRemote,
+      'refs/heads/vibeloop/loop-stale-patch'
+    ]);
+    expect(remoteHead.trim()).toBe('');
   });
 
   it('creates a draft PR with eval-report reason codes in the body', async () => {

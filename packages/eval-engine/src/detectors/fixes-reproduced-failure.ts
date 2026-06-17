@@ -1,5 +1,15 @@
 import type { EvidenceContext, EvidenceResult } from '../evidence.js';
 
+function testIntegrityPassed(context: EvidenceContext): boolean {
+  return (context.gateRuns ?? []).some(
+    (gate) =>
+      gate.type === 'integrity' &&
+      gate.command.toLowerCase().replaceAll('_', '-') ===
+        'builtin:test-integrity' &&
+      gate.status === 'pass'
+  );
+}
+
 export function detectFixesReproducedFailure(
   context: EvidenceContext
 ): EvidenceResult {
@@ -23,6 +33,14 @@ export function detectFixesReproducedFailure(
     return {
       type: 'fixes_reproduced_failure',
       status: 'missing',
+      artifact_ref: 'metrics/baseline.json',
+      supporting_gate: null
+    };
+  }
+  if (!testIntegrityPassed(context)) {
+    return {
+      type: 'fixes_reproduced_failure',
+      status: 'inconclusive',
       artifact_ref: 'metrics/baseline.json',
       supporting_gate: null
     };

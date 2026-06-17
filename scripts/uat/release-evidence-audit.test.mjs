@@ -1,0 +1,739 @@
+import { createHash } from 'node:crypto';
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  utimes,
+  writeFile
+} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  REQUIRED_ATTACK_SCENARIOS,
+  buildAdversaryLiveAttackScenarios
+} from './adversary-live-safety.mjs';
+import {
+  buildCommandAdversaryReviewerProvenance,
+  buildControlledAdversaryReviewerProvenance
+} from './adversary-live-contract.mjs';
+import {
+  ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS,
+  buildReleaseEvidenceAuditReport,
+  discoverEvidenceRoots,
+  releaseEvidenceAuditExitCode,
+  selectReleaseEvidenceAuditScenarios
+} from './release-evidence-audit.mjs';
+
+const cleanup = [];
+
+async function tempRoot() {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), 'vibeloop-evidence-audit-')
+  );
+  cleanup.push(root);
+  return root;
+}
+
+async function writeLedger(root, scenario, runId, patch, mtime = new Date()) {
+  const runDir = path.join(root, scenario, runId);
+  const ledger = path.join(runDir, 'ledger.json');
+  await mkdir(runDir, { recursive: true });
+  await writeFile(
+    ledger,
+    `${JSON.stringify({ scenario, run_id: runId, ...patch }, null, 2)}\n`
+  );
+  await utimes(ledger, mtime, mtime);
+  return ledger;
+}
+
+async function writeManifest(root, scenario, runId, patch = {}) {
+  const runDir = path.join(root, scenario, runId);
+  const manifest = path.join(runDir, 'uat-evidence-manifest.json');
+  const ledger = path.join(runDir, 'ledger.json');
+  const ledgerStat = await stat(ledger);
+  const ledgerHash = createHash('sha256')
+    .update(await readFile(ledger))
+    .digest('hex');
+  await mkdir(runDir, { recursive: true });
+  await writeFile(
+    manifest,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        scenario,
+        run_id: runId,
+        ledger_ref: 'ledger.json',
+        copied: [
+          {
+            kind: 'ledger',
+            bundle_path: 'ledger.json',
+            sha256: ledgerHash,
+            size_bytes: ledgerStat.size
+          }
+        ],
+        missing: [],
+        ...patch
+      },
+      null,
+      2
+    )}\n`
+  );
+  return manifest;
+}
+
+function postgresLedger() {
+  return {
+    status: 'POSTGRES_CONTRACT_PASS',
+    evidence_missing_count: 0,
+    checks: {
+      test_database_url: { ok: true, status: 'pass' },
+      database_connection: { ok: true, status: 'pass' },
+      prisma_store_smoke: {
+        ok: true,
+        status: 'pass',
+        checks: {
+          candidate_roundtrip: 'pass',
+          security_metadata_roundtrip: 'pass',
+          duplicate_fingerprint_rejected: 'pass'
+        }
+      }
+    },
+    test_result: { status: 'pass', exit_code: 0 }
+  };
+}
+
+function attackScenarios() {
+  const expectedById = new Map(
+    buildAdversaryLiveAttackScenarios().map((scenario) => [
+      scenario.id,
+      scenario
+    ])
+  );
+  return {
+    checked_count: REQUIRED_ATTACK_SCENARIOS.length,
+    passed_count: REQUIRED_ATTACK_SCENARIOS.length,
+    check: { ok: true, failures: [] },
+    results: REQUIRED_ATTACK_SCENARIOS.map((id) => {
+      const expected = expectedById.get(id);
+      return {
+        id,
+        passed: true,
+        live_required: true,
+        required_signal: expected.required_signal,
+        expected_outcome: expected.expected_outcome,
+        stage:
+          id === 'prompt_injection'
+            ? 'authority_invariant'
+            : id === 'visible_only_hardcode'
+              ? 'n_plus_one_rulepack_semantic'
+              : 'static_filter',
+        mechanism:
+          id === 'prompt_injection'
+            ? 'authority_invariant:advisory_only'
+            : id === 'visible_only_hardcode'
+              ? 'rulepack_semantic:visible_only_hardcode'
+              : id === 'hidden_artifact_leak'
+                ? 'static_filter:no_hidden_leak'
+                : 'static_filter:no_weakening',
+        executed: id === 'visible_only_hardcode',
+        blocked: true,
+        current_loop_impact: 'none',
+        pr_created: false,
+        promotion_allowed: false
+      };
+    })
+  };
+}
+
+function adversarySafetyLedger() {
+  return {
+    adversary_reviewer: buildControlledAdversaryReviewerProvenance(),
+    safety_check: { ok: true, failures: [] },
+    safety: {
+      host_execution_allowed: false,
+      current_loop_decision_impact: 'none',
+      proposal_authority: 'advisory_only',
+      required_preflights: ['container_runtime', 'container_smoke'],
+      m2: { execute: true, isolation: 'container', network: 'none' },
+      m4: { execute: true, isolation: 'container', network: 'none' },
+      frozen_rulepack: {
+        authority: 'fixed_next_loop_gate',
+        decision_impact: 'next_loop_only',
+        same_loop_application_allowed: false
+      },
+      n_plus_one: {
+        gate: 'builtin:rulepack-semantic',
+        required: true,
+        expected_bad_status: 'fail'
+      }
+    },
+    m2: {
+      executed: true,
+      runtime_available: true,
+      all_confirmed: true
+    },
+    m4: {
+      executed: true,
+      replay_safe: true
+    }
+  };
+}
+
+function adversaryLedger(patch = {}) {
+  return {
+    status: 'ADVERSARY_LIVE_PASS',
+    evidence_missing_count: 0,
+    attack_scenarios: attackScenarios(),
+    ...adversarySafetyLedger(),
+    ...patch
+  };
+}
+
+function matrixCells() {
+  return [
+    ['node-single', 'pass', 'skipped'],
+    ['node-lockfile-provisioning', 'pass', 'cache_miss', 'npm'],
+    ['node-pnpm-lockfile-provisioning', 'pass', 'cache_miss', 'pnpm'],
+    ['node-yarn-lockfile-provisioning', 'pass', 'cache_miss', 'yarn'],
+    ['python-stdlib', 'pass', 'skipped'],
+    ['ruby-stdlib', 'pass', 'skipped'],
+    ['java-stdlib', 'pass', 'skipped'],
+    ['swift-stdlib', 'pass', 'skipped'],
+    ['typescript-esm', 'pass', 'skipped'],
+    ['js-monorepo-scope', 'pass', 'skipped'],
+    ['react-next-like', 'pass', 'skipped'],
+    ['cli-tool', 'pass', 'skipped'],
+    ['no-package-manager', 'pass', 'skipped'],
+    ['large-file-count', 'pass', 'skipped'],
+    ['dirty-worktree', 'blocked', 'not_run'],
+    ['network-restricted-r1', 'unsupported', 'unsupported']
+  ].map(([id, status, provisioningStatus, manager]) => ({
+    id,
+    status,
+    dependency_provisioning:
+      provisioningStatus === 'not_run' || provisioningStatus === 'unsupported'
+        ? undefined
+        : { status: provisioningStatus, ...(manager ? { manager } : {}) },
+    provisioning:
+      provisioningStatus === 'not_run' || provisioningStatus === 'unsupported'
+        ? { status: provisioningStatus }
+        : undefined
+  }));
+}
+
+function matrixLedger() {
+  return {
+    status: 'REPO_MATRIX_PASS',
+    cell_count: 16,
+    pass_count: 14,
+    blocked_count: 1,
+    unsupported_count: 1,
+    fail_count: 0,
+    dependency_provisioning: {
+      checked_count: 16,
+      statuses: {
+        skipped: 11,
+        cache_miss: 3,
+        not_run: 1,
+        unsupported: 1
+      }
+    },
+    cells: matrixCells(),
+    evidence_missing_count: 0
+  };
+}
+
+function simplePassLedger(status) {
+  return {
+    status,
+    evidence_missing_count: 0
+  };
+}
+
+async function writeValidCiEvidence(root) {
+  await writeLedger(
+    root,
+    'postgres-contract-uat',
+    'postgres-run',
+    postgresLedger()
+  );
+  await writeManifest(root, 'postgres-contract-uat', 'postgres-run');
+
+  await writeLedger(
+    root,
+    'adversary-live-uat',
+    'adversary-run',
+    adversaryLedger()
+  );
+  await writeManifest(root, 'adversary-live-uat', 'adversary-run');
+
+  await writeLedger(root, 'repo-matrix-uat', 'matrix-run', matrixLedger());
+  await writeManifest(root, 'repo-matrix-uat', 'matrix-run');
+}
+
+async function writeValidAllReleaseEvidence(root) {
+  await writeValidCiEvidence(root);
+
+  await writeLedger(
+    root,
+    'skill-real-user-codex-live-uat',
+    'codex-live-run',
+    simplePassLedger('REAL_USER_RUN_PASS')
+  );
+  await writeManifest(root, 'skill-real-user-codex-live-uat', 'codex-live-run');
+
+  await writeLedger(
+    root,
+    'repo-matrix-python-codex-live-uat',
+    'python-live-run',
+    simplePassLedger('PYTHON_LIVE_REPRESENTATIVE_PASS')
+  );
+  await writeManifest(
+    root,
+    'repo-matrix-python-codex-live-uat',
+    'python-live-run'
+  );
+
+  await writeLedger(
+    root,
+    'repo-matrix-monorepo-codex-live-uat',
+    'monorepo-live-run',
+    simplePassLedger('MONOREPO_LIVE_REPRESENTATIVE_PASS')
+  );
+  await writeManifest(
+    root,
+    'repo-matrix-monorepo-codex-live-uat',
+    'monorepo-live-run'
+  );
+}
+
+describe('release evidence audit', () => {
+  afterEach(async () => {
+    await Promise.all(
+      cleanup
+        .splice(0)
+        .map((root) => rm(root, { recursive: true, force: true }))
+    );
+  });
+
+  it('validates merged CI evidence artifacts without running live preflights', async () => {
+    const root = await tempRoot();
+    await writeValidCiEvidence(root);
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.mode).toBe('ci-artifact-evidence-only');
+    expect(report.scope).toBe('default-release-gates');
+    expect(report.audit_summary).toEqual(
+      expect.objectContaining({
+        required_count: 3,
+        passed_count: 3,
+        failed_count: 0,
+        copied_integrity_checked_count: 3
+      })
+    );
+    expect(report.failed_gates).toEqual([]);
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          gate: 'P2',
+          ok: true,
+          scenario: 'postgres-contract-uat',
+          ledger_summary: expect.objectContaining({
+            status: 'POSTGRES_CONTRACT_PASS'
+          })
+        }),
+        expect.objectContaining({
+          gate: 'P4',
+          ok: true,
+          scenario: 'adversary-live-uat',
+          ledger_summary: expect.objectContaining({
+            status: 'ADVERSARY_LIVE_PASS'
+          })
+        }),
+        expect.objectContaining({
+          gate: 'P5',
+          ok: true,
+          scenario: 'repo-matrix-uat',
+          ledger_summary: expect.objectContaining({
+            status: 'REPO_MATRIX_PASS',
+            cell_count: 16
+          })
+        })
+      ])
+    );
+    expect(releaseEvidenceAuditExitCode(report)).toBe(0);
+  });
+
+  it('accepts release-grade real reviewer provenance in downloaded P4 evidence', async () => {
+    const root = await tempRoot();
+    await writeValidCiEvidence(root);
+    await writeLedger(
+      root,
+      'adversary-live-uat',
+      'real-reviewer-adversary-run',
+      adversaryLedger({
+        adversary_reviewer: buildCommandAdversaryReviewerProvenance({
+          realLlm: true,
+          reviewReport: {
+            reviewer_provider: 'openai',
+            same_model_review: false,
+            prompt_version: 'adversary-review-v1',
+            prompt_hash: 'sha256:reviewer',
+            accepted_proposal_count: 1
+          }
+        })
+      }),
+      new Date('2030-01-01T00:00:00.000Z')
+    );
+    await writeManifest(
+      root,
+      'adversary-live-uat',
+      'real-reviewer-adversary-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          gate: 'P4',
+          ok: true,
+          ledger_summary: expect.objectContaining({
+            adversary_reviewer: expect.objectContaining({
+              kind: 'adversary_review_command',
+              real_llm: true,
+              provider: 'openai',
+              proposal_source: 'accepted_review_proposal',
+              accepted_proposal_count: 1
+            })
+          })
+        })
+      ])
+    );
+  });
+
+  it('can audit every release evidence scenario when requested', async () => {
+    const root = await tempRoot();
+    await writeValidAllReleaseEvidence(root);
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      allReleaseEvidence: true
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.scope).toBe('all-release-evidence');
+    expect(report.required_scenarios).toHaveLength(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.length
+    );
+    expect(report.audit_summary).toEqual(
+      expect.objectContaining({
+        required_count: ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.length,
+        passed_count: ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.length,
+        failed_count: 0,
+        copied_integrity_checked_count:
+          ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.length
+      })
+    );
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          gate: 'P3',
+          ok: true,
+          scenario: 'skill-real-user-codex-live-uat',
+          ledger_summary: expect.objectContaining({
+            status: 'REAL_USER_RUN_PASS'
+          })
+        }),
+        expect.objectContaining({
+          gate: 'P5',
+          ok: true,
+          scenario: 'repo-matrix-python-codex-live-uat',
+          ledger_summary: expect.objectContaining({
+            status: 'PYTHON_LIVE_REPRESENTATIVE_PASS'
+          })
+        }),
+        expect.objectContaining({
+          gate: 'P5',
+          ok: true,
+          scenario: 'repo-matrix-monorepo-codex-live-uat',
+          ledger_summary: expect.objectContaining({
+            status: 'MONOREPO_LIVE_REPRESENTATIVE_PASS'
+          })
+        })
+      ])
+    );
+  });
+
+  it('can audit a custom scenario subset without requiring default CI gates', async () => {
+    const root = await tempRoot();
+    await writeLedger(
+      root,
+      'skill-real-user-codex-live-uat',
+      'codex-live-run',
+      simplePassLedger('REAL_USER_RUN_PASS')
+    );
+    await writeManifest(
+      root,
+      'skill-real-user-codex-live-uat',
+      'codex-live-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['skill-real-user-codex-live-uat']
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.scope).toBe('custom');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P3',
+        scenario: 'skill-real-user-codex-live-uat',
+        expected_status: 'REAL_USER_RUN_PASS'
+      })
+    ]);
+    expect(report.audit_summary).toEqual(
+      expect.objectContaining({
+        required_count: 1,
+        passed_count: 1,
+        failed_count: 0,
+        copied_integrity_checked_count: 1
+      })
+    );
+  });
+
+  it('rejects unknown or conflicting audit scenario selection', () => {
+    expect(() =>
+      selectReleaseEvidenceAuditScenarios({
+        scenarioNames: ['missing-scenario']
+      })
+    ).toThrow('unknown scenario: missing-scenario');
+    expect(() =>
+      selectReleaseEvidenceAuditScenarios({
+        allReleaseEvidence: true,
+        scenarioNames: ['repo-matrix-uat']
+      })
+    ).toThrow('--all-release-evidence cannot be combined with --scenario');
+  });
+
+  it('discovers unmerged GitHub artifact directories under a download root', async () => {
+    const parent = await tempRoot();
+    const postgresRoot = path.join(parent, 'postgres-contract-evidence-1');
+    const adversaryRoot = path.join(parent, 'adversary-live-evidence-1');
+    const matrixRoot = path.join(parent, 'uat-evidence-1');
+
+    await writeLedger(
+      postgresRoot,
+      'postgres-contract-uat',
+      'postgres-run',
+      postgresLedger()
+    );
+    await writeManifest(postgresRoot, 'postgres-contract-uat', 'postgres-run');
+    await writeLedger(
+      adversaryRoot,
+      'adversary-live-uat',
+      'adversary-run',
+      adversaryLedger()
+    );
+    await writeManifest(adversaryRoot, 'adversary-live-uat', 'adversary-run');
+    await writeLedger(
+      matrixRoot,
+      'repo-matrix-uat',
+      'matrix-run',
+      matrixLedger()
+    );
+    await writeManifest(matrixRoot, 'repo-matrix-uat', 'matrix-run');
+
+    await expect(discoverEvidenceRoots([parent])).resolves.toEqual(
+      [adversaryRoot, postgresRoot, matrixRoot].sort()
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [parent]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.evidence_roots).toEqual(
+      [adversaryRoot, postgresRoot, matrixRoot].sort()
+    );
+  });
+
+  it('fails P4 when a downloaded adversary artifact weakens safety evidence', async () => {
+    const root = await tempRoot();
+    await writeValidCiEvidence(root);
+    await writeLedger(
+      root,
+      'adversary-live-uat',
+      'unsafe-adversary-run',
+      adversaryLedger({
+        safety: {
+          ...adversarySafetyLedger().safety,
+          host_execution_allowed: true
+        }
+      }),
+      new Date('2030-01-01T00:00:00.000Z')
+    );
+    await writeManifest(root, 'adversary-live-uat', 'unsafe-adversary-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.failed_gates).toEqual(['P4']);
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          gate: 'P4',
+          ok: false,
+          status: 'invalid_ledger',
+          ledger_failures: expect.arrayContaining([
+            'adversary_safety.host_execution_allowed'
+          ])
+        })
+      ])
+    );
+    expect(releaseEvidenceAuditExitCode(report)).toBe(1);
+  });
+
+  it('fails P4 when a downloaded attack scenario allows current-loop impact', async () => {
+    const root = await tempRoot();
+    await writeValidCiEvidence(root);
+    const weakenedAttackScenarios = attackScenarios();
+    weakenedAttackScenarios.results[0] = {
+      ...weakenedAttackScenarios.results[0],
+      live_required: false,
+      current_loop_impact: 'current_loop_accept',
+      pr_created: true,
+      promotion_allowed: true,
+      blocked: false
+    };
+    await writeLedger(
+      root,
+      'adversary-live-uat',
+      'impact-adversary-run',
+      adversaryLedger({
+        attack_scenarios: weakenedAttackScenarios
+      }),
+      new Date('2030-01-01T00:00:00.000Z')
+    );
+    await writeManifest(root, 'adversary-live-uat', 'impact-adversary-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.failed_gates).toEqual(['P4']);
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          gate: 'P4',
+          ok: false,
+          status: 'invalid_ledger',
+          ledger_failures: expect.arrayContaining([
+            'attack_scenarios.test_weakening.live_required',
+            'attack_scenarios.test_weakening.current_loop_impact',
+            'attack_scenarios.test_weakening.pr_created',
+            'attack_scenarios.test_weakening.promotion_allowed',
+            'attack_scenarios.test_weakening.blocked'
+          ])
+        })
+      ])
+    );
+    expect(releaseEvidenceAuditExitCode(report)).toBe(1);
+  });
+
+  it('fails P4 when downloaded reviewer provenance overclaims real LLM review', async () => {
+    const root = await tempRoot();
+    await writeValidCiEvidence(root);
+    await writeLedger(
+      root,
+      'adversary-live-uat',
+      'reviewer-overclaim-run',
+      adversaryLedger({
+        adversary_reviewer: {
+          ...buildControlledAdversaryReviewerProvenance(),
+          real_llm: true,
+          current_loop_decision_impact: 'accept'
+        }
+      }),
+      new Date('2030-01-01T00:00:00.000Z')
+    );
+    await writeManifest(root, 'adversary-live-uat', 'reviewer-overclaim-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.failed_gates).toEqual(['P4']);
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          gate: 'P4',
+          ok: false,
+          status: 'invalid_ledger',
+          ledger_failures: expect.arrayContaining([
+            'adversary_reviewer.real_llm',
+            'adversary_reviewer.current_loop_decision_impact'
+          ])
+        })
+      ])
+    );
+    expect(releaseEvidenceAuditExitCode(report)).toBe(1);
+  });
+
+  it('fails when a downloaded artifact manifest hash does not match the copied file', async () => {
+    const root = await tempRoot();
+    await writeValidCiEvidence(root);
+    await writeLedger(
+      root,
+      'repo-matrix-uat',
+      'tampered-matrix-run',
+      matrixLedger(),
+      new Date('2030-01-01T00:00:00.000Z')
+    );
+    await writeManifest(root, 'repo-matrix-uat', 'tampered-matrix-run', {
+      copied: [
+        {
+          kind: 'ledger',
+          bundle_path: 'ledger.json',
+          sha256: 'f'.repeat(64),
+          size_bytes: 1
+        }
+      ]
+    });
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.failed_gates).toEqual(['P5']);
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          gate: 'P5',
+          ok: false,
+          status: 'invalid_manifest',
+          manifest_failures: expect.arrayContaining([
+            'copied[0].size_bytes',
+            'copied[0].sha256'
+          ])
+        })
+      ])
+    );
+  });
+});

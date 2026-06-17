@@ -72,10 +72,36 @@ export interface EvalReportVerifier {
 export interface EvalReportTrustSummary {
   deterministic_authority?: string | undefined;
   advisory_findings_count?: number | undefined;
+  optional_gate_errors_count?: number | undefined;
   provenance_verified?: boolean | undefined;
   hidden_acceptance_status?: string | undefined;
   verifier_status?: string | undefined;
   human_review_reason_code?: string | null | undefined;
+}
+
+export interface EvalReportRulepackSemantic {
+  file: string;
+  lock_hash?: string | null | undefined;
+  source_loop_id?: string | null | undefined;
+  current_loop_id?: string | null | undefined;
+  image?: string | undefined;
+  network?: string | undefined;
+  status: 'pass' | 'fail' | 'error';
+  total: number;
+  passed: number;
+  artifact_ref?: string | null | undefined;
+  results: Array<{
+    rule_id: string;
+    status: 'pass' | 'fail' | 'error';
+    expected: string;
+    actual: string;
+    summary: string;
+  }>;
+  errors: Array<{
+    code: string;
+    message: string;
+    rule_id?: string | undefined;
+  }>;
 }
 
 export interface EvalReport {
@@ -95,6 +121,7 @@ export interface EvalReport {
   provenance?: EvalReportProvenance | undefined;
   verifier?: EvalReportVerifier | undefined;
   trust_summary?: EvalReportTrustSummary | undefined;
+  rulepack_semantic?: EvalReportRulepackSemantic[] | undefined;
   artifact_refs: string[];
   summary?: string | undefined;
 }
@@ -115,6 +142,7 @@ export interface BuildEvalReportOptions {
   provenance: EvalReportProvenance;
   provenanceVerified?: boolean | undefined;
   verifier?: EvalReportVerifier | undefined;
+  rulepackSemantic?: EvalReportRulepackSemantic[] | undefined;
   artifactRefs?: string[] | undefined;
 }
 
@@ -123,7 +151,9 @@ export function sha256Text(value: string): string {
 }
 
 export async function sha256File(filePath: string): Promise<string> {
-  return createHash('sha256').update(await readFile(filePath)).digest('hex');
+  return createHash('sha256')
+    .update(await readFile(filePath))
+    .digest('hex');
 }
 
 export function emptySha256(): string {
@@ -147,7 +177,9 @@ export async function hashArtifactRefs(
   refs: readonly (string | null | undefined)[]
 ): Promise<Record<string, string>> {
   const entries: Array<[string, string]> = [];
-  for (const ref of [...new Set(refs.filter((entry): entry is string => Boolean(entry)))].sort()) {
+  for (const ref of [
+    ...new Set(refs.filter((entry): entry is string => Boolean(entry)))
+  ].sort()) {
     const absolutePath = path.join(artifactRoot, ref);
     const hash = await sha256File(absolutePath).catch(() => 'missing');
     entries.push([ref, hash]);
@@ -165,8 +197,12 @@ export async function verifyEvalReportProvenance(
   if (!report.provenance) {
     return false;
   }
-  for (const [ref, expectedHash] of Object.entries(report.provenance.gate_artifact_hashes)) {
-    const actualHash = await sha256File(path.join(artifactRoot, ref)).catch(() => 'missing');
+  for (const [ref, expectedHash] of Object.entries(
+    report.provenance.gate_artifact_hashes
+  )) {
+    const actualHash = await sha256File(path.join(artifactRoot, ref)).catch(
+      () => 'missing'
+    );
     if (actualHash !== expectedHash) {
       return false;
     }
@@ -199,6 +235,53 @@ export async function verifyCandidatePatchHash(
   return actual === report.provenance.candidate_patch_hash;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isRulepackSemanticEntry(
+  value: unknown
+): value is EvalReportRulepackSemantic {
+  return (
+    isRecord(value) &&
+    typeof value.file === 'string' &&
+    (value.status === 'pass' ||
+      value.status === 'fail' ||
+      value.status === 'error') &&
+    typeof value.total === 'number' &&
+    typeof value.passed === 'number' &&
+    Array.isArray(value.results) &&
+    Array.isArray(value.errors)
+  );
+}
+
+export async function collectRulepackSemanticReports(
+  artifactRoot: string,
+  gateRuns: readonly GateReportEntry[]
+): Promise<EvalReportRulepackSemantic[]> {
+  const entries: EvalReportRulepackSemantic[] = [];
+  for (const gate of gateRuns) {
+    if (
+      gate.command !== 'builtin:rulepack-semantic' ||
+      typeof gate.stdout_ref !== 'string'
+    ) {
+      continue;
+    }
+    const parsed = JSON.parse(
+      await readFile(path.join(artifactRoot, gate.stdout_ref), 'utf8')
+    ) as unknown;
+    const semantic = isRecord(parsed)
+      ? isRecord(parsed.details)
+        ? parsed.details.rulepack_semantic
+        : undefined
+      : undefined;
+    if (isRulepackSemanticEntry(semantic)) {
+      entries.push({ ...semantic, artifact_ref: gate.stdout_ref });
+    }
+  }
+  return entries;
+}
+
 export function localVerifierFromDecision(options: {
   policy?: 'local' | 'strict' | undefined;
   decision: Decision;
@@ -226,7 +309,8 @@ export function localVerifierFromDecision(options: {
       decision: null,
       required_gates: [],
       artifact_ref: null,
-      summary: 'strict verifier policy requires a CI eval-report artifact before accept'
+      summary:
+        'strict verifier policy requires a CI eval-report artifact before accept'
     });
   }
 
@@ -284,9 +368,13 @@ function collectArtifactRefs(options: BuildEvalReportOptions): string[] {
 }
 
 function hiddenAcceptanceStatus(gates: readonly GateReportEntry[]): string {
-  const hidden = gates.filter((gate) => gate.group === 'hidden_acceptance' || gate.type === 'hidden_acceptance');
+  const hidden = gates.filter(
+    (gate) =>
+      gate.group === 'hidden_acceptance' || gate.type === 'hidden_acceptance'
+  );
   if (hidden.length === 0) return 'not_configured';
-  if (hidden.some((gate) => gate.status === 'fail' || gate.status === 'error')) return 'failed';
+  if (hidden.some((gate) => gate.status === 'fail' || gate.status === 'error'))
+    return 'failed';
   if (hidden.some((gate) => gate.status === 'skipped')) return 'skipped';
   return 'passed';
 }
@@ -294,7 +382,8 @@ function hiddenAcceptanceStatus(gates: readonly GateReportEntry[]): string {
 function verifierStatus(verifier: EvalReportVerifier | undefined): string {
   if (!verifier) return 'not_configured';
   if (verifier.mismatch) return 'mismatch';
-  if (verifier.lanes.some((lane) => lane.status !== 'pass')) return 'incomplete';
+  if (verifier.lanes.some((lane) => lane.status !== 'pass'))
+    return 'incomplete';
   return 'passed';
 }
 
@@ -329,15 +418,19 @@ export function verifierHasMismatch(verifier: EvalReportVerifier): boolean {
 }
 
 function trustSummary(options: BuildEvalReportOptions): EvalReportTrustSummary {
+  const optionalGateErrors = options.gateRuns.filter(
+    (gate) => !gate.required && gate.status === 'error'
+  );
   return {
     deterministic_authority: 'decision_engine',
     advisory_findings_count: options.advisoryFindings?.length ?? 0,
+    optional_gate_errors_count: optionalGateErrors.length,
     provenance_verified: options.provenanceVerified ?? true,
     hidden_acceptance_status: hiddenAcceptanceStatus(options.gateRuns),
     verifier_status: verifierStatus(options.verifier),
     human_review_reason_code:
       options.decision === 'needs_human_review'
-        ? options.decisionReasons[0]?.code ?? null
+        ? (options.decisionReasons[0]?.code ?? null)
         : null
   };
 }
@@ -364,6 +457,9 @@ export function buildEvalReport(options: BuildEvalReportOptions): EvalReport {
     provenance: options.provenance,
     ...(options.verifier ? { verifier: options.verifier } : {}),
     trust_summary: trustSummary(options),
+    ...(options.rulepackSemantic && options.rulepackSemantic.length > 0
+      ? { rulepack_semantic: options.rulepackSemantic }
+      : {}),
     artifact_refs: collectArtifactRefs(options)
   };
 

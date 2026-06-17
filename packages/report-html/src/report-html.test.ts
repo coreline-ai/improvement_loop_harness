@@ -118,6 +118,21 @@ describe('renderReportHtml', () => {
     }
   );
 
+  it('escapes dynamic text used in the HTML title', () => {
+    const report = baseEvalReport('accept');
+    report.loop_id = '</title><script>alert(1)</script>';
+    const html = renderReportHtml({
+      evalReport: report,
+      gateReport: gateReport(report.loop_id),
+      manifest: manifest(report.loop_id)
+    });
+
+    expect(html).not.toContain('</title><script>');
+    expect(html).toContain(
+      '&lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;'
+    );
+  });
+
   it('writes a file:// loadable report.html without external network requests', async () => {
     const runRoot = await mkdtemp(
       path.join(os.tmpdir(), 'vibeloop-report-html-')

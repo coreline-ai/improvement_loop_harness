@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { EXIT_CODES, runOnce } from '@vibeloop/sdk';
+import { EXIT_CODES, isPrCandidate, runOnce } from '@vibeloop/sdk';
 
 interface RunCommandOptions {
   repo: string;
@@ -81,9 +81,11 @@ export function registerRunCommand(program: Command): void {
               status: result.status,
               decision: result.decision ?? null,
               qualified: result.qualified,
-              // PR candidacy requires correctness (accept) AND the deterministic
-              // quality gate. Identical predicate across CLI/Skill/server.
-              pr_candidate: result.decision === 'accept' && result.qualified,
+              pr_candidate: isPrCandidate({
+                decision: result.decision ?? null,
+                allPass: result.decision === 'accept',
+                qualified: result.qualified
+              }),
               report: result.reportPath ?? null,
               artifact_root: result.artifactRoot
             },

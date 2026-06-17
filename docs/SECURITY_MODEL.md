@@ -125,8 +125,11 @@ ANTHROPIC_API_KEY
 GITHUB_TOKEN
 AWS_*
 DATABASE_URL(production)
+*_URL / *_DSN / *_ENDPOINT 중 credential-bearing 가능 키
 .env contents
 ```
+
+`VIBELOOP_*` 키도 예외적으로 모두 안전하다고 보지 않는다. agent env scrubber는 token/secret/password/auth 계열뿐 아니라 URL/DSN/ENDPOINT 계열 키도 제거한다. 입력 artifact의 `env-snapshot.json`은 재현 가능한 key 목록과 `values_redacted=true`만 저장하며, env value map을 저장하지 않는다.
 
 ### 5.1 LLM Credential 주입 — localhost reverse proxy
 
@@ -196,6 +199,22 @@ if protected path touched:
 - PR 생성은 harness server가 수행한다.
 - token scope는 repo 단위 fine-grained 권한만 사용한다.
 - `contents: write`, `pull requests: write` 외 권한은 기본 금지다.
+
+### 9.1 Server Agent Execution Surface
+
+서버 API의 `agent_spec`은 신뢰 입력이 아니다. 단일 bearer token을 가진 호출자가 builder agent 종류를 임의로 바꿔 host shell을 실행하지 못하게 서버 정책으로 제한한다.
+
+```text
+- 허용 기본값: codex, mock:*
+- allowlist 밖 agent_spec: 400 AGENT_SPEC_NOT_ALLOWED
+- retry 경로도 이전 loop의 agent_spec을 현재 서버 정책으로 재검증한다.
+- VIBELOOP_AGENT_SPEC 기본값도 서버 시작 시 같은 정책으로 검증한다.
+- command: agent는 server API 경로에서 비활성이다.
+  R1 격리형 command-agent adapter(network none + scrubbed env + bounded artifacts)가
+  별도로 배선되기 전까지 VIBELOOP_ALLOW_COMMAND_AGENT/allowlist로도 열지 않는다.
+```
+
+`command:`는 로컬 CLI/UAT 하네스에서 신뢰한 사용자가 직접 실행하는 escape hatch로만 남긴다. production/autonomous server에서는 builder agent 실행 표면을 `codex` 또는 테스트용 `mock:*`로 좁히며, 실제 프로젝트 명령은 eval `execution.isolation` 정책을 따른다.
 
 ## 10. Autonomous Loop Guardrails (MVP-4)
 

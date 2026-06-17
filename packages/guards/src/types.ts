@@ -30,6 +30,7 @@ export interface GuardCheckResult {
   code?: string | undefined;
   summary: string;
   violations: GuardViolation[];
+  details?: Record<string, unknown> | undefined;
 }
 
 export interface WriteScope {

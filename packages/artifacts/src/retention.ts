@@ -23,6 +23,11 @@ export interface DeletedRunRecord {
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+function archiveSegment(value: string): string {
+  const safe = value.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+  return safe.length > 0 ? safe : 'unknown';
+}
+
 export function retentionDaysForDecision(decision: string): number {
   switch (decision) {
     case 'accept':
@@ -64,6 +69,29 @@ async function findManifestPaths(root: string): Promise<string[]> {
   return results.flat();
 }
 
+async function readManifestFile(
+  manifestPath: string
+): Promise<RunManifest | null> {
+  try {
+    return JSON.parse(await readFile(manifestPath, 'utf8')) as RunManifest;
+  } catch {
+    return null;
+  }
+}
+
+function isCollectableExpiredManifest(
+  manifest: RunManifest,
+  now: Date
+): boolean {
+  if (manifest.status === 'running' || manifest.audit_keep === true) {
+    return false;
+  }
+  if (!manifest.expires_at) {
+    return false;
+  }
+  return new Date(manifest.expires_at).getTime() <= now.getTime();
+}
+
 export async function collectExpired(
   root: string,
   now = new Date()
@@ -72,13 +100,8 @@ export async function collectExpired(
   const expired: ExpiredRun[] = [];
 
   for (const manifestPath of manifestPaths) {
-    const manifest = JSON.parse(
-      await readFile(manifestPath, 'utf8')
-    ) as RunManifest;
-    if (!manifest.expires_at) {
-      continue;
-    }
-    if (new Date(manifest.expires_at).getTime() > now.getTime()) {
+    const manifest = await readManifestFile(manifestPath);
+    if (!manifest || !isCollectableExpiredManifest(manifest, now)) {
       continue;
     }
 
@@ -96,10 +119,10 @@ export function deletedRunArchiveDir(
   return path.resolve(
     root,
     'projects',
-    manifest.project_id,
+    archiveSegment(manifest.project_id),
     'gc',
     'deleted-runs',
-    manifest.loop_id
+    archiveSegment(manifest.loop_id)
   );
 }
 
@@ -107,8 +130,17 @@ export async function deleteExpiredRun(
   root: string,
   expired: ExpiredRun,
   deletedAt = new Date()
-): Promise<DeletedRunRecord> {
-  const archiveDir = deletedRunArchiveDir(root, expired.manifest);
+): Promise<DeletedRunRecord | null> {
+  const latestManifest = await readManifestFile(expired.manifestPath);
+  if (
+    !latestManifest ||
+    !isCollectableExpiredManifest(latestManifest, deletedAt)
+  ) {
+    return null;
+  }
+
+  const refreshed = { ...expired, manifest: latestManifest };
+  const archiveDir = deletedRunArchiveDir(root, refreshed.manifest);
   const preservedManifestPath = path.join(
     archiveDir,
     'preserved-manifest.json'
@@ -117,27 +149,27 @@ export async function deleteExpiredRun(
   await mkdir(archiveDir, { recursive: true });
   await writeFile(
     preservedManifestPath,
-    `${JSON.stringify(expired.manifest, null, 2)}\n`
+    `${JSON.stringify(refreshed.manifest, null, 2)}\n`
   );
 
   const record: DeletedRunRecord = {
     schema_version: '1.0',
-    loop_id: expired.manifest.loop_id,
-    project_id: expired.manifest.project_id,
-    status: expired.manifest.status,
-    ...(expired.manifest.decision
-      ? { decision: expired.manifest.decision }
+    loop_id: refreshed.manifest.loop_id,
+    project_id: refreshed.manifest.project_id,
+    status: refreshed.manifest.status,
+    ...(refreshed.manifest.decision
+      ? { decision: refreshed.manifest.decision }
       : {}),
-    ...(expired.manifest.expires_at
-      ? { expires_at: expired.manifest.expires_at }
+    ...(refreshed.manifest.expires_at
+      ? { expires_at: refreshed.manifest.expires_at }
       : {}),
-    run_root: expired.runRoot,
-    manifest_path: expired.manifestPath,
+    run_root: refreshed.runRoot,
+    manifest_path: refreshed.manifestPath,
     preserved_manifest_path: preservedManifestPath,
     deleted_at: deletedAt.toISOString()
   };
   await writeFile(deletionRecordPath, `${JSON.stringify(record, null, 2)}\n`);
-  await rm(expired.runRoot, { recursive: true, force: true });
+  await rm(refreshed.runRoot, { recursive: true, force: true });
   return record;
 }
 
@@ -148,7 +180,8 @@ export async function deleteExpiredRuns(
   const expired = await collectExpired(root, now);
   const records: DeletedRunRecord[] = [];
   for (const run of expired) {
-    records.push(await deleteExpiredRun(root, run, now));
+    const record = await deleteExpiredRun(root, run, now);
+    if (record) records.push(record);
   }
   return records;
 }

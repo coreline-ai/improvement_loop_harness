@@ -45,11 +45,15 @@ For `user_issue`, it creates exactly one task/eval pair and returns a
 `vibeloop orchestrate` command. The runner forwards core PR-candidate publish
 flags (`--promote-branch`, `--github-draft-pr`, GitHub repo/token/base/branch
 and title options) and generated-eval safety flags (`--eval-artifact-leak`,
-`--eval-forbidden-literal`, `--eval-rulepack-lock`, `--eval-hidden-test`) so the
+`--eval-forbidden-literal`, `--eval-rulepack-lock`,
+`--eval-rulepack-semantic`, `--eval-hidden-test`) so the
 natural-language Skill route does not drop the core hardening options. Passing
 `--execute` runs the generated command and embeds the parsed deterministic CLI
 result. The runner is a Skill-layer routing helper only; accept/reject/selection
-still come from VibeLoop reports.
+still come from VibeLoop reports. For an existing orchestrate eval, apply a
+frozen semantic gate with the core CLI `--carry-rulepack <lock>
+--carry-rulepack-image <image>` path; for a single improve loop use
+`--rulepack-semantic <lock> --rulepack-semantic-image <image>`.
 
 ## Live Skill prompt UAT
 
@@ -75,7 +79,7 @@ VIBELOOP_UAT_KEEP_TMP=1 VIBELOOP_UAT_KEEP_REMOTE=1 pnpm uat:skill-loop:codex-liv
 VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-live:strict-best
 
 # Broad RU-3 strict-best proof lane: auto-discovery + verbose comparator + real Codex challenger.
-# R13 confirmed controlled full improvement PASS; hidden/adversary semantic gates remain future work.
+# R13 confirmed controlled full improvement PASS; rulepack semantic core exists, live adversary/broad corpus remain future work.
 VIBELOOP_UAT_KEEP_TMP=1 VIBELOOP_UAT_KEEP_REMOTE=1 pnpm uat:skill-loop:codex-live:orchestrate-strict-best
 ```
 
@@ -146,11 +150,13 @@ node packages/cli/bin/vibeloop --data-dir .vibeloop orchestrate \
   --eval-scan-patch \
   --eval-redact-gate-logs \
   --eval-rulepack-lock policy/rulepack.lock.json \
+  --eval-rulepack-semantic policy/rulepack.lock.json \
+  --eval-rulepack-semantic-image node:22-alpine \
   --eval-hidden-test hidden_cart=/secure/hidden/cart.hidden.cjs:tests/hidden/cart.hidden.cjs:"node tests/hidden/cart.hidden.cjs" \
   --agent 'command:<builder>'
 ```
 
-`--generate-eval` creates only a minimal visible-test contract from detected package scripts or `--eval-command`. The `--eval-artifact-leak` options add deterministic leak policy guards to the generated eval. `--eval-rulepack-lock <path>` adds a `builtin:rulepack-lock` lock/provenance gate and `rulepack_lock` config for a pre-existing frozen next-loop rulepack; relative lock paths are added to `protected_paths`. `--eval-hidden-test name=source:target:command` adds an explicit hidden acceptance test whose source is supplied by the operator and copied into the worktree only during verification. It still does not invent hidden/adversary tests, broad M4 replay corpora, or project semantic policy; M2-confirmed proposal replay corpus generation is handled by `adversary-rulepack-replay-corpus`.
+`--generate-eval` creates only a minimal visible-test contract from detected package scripts or `--eval-command`. The `--eval-artifact-leak` options add deterministic leak policy guards to the generated eval. `--eval-rulepack-lock <path>` adds a `builtin:rulepack-lock` lock/provenance gate and `rulepack_lock` config for a pre-existing frozen next-loop rulepack; relative lock paths are added to `protected_paths`. `--eval-rulepack-semantic <path> --eval-rulepack-semantic-image <image>` adds a required `builtin:rulepack-semantic` gate that executes hash-bound frozen rule specs in R1 isolation and fails closed on same-loop application, missing runtime, hash mismatch, or artifact leak. If an eval already exists, use `orchestrate --carry-rulepack <path> --carry-rulepack-image <image>` instead; it writes an overlay eval without changing the source eval file. `--eval-hidden-test name=source:target:command` adds an explicit hidden acceptance test whose source is supplied by the operator and copied into the worktree only during verification. It still does not invent hidden/adversary tests, broad M4 replay corpora, or project semantic policy; M2-confirmed proposal replay corpus generation is handled by `adversary-rulepack-replay-corpus`.
 
 `--promote-branch` gives local cumulative apply + rediscovery. Adding `--github-draft-pr` publishes stacked draft PR branches from the selected/final-verified patches. R11 proves the same orchestrate path with real Codex and a real GitHub repo for verification; do not call it full autonomous improvement until strict best-fix fields are true.
 
@@ -241,7 +247,7 @@ node packages/cli/bin/vibeloop adversary-rulepack-candidate \
   --out adversary-rulepack-candidate.json
 ```
 
-`adversary-rulepack-candidate` is candidate-only: `authority=candidate_only`, `decision_impact=none`, and `next_step=m4_replay_freeze_required`. It rejects dry-run or unconfirmed M2 reports. Do not use this artifact as a fixed gate. Even after M4 replay/freeze, the current implementation provides a frozen lock/provenance gate; semantic execution of frozen rule bodies as a next-loop quality gate is still future policy/rule runner work.
+`adversary-rulepack-candidate` is candidate-only: `authority=candidate_only`, `decision_impact=none`, and `next_step=m4_replay_freeze_required`. It rejects dry-run or unconfirmed M2 reports. Do not use this artifact as a fixed gate. After M4 replay/freeze, use `orchestrate --generate-eval --eval-rulepack-semantic <lock> --eval-rulepack-semantic-image <image>`, `orchestrate --carry-rulepack <lock> --carry-rulepack-image <image>`, or `improve --rulepack-semantic <lock> --rulepack-semantic-image <image>` on a later loop to execute frozen rule bodies as a required next-loop quality gate; this still does not affect the current loop accept.
 
 After a real executed M2 confirmation is converted into a rulepack candidate,
 you can generate an operator-reviewable replay corpus from the confirmed
@@ -289,7 +295,9 @@ node packages/cli/bin/vibeloop adversary-rulepack-freeze \
   --out adversary-rulepack-freeze.json
 ```
 
-`adversary-rulepack-freeze` writes `authority=fixed_next_loop_gate` / `decision_impact=next_loop_only` only when the candidate is append-only, M4 replay is safe, and the rules did not affect the current loop. It rejects `--applied-to-current-loop`, replay-unsafe, or mutated/non-append-only candidates. A frozen rulepack is still a next-loop lock/provenance artifact; current-loop `decision` and `selected_candidate_id` remain unchanged. Semantic execution of frozen rule bodies as a next-loop quality gate is future policy/rule runner work.
+`adversary-rulepack-freeze` writes `authority=fixed_next_loop_gate` / `decision_impact=next_loop_only` only when the candidate is append-only, M4 replay is safe, and the rules did not affect the current loop. It rejects `--applied-to-current-loop`, replay-unsafe, missing source loop metadata, or mutated/non-append-only candidates. A frozen rulepack is still a next-loop artifact; current-loop `decision` and `selected_candidate_id` remain unchanged. `builtin:rulepack-semantic` executes its frozen rule specs only as a later-loop required gate and fails closed on same-loop application, unavailable runtime, hash mismatch, or artifact leak.
+
+Use `vibeloop rulepack inspect <frozen.json>` before wiring a lock into a next loop. It reports lock validity, executable rule count, and `semantic_ready`; invalid locks exit nonzero.
 
 ## Quality gate and PR candidate
 

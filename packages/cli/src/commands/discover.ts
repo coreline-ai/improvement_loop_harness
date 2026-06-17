@@ -1,7 +1,7 @@
 import { access } from 'node:fs/promises';
 import path from 'node:path';
 import type { Command } from 'commander';
-import { discoverCandidates } from '@vibeloop/discovery';
+import { discoverCandidatesWithReport } from '@vibeloop/discovery';
 import { loadEvalConfig, type EvalConfig } from '@vibeloop/task-protocol';
 
 interface DiscoverCommandOptions {
@@ -29,6 +29,7 @@ async function configForDiscovery(options: DiscoverCommandOptions): Promise<Eval
     : {
         schema_version: '1.0',
         project: 'cli-discovery',
+        execution: { isolation: 'none' },
         gates: []
       } satisfies EvalConfig;
 
@@ -60,7 +61,16 @@ export function registerDiscoverCommand(program: Command): void {
     .option('--security-command <command>', 'override security scan discovery command')
     .action(async (options: DiscoverCommandOptions) => {
       const evalConfig = await configForDiscovery(options);
-      const candidates = await discoverCandidates({ repoPath: options.repo, evalConfig });
-      console.log(JSON.stringify({ candidates }, null, 2));
+      const result = await discoverCandidatesWithReport({
+        repoPath: options.repo,
+        evalConfig
+      });
+      console.log(
+        JSON.stringify(
+          { candidates: result.candidates, discovery_report: result.report },
+          null,
+          2
+        )
+      );
     });
 }

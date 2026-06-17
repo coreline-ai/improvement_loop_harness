@@ -24,6 +24,12 @@ import {
   buildCodexOAuthCommand,
   startCodexOAuthProxy
 } from '../../packages/agent-adapters/dist/index.js';
+import {
+  shouldPruneUatTmp,
+  writeUatEvidenceBundle,
+  writeUatEvidenceLedger
+} from './evidence-bundle.mjs';
+import { tokenBudgetCliArgs, tokenBudgetLedger } from './token-budget.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -36,6 +42,7 @@ const model = process.env.VIBELOOP_UAT_MODEL || 'gpt-5.5';
 const reasoningEffort = process.env.VIBELOOP_UAT_REASONING_EFFORT || 'xhigh';
 const owner = process.env.VIBELOOP_UAT_GITHUB_OWNER || 'coreline-ai';
 const keepRemote = process.env.VIBELOOP_UAT_KEEP_REMOTE === '1';
+const pruneTmp = shouldPruneUatTmp();
 const HIDDEN = 'SECRET_HIDDEN_EXPECTATION';
 
 function run(command, args, options = {}) {
@@ -61,13 +68,24 @@ async function git(cwd, args) {
   return r.stdout;
 }
 function blocked(reason, details = {}) {
-  console.log(JSON.stringify({ status: 'blocked', reason, ...details }, null, 2));
+  console.log(
+    JSON.stringify({ status: 'blocked', reason, ...details }, null, 2)
+  );
   process.exitCode = 20;
 }
 function parseCliJson(stdout) {
   const i = stdout.indexOf('{');
   if (i < 0) throw new Error(`no JSON: ${stdout.slice(0, 300)}`);
   return JSON.parse(stdout.slice(i));
+}
+function redact(text) {
+  return String(text)
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/g, 'Bearer [REDACTED]')
+    .replace(
+      /(access_token|refresh_token|api_key|OPENAI_API_KEY|GITHUB_TOKEN|password)\s*[:=]\s*[^\s"']+/gi,
+      '$1=[REDACTED]'
+    )
+    .replaceAll(HIDDEN, '[REDACTED_HIDDEN]');
 }
 
 async function main() {
@@ -77,7 +95,10 @@ async function main() {
   // service_tier override: the user's config.toml may pin an unsupported tier;
   // matches the proven codex-oauth UAT login check.
   const login = await run('codex', [
-    '-c', 'service_tier=fast', 'login', 'status'
+    '-c',
+    'service_tier=fast',
+    'login',
+    'status'
   ]);
   const loginText = `${login.stdout}${login.stderr}`;
   if (login.code !== 0 || !/Logged in/i.test(loginText))
@@ -104,16 +125,29 @@ async function main() {
     await git(localRepo, ['config', 'user.email', 'realuser@example.test']);
     await git(localRepo, ['config', 'user.name', 'VibeLoop Real User']);
     await git(localRepo, ['add', '-A']);
-    await git(localRepo, ['commit', '-m', 'seed: real cart-quantity bug + base-failing test']);
+    await git(localRepo, [
+      'commit',
+      '-m',
+      'seed: real cart-quantity bug + base-failing test'
+    ]);
     const baseCommit = (await git(localRepo, ['rev-parse', 'HEAD'])).trim();
 
     // --- 2) create GitHub repo + push buggy base ---
     const created = await run('gh', [
-      'repo', 'create', fullRepo, '--private', '--source', localRepo,
-      '--remote', 'origin', '--push'
+      'repo',
+      'create',
+      fullRepo,
+      '--private',
+      '--source',
+      localRepo,
+      '--remote',
+      'origin',
+      '--push'
     ]);
     if (created.code !== 0)
-      return blocked('GH_REPO_CREATE_FAILED', { stderr: created.stderr.trim() });
+      return blocked('GH_REPO_CREATE_FAILED', {
+        stderr: created.stderr.trim()
+      });
 
     // --- 3) Codex OAuth proxy + real codex agent spec ---
     proxy = await startCodexOAuthProxy({
@@ -130,23 +164,41 @@ async function main() {
       reasoningEffort,
       requiresOpenaiAuth: true
     });
+    const tokenBudgetArgs = tokenBudgetCliArgs(proxy.baseUrl);
 
     // --- 4) improve: builder + challenger, both real codex ---
     const cli = await run(process.execPath, [
       path.join(repoRoot, 'packages/cli/bin/vibeloop'),
-      '--data-dir', dataDir, 'improve',
-      '--repo', localRepo,
-      '--task', path.join(scenarioRoot, 'task.yaml'),
-      '--eval', path.join(scenarioRoot, 'eval.yaml'),
-      '--agent', agentSpec,
-      '--challenger', agentSpec,
-      '--project-id', 'realuser-live',
-      '--loop-id', `realuser-live-${tag}`,
-      '--base-commit', baseCommit,
+      '--data-dir',
+      dataDir,
+      'improve',
+      '--repo',
+      localRepo,
+      '--task',
+      path.join(scenarioRoot, 'task.yaml'),
+      '--eval',
+      path.join(scenarioRoot, 'eval.yaml'),
+      '--agent',
+      agentSpec,
+      '--challenger',
+      agentSpec,
+      '--project-id',
+      'realuser-live',
+      '--loop-id',
+      `realuser-live-${tag}`,
+      '--base-commit',
+      baseCommit,
+      ...tokenBudgetArgs,
       '--skip-dependency-install'
     ]);
-    await writeFile(path.join(tmpRoot, 'improve.stdout.log'), cli.stdout);
-    await writeFile(path.join(tmpRoot, 'improve.stderr.log'), cli.stderr);
+    await writeFile(
+      path.join(tmpRoot, 'improve.stdout.log'),
+      redact(cli.stdout)
+    );
+    await writeFile(
+      path.join(tmpRoot, 'improve.stderr.log'),
+      redact(cli.stderr)
+    );
     const out = parseCliJson(cli.stdout);
 
     // --- 5) verify selected + PR predicate (report-based) ---
@@ -159,7 +211,10 @@ async function main() {
       const rep = JSON.parse(await readFile(out.selected_report, 'utf8'));
       selectedDecision = rep.decision ?? null;
       selectedReason = rep.decision_reasons?.[0]?.code ?? null;
-      const qPath = path.join(path.dirname(out.selected_report), 'quality-report.json');
+      const qPath = path.join(
+        path.dirname(out.selected_report),
+        'quality-report.json'
+      );
       const quality = existsSync(qPath)
         ? JSON.parse(await readFile(qPath, 'utf8'))
         : null;
@@ -184,24 +239,41 @@ async function main() {
       await git(localRepo, ['checkout', '-b', branch, baseCommit]);
       await git(localRepo, ['apply', out.selected_patch]);
       await git(localRepo, ['add', '-A']);
-      await git(localRepo, ['commit', '-m', 'vibeloop: real-codex verified fix (cart quantity)']);
+      await git(localRepo, [
+        'commit',
+        '-m',
+        'vibeloop: real-codex verified fix (cart quantity)'
+      ]);
       await git(localRepo, ['push', '-u', 'origin', branch]);
       const pr = await run('gh', [
-        'pr', 'create', '--repo', fullRepo, '--draft',
-        '--base', 'main', '--head', branch,
-        '--title', '[VibeLoop] real-codex verified fix: cart quantity',
+        'pr',
+        'create',
+        '--repo',
+        fullRepo,
+        '--draft',
+        '--base',
+        'main',
+        '--head',
+        branch,
+        '--title',
+        '[VibeLoop] real-codex verified fix: cart quantity',
         '--body',
         `Generated by a real Codex (${model}) builder and selected by the deterministic Arbiter.\nVerified: accept / ALL_PASS / qualified. Opened by skill-real-user-codex-live-uat.`
       ]);
-      prUrl = pr.code === 0 ? pr.stdout.trim() : `pr_create_failed: ${pr.stderr.trim()}`;
+      prUrl =
+        pr.code === 0
+          ? pr.stdout.trim()
+          : `pr_create_failed: ${pr.stderr.trim()}`;
     }
 
     const ledger = {
       status: prCandidate ? 'REAL_USER_RUN_PASS' : 'REAL_USER_RUN_NO_PR',
       scenario: 'skill-real-user-codex-live-uat',
       mode: 'user-specified (cart-quantity contract)',
-      orchestrator: 'claude-code session (read SKILL.md, reused cart-quantity task/eval)',
+      orchestrator:
+        'claude-code session (read SKILL.md, reused cart-quantity task/eval)',
       builder: { real_llm: true, model, via: 'chatgpt-oauth-proxy' },
+      token_budget: tokenBudgetLedger(),
       github: {
         repo: fullRepo,
         url: `https://github.com/${fullRepo}`,
@@ -226,9 +298,51 @@ async function main() {
       leak: leak ? 1 : 0,
       cli_exit: cli.code,
       proxy_auth_header_seen: proxy?.stats?.auth_header_seen ?? null,
-      evidence: { selection_report: out.selection_report, selected_report: out.selected_report, tmp_root: tmpRoot }
+      evidence: {
+        selection_report: out.selection_report,
+        selected_report: out.selected_report,
+        tmp_root: tmpRoot
+      }
     };
-    if (JSON.stringify(ledger).includes(HIDDEN)) throw new Error('hidden sentinel leaked to output');
+    const evidenceBundle = await writeUatEvidenceBundle({
+      scenario: ledger.scenario,
+      runId: `realuser-live-${tag}`,
+      tmpRoot,
+      dataDir,
+      output: out,
+      proxyStats: proxy?.stats,
+      extraFiles: [
+        {
+          label: 'improve_stdout',
+          path: path.join(tmpRoot, 'improve.stdout.log')
+        },
+        {
+          label: 'improve_stderr',
+          path: path.join(tmpRoot, 'improve.stderr.log')
+        }
+      ],
+      extraJson: {
+        github: ledger.github,
+        verification: {
+          pr_candidate: prCandidate,
+          selected_decision: selectedDecision,
+          selected_reason: selectedReason,
+          quality_met: qualityMet
+        }
+      }
+    });
+    ledger.evidence = {
+      ...ledger.evidence,
+      evidence_bundle: evidenceBundle.bundle_dir,
+      evidence_manifest: evidenceBundle.manifest_path,
+      evidence_ledger: path.join(evidenceBundle.bundle_dir, 'ledger.json'),
+      evidence_copied_count: evidenceBundle.copied_count,
+      evidence_missing_count: evidenceBundle.missing_count,
+      tmp_prune_requested: pruneTmp
+    };
+    await writeUatEvidenceLedger(evidenceBundle, ledger);
+    if (JSON.stringify(ledger).includes(HIDDEN))
+      throw new Error('hidden sentinel leaked to output');
     console.log(JSON.stringify(ledger, null, 2));
     if (!prCandidate) process.exitCode = 1;
   } finally {
@@ -236,10 +350,13 @@ async function main() {
     // cleanup: delete needs delete_repo scope; fall back to archive.
     if (!keepRemote) {
       const del = await run('gh', ['repo', 'delete', fullRepo, '--yes']);
-      if (del.code !== 0) await run('gh', ['repo', 'archive', fullRepo, '--yes']);
+      if (del.code !== 0)
+        await run('gh', ['repo', 'archive', fullRepo, '--yes']);
     }
-    if (process.env.VIBELOOP_UAT_KEEP_TMP !== '1')
-      await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+    if (pruneTmp)
+      await rm(tmpRoot, { recursive: true, force: true }).catch(
+        () => undefined
+      );
   }
 }
 

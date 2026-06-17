@@ -55,6 +55,8 @@ evaluator:
 #   forbidden_literals:
 #     - label: prior_issue_id
 #       value: REPLACE_WITH_A_RECOVERABLE_MARKER
+execution:
+  isolation: none
 gates:
   - name: git_meta_integrity
     type: integrity

@@ -15,22 +15,43 @@ import type { ImprovementCandidateRecord, Store } from '../types.js';
 const DEFAULT_MAX_PROPOSED = 50;
 const VALID_SOURCES = new Set<CandidateSource>(['test_failure', 'typecheck', 'lint', 'security_scan', 'manual']);
 
-async function createCandidateIfNew(store: Store, input: DiscoveryCandidate & { projectId: string }): Promise<ImprovementCandidateRecord> {
+function isDuplicateCandidateFingerprintError(
+  error: unknown,
+  projectId: string,
+  fingerprint: string
+): boolean {
+  return (
+    error instanceof Error &&
+    error.message ===
+      `candidate fingerprint already exists for project ${projectId}: ${fingerprint}`
+  );
+}
+
+export async function createCandidateIfNew(store: Store, input: DiscoveryCandidate & { projectId: string }): Promise<ImprovementCandidateRecord> {
   const existing = await store.findCandidateByFingerprint(input.projectId, input.fingerprint);
   if (existing) return existing;
-  return store.createCandidate({
-    projectId: input.projectId,
-    source: input.source,
-    fingerprint: input.fingerprint,
-    title: input.title,
-    evidenceRefs: input.evidenceRefs,
-    riskAreaHint: input.riskAreaHint ?? null,
-    trustLevel: input.trustLevel ?? trustLevelForSource(input.source),
-    injectionIndicators: input.injectionIndicators ?? [],
-    reproCommand: input.reproCommand ?? null,
-    priority: input.priority,
-    status: input.status
-  });
+  try {
+    return await store.createCandidate({
+      projectId: input.projectId,
+      source: input.source,
+      fingerprint: input.fingerprint,
+      title: input.title,
+      evidenceRefs: input.evidenceRefs,
+      riskAreaHint: input.riskAreaHint ?? null,
+      trustLevel: input.trustLevel ?? trustLevelForSource(input.source),
+      injectionIndicators: input.injectionIndicators ?? [],
+      reproCommand: input.reproCommand ?? null,
+      priority: input.priority,
+      status: input.status
+    });
+  } catch (error) {
+    if (!isDuplicateCandidateFingerprintError(error, input.projectId, input.fingerprint)) {
+      throw error;
+    }
+    const raced = await store.findCandidateByFingerprint(input.projectId, input.fingerprint);
+    if (raced) return raced;
+    throw error;
+  }
 }
 
 function manualCandidate(projectId: string, body: Record<string, unknown>): DiscoveryCandidate & { projectId: string } {

@@ -4,26 +4,26 @@
 
 검증 레벨은 3단계다. 위에서 아래로 갈수록 신뢰도가 높아진다.
 
-| 레벨 | 무엇을 | 네트워크 | 소요 |
-| --- | --- | --- | --- |
-| L1 자동 | UAT/회귀 통과 여부 | 불필요 | ~30s |
-| L2 산출물 수동 | selection report·patch·branch·누설 직접 확인 | 불필요 | ~3min |
-| L3 GitHub 실무 | 임시 repo에 draft PR까지 | 필요(`gh`) | ~2min |
-| 확장 | 내 repo/이슈에 직접 적용 | 선택 | — |
+| 레벨           | 무엇을                                       | 네트워크   | 소요  |
+| -------------- | -------------------------------------------- | ---------- | ----- |
+| L1 자동        | UAT/회귀 통과 여부                           | 불필요     | ~30s  |
+| L2 산출물 수동 | selection report·patch·branch·누설 직접 확인 | 불필요     | ~3min |
+| L3 GitHub 실무 | 임시 repo에 draft PR까지                     | 필요(`gh`) | ~2min |
+| 확장           | 내 repo/이슈에 직접 적용                     | 선택       | —     |
 
 ---
 
 ## 0. 사전 준비
 
-- Node.js `>=22`, `pnpm install` 완료
+- Node.js `>=22`, `corepack pnpm install` 완료
 - (L3만) `gh` 로그인: `gh auth status`
 
 ```bash
 cd <repo-root>     # improvement_loop_harness
-pnpm build
+corepack pnpm build
 ```
 
-> 빌드는 각 `pnpm uat:*` / `pnpm test:*` 스크립트가 자동으로 한 번 더 수행한다. 수동 산출물 검증(L2) 전에는 위처럼 한 번 미리 빌드해 둔다.
+> 빌드는 각 `corepack pnpm uat:*` / `corepack pnpm test:*` 스크립트가 자동으로 한 번 더 수행한다. 수동 산출물 검증(L2) 전에는 위처럼 한 번 미리 빌드해 둔다.
 
 ---
 
@@ -32,7 +32,7 @@ pnpm build
 ### L1-1. UAT 실행
 
 ```bash
-pnpm uat:skill-loop:self-improvement
+corepack pnpm uat:skill-loop:self-improvement
 ```
 
 stdout JSON의 아래 필드가 정확히 일치해야 한다(핵심만 발췌).
@@ -49,19 +49,33 @@ stdout JSON의 아래 필드가 정확히 일치해야 한다(핵심만 발췌).
   "artifactRootsUnique": true,
   "acceptedCommitsUnique": true,
   "progression": [
-    { "issueId": "skill-loop-cart-quantity",
+    {
+      "issueId": "skill-loop-cart-quantity",
       "selectedCandidateId": "siloop-001-cart-quantity-c1",
-      "builderScore": 68, "selectedScore": 84, "scoreImprovement": 16,
-      "builderChangedFiles": 3, "selectedChangedFiles": 2,
-      "summaryNextAction": "prepare_pr_candidate", "contextIsolated": true },
-    { "issueId": "skill-loop-sku-normalization",
+      "builderScore": 68,
+      "selectedScore": 84,
+      "scoreImprovement": 16,
+      "builderChangedFiles": 3,
+      "selectedChangedFiles": 2,
+      "summaryNextAction": "prepare_pr_candidate",
+      "contextIsolated": true
+    },
+    {
+      "issueId": "skill-loop-sku-normalization",
       "selectedCandidateId": "siloop-002-sku-normalization-c1",
-      "builderScore": 68, "selectedScore": 84, "scoreImprovement": 16,
-      "summaryNextAction": "prepare_pr_candidate", "contextIsolated": true }
+      "builderScore": 68,
+      "selectedScore": 84,
+      "scoreImprovement": 16,
+      "summaryNextAction": "prepare_pr_candidate",
+      "contextIsolated": true
+    }
   ],
   "adversarial": {
-    "candidateCount": 2, "acceptedCount": 0,
-    "selectedCandidateId": null, "allRejected": true, "prCandidateBlocked": true
+    "candidateCount": 2,
+    "acceptedCount": 0,
+    "selectedCandidateId": null,
+    "allRejected": true,
+    "prCandidateBlocked": true
   },
   "branches": [
     "main",
@@ -75,14 +89,14 @@ stdout JSON의 아래 필드가 정확히 일치해야 한다(핵심만 발췌).
 한 줄 판정:
 
 ```bash
-pnpm uat:skill-loop:self-improvement 2>/dev/null \
+corepack pnpm uat:skill-loop:self-improvement 2>/dev/null \
   | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const ok=j.status==="SELF_IMPROVE_PASS"&&j.everyIterationImproved&&j.adversarial.prCandidateBlocked&&j.progression.every(p=>p.scoreImprovement>0&&p.selectedCandidateId.endsWith("-c1"));console.log(ok?"PASS":"FAIL");process.exit(ok?0:1)})'
 ```
 
 ### L1-2. 회귀(e2e) 실행
 
 ```bash
-pnpm test:skill-loop:self-improvement
+corepack pnpm test:skill-loop:self-improvement
 # Test Files 1 passed (1) / Tests 1 passed (1)
 ```
 
@@ -111,11 +125,27 @@ node -e 'const j=require(process.argv[1]);console.log(JSON.stringify({selected:j
 기대:
 
 ```jsonc
-{ "selected": "siloop-001-cart-quantity-c1",
+{
+  "selected": "siloop-001-cart-quantity-c1",
   "candidates": [
-    { "id": "...-c0", "decision": "accept", "qualified": true, "score": 68, "files": 3, "lines": 17 },  // verbose builder
-    { "id": "...-c1", "decision": "accept", "qualified": true, "score": 84, "files": 2, "lines": 6 }   // tight challenger ← 선택
-  ] }
+    {
+      "id": "...-c0",
+      "decision": "accept",
+      "qualified": true,
+      "score": 68,
+      "files": 3,
+      "lines": 17
+    }, // verbose builder
+    {
+      "id": "...-c1",
+      "decision": "accept",
+      "qualified": true,
+      "score": 84,
+      "files": 2,
+      "lines": 6
+    } // tight challenger ← 선택
+  ]
+}
 ```
 
 확인 포인트: **두 후보 모두 정답(accept·qualified)인데 더 작은 diff(c1)가 선택**되고, 선택 점수(84) > 초기 builder 점수(68). 이것이 "같은 정답을 더 나은 방향으로 개선"의 결정론적 증거다. sku 이슈도 동일:
@@ -185,9 +215,20 @@ rm -rf "$TMP"
 검증된 patch를 실제 임시 private GitHub repo에 **draft PR**로 올려 실사용 흐름까지 확인한다.
 
 ```bash
-gh auth status                                   # 로그인 확인
-VIBELOOP_UAT_GITHUB=1 pnpm uat:skill-loop:self-improvement
+corepack pnpm uat:live-preflight                         # codex/gh/corepack pnpm 확인
+VIBELOOP_UAT_GITHUB=1 corepack pnpm uat:skill-loop:self-improvement
 ```
+
+`uat:live-preflight`는 live Codex/GitHub UAT 전에 실행환경을 먼저 판정한다. 필수 항목은 `codex --version`, `codex -c service_tier=fast login status`, `gh auth status`, `corepack pnpm --version`이며, 필수 항목 실패는 테스트 실패가 아니라 **blocked(exit 20)** 로 끝난다. 현재 검증된 복구 절차는 다음과 같다.
+
+```bash
+npm install -g --prefix ~/.local/node @openai/codex@0.139.0
+codex --version
+codex -c service_tier=fast login status
+corepack pnpm uat:live-preflight
+```
+
+기대: `codex-cli 0.139.0`, `Logged in using ChatGPT`, preflight JSON `status=pass`, `required_failures=[]`. 직접 `pnpm` shim이 없다는 경고(`pnpm_shim`)는 `corepack pnpm`이 통과하면 필수 실패가 아니다.
 
 stdout의 `github` 블록 기대:
 
@@ -214,10 +255,10 @@ gh pr list --repo "$REPO" --state all --json number,title,isDraft,headRefName
 
 옵션 환경 변수:
 
-| 변수 | 효과 |
-| --- | --- |
-| `VIBELOOP_UAT_GITHUB=1` | GitHub 게시 단계 활성화 |
-| `VIBELOOP_UAT_KEEP_REMOTE=1` | 정리(삭제/archive) 건너뛰고 repo 보존 |
+| 변수                                | 효과                                    |
+| ----------------------------------- | --------------------------------------- |
+| `VIBELOOP_UAT_GITHUB=1`             | GitHub 게시 단계 활성화                 |
+| `VIBELOOP_UAT_KEEP_REMOTE=1`        | 정리(삭제/archive) 건너뛰고 repo 보존   |
 | `VIBELOOP_UAT_GITHUB_OWNER=<owner>` | 대상 계정/조직 변경(기본 `coreline-ai`) |
 
 정리: 토큰에 `delete_repo` 스코프가 있으면 UAT가 자동 hard delete. 없으면 archive(read-only)로 중화하므로, 완전 삭제는 수동으로:
@@ -229,19 +270,120 @@ gh repo delete "$REPO" --yes
 
 ---
 
+## L4. Live Codex UAT 증거 번들 확인
+
+실 Codex/GitHub UAT(`uat:skill-loop:codex-*`)는 기본으로 감사 증거를 내구 경로에 복사한다. `VIBELOOP_UAT_KEEP_TMP=1`을 붙이지 않아도 stdout ledger의 `evidence.evidence_bundle`이 `~/.vibeloop/uat-evidence/<scenario>/<run-id>/`를 가리켜야 한다.
+
+```bash
+corepack pnpm uat:live-preflight
+OUT=$(corepack pnpm uat:skill-loop:codex-live 2>/dev/null)
+BUNDLE=$(printf '%s' "$OUT" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).evidence.evidence_bundle))')
+MANIFEST="$BUNDLE/uat-evidence-manifest.json"
+test -f "$MANIFEST" && echo "$MANIFEST"
+```
+
+필수 확인:
+
+```bash
+node -e 'const j=require(process.argv[1]);console.log({copied:j.copied.length,missing:j.missing.length,proxy:j.proxy_stats_ref,ledger:j.ledger_ref})' "$MANIFEST"
+find "$BUNDLE/reports" -maxdepth 1 -type f
+find "$BUNDLE/runs" -maxdepth 6 -name manifest.json -print
+test -f "$BUNDLE/proxy/proxy-stats.json"
+test -f "$BUNDLE/ledger.json"
+```
+
+운영 옵션:
+
+| 변수                              | 효과                                                        |
+| --------------------------------- | ----------------------------------------------------------- |
+| `VIBELOOP_UAT_EVIDENCE_DIR=<dir>` | evidence bundle 기본 위치를 바꿈(CI artifact 업로드용 권장) |
+| `VIBELOOP_UAT_PRUNE=1`            | evidence bundle을 만든 뒤 임시 `tmp_root`를 삭제            |
+| `VIBELOOP_UAT_KEEP_TMP=1`         | 하위 호환 override. `PRUNE=1`과 같이 있어도 tmp를 보존      |
+
+복사된 run manifest에는 `audit_keep: true`가 들어가므로 retention 스캔 대상 루트에 evidence directory를 넣어도 감사 run이 보호된다.
+
+---
+
+## L5. Adversary Live 전제 확인
+
+M2/M4 live adversary와 `builtin:rulepack-semantic` live 검증은 미신뢰 테스트를 R1 격리 컨테이너에서 실행해야 한다. 이 전제는 일반 Codex/GitHub live preflight와 분리해서 확인한다.
+
+```bash
+corepack pnpm uat:adversary-live-preflight
+corepack pnpm uat:adversary-live
+```
+
+기대:
+
+- Docker-compatible runtime이 있으면 preflight는 `status=pass`, `uat:adversary-live`는 controlled command adversary proposal을 M2 격리 confirm → M4 replay → freeze → N+1 `builtin:rulepack-semantic` good/pass bad/fail까지 실행한다.
+- 현재 머신처럼 `docker`가 없으면 둘 다 `status=blocked`, `reason=CONTAINER_RUNTIME_UNAVAILABLE`, exit 20. 이 경우 P4 live adversary PASS를 선언하지 않는다.
+
+---
+
+## L6. Controlled Repo Matrix 확인
+
+P5 controlled corpus는 실제 외부 프로젝트가 아니라, toolchain·구조·상태를 대표하는 임시 git repo 셀을 생성해 `vibeloop discover`와 `vibeloop run`/`improve`를 돌린다. 결과는 PASS/blocked/unsupported로만 해석한다.
+
+```bash
+corepack pnpm uat:repo-matrix
+```
+
+기대:
+
+- `status=REPO_MATRIX_PASS`
+- `cell_count=10`, `pass_count=8`, `blocked_count=1`, `unsupported_count=1`, `fail_count=0`
+- `dirty-worktree`는 `dirty_source_guard`로 blocked
+- `network-restricted-r1`은 현재 머신처럼 Docker가 없으면 `unsupported`
+- stdout의 `evidence_bundle` 아래 `ledger.json`과 각 supported cell의 `eval-report.json`이 남는다.
+
+최근 확인 evidence:
+
+```text
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-uat/repo-matrix-63259-1781497152210/ledger.json
+```
+
+대표 셀을 실제 Codex + GitHub draft PR lane으로 승격할 때는 별도 live UAT를 실행한다. 이 명령은 private GitHub repo를 만들고, 실 Codex builder/challenger를 ChatGPT OAuth proxy로 실행하며, hidden acceptance/final reverify 통과 후 draft PR만 만든다.
+
+```bash
+VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:repo-matrix:codex-python-live
+VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:repo-matrix:codex-monorepo-live
+```
+
+기대:
+
+- Python: `status=PYTHON_LIVE_REPRESENTATIVE_PASS`
+- Monorepo: `status=MONOREPO_LIVE_REPRESENTATIVE_PASS`
+- `builder.real_llm=true`, `proxy_auth_header_seen=true`
+- GitHub PR은 `OPEN` + `draft`, base=`main`
+- Python 변경 파일은 `src/cart.py`, `tests/test_cart_quantity.py`
+- Monorepo 변경 파일은 `packages/cart/src/index.cjs`, `packages/cart/tests/cart-quantity.test.cjs`; `packages/catalog/`는 변경되지 않아야 한다.
+- `final_verification.passed=true`, hidden acceptance pass, `github.main_unchanged=true`
+- evidence bundle은 `repo-matrix-*-codex-live-uat/<run-id>/ledger.json`과 candidate/reverify run manifest(`audit_keep=true`)를 포함한다.
+
+최근 확인 evidence:
+
+```text
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-python-codex-live-uat/python-realuser-live-89436-1781498088975/ledger.json
+https://github.com/coreline-ai/vibeloop-python-live-89436-1781498088975/pull/1
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-monorepo-codex-live-uat/monorepo-realuser-live-34325-1781499102895/ledger.json
+https://github.com/coreline-ai/vibeloop-monorepo-live-34325-1781499102895/pull/1
+```
+
+---
+
 ## 검증 체크리스트 (claim → 확인 → 기대)
 
-| # | 주장 | 확인 위치 | 기대 |
-| --- | --- | --- | --- |
-| 1 | 루프가 이슈 큐를 순차 진행하고 정상 종료 | UAT `stopReason` | `issue_queue_exhausted` |
-| 2 | 매 이슈마다 자가개선이 더 나은 방향 | `progression[*].scoreImprovement` | `> 0` (68→84, +16) |
-| 3 | 더 나은 후보를 결정론적으로 선택 | selection report `selected_candidate_id` | challenger(`-c1`) |
-| 4 | 후보 선택이 LLM이 아님 | Arbiter 점수 = `evidence*100 - files*5 - lines` | 고정 공식 |
-| 5 | 통과 후 다음 이슈로 반복 | `acceptedIssueCount` / branches | `2` / pr-candidate 2개 |
-| 6 | 컨텍스트 격리 | `progression[*].contextIsolated` | `true` |
-| 7 | 나쁜 풀은 통과 0 | `adversarial.prCandidateBlocked` | `true` (selected=null) |
-| 8 | hidden/secret 무누설 | `grep SECRET_HIDDEN_EXPECTATION` | 없음 |
-| 9 | 실사용 PR까지 | `github.openDraftPrCount` (L3) | `2` |
+| #   | 주장                                     | 확인 위치                                       | 기대                    |
+| --- | ---------------------------------------- | ----------------------------------------------- | ----------------------- |
+| 1   | 루프가 이슈 큐를 순차 진행하고 정상 종료 | UAT `stopReason`                                | `issue_queue_exhausted` |
+| 2   | 매 이슈마다 자가개선이 더 나은 방향      | `progression[*].scoreImprovement`               | `> 0` (68→84, +16)      |
+| 3   | 더 나은 후보를 결정론적으로 선택         | selection report `selected_candidate_id`        | challenger(`-c1`)       |
+| 4   | 후보 선택이 LLM이 아님                   | Arbiter 점수 = `evidence*100 - files*5 - lines` | 고정 공식               |
+| 5   | 통과 후 다음 이슈로 반복                 | `acceptedIssueCount` / branches                 | `2` / pr-candidate 2개  |
+| 6   | 컨텍스트 격리                            | `progression[*].contextIsolated`                | `true`                  |
+| 7   | 나쁜 풀은 통과 0                         | `adversarial.prCandidateBlocked`                | `true` (selected=null)  |
+| 8   | hidden/secret 무누설                     | `grep SECRET_HIDDEN_EXPECTATION`                | 없음                    |
+| 9   | 실사용 PR까지                            | `github.openDraftPrCount` (L3)                  | `2`                     |
 
 ---
 
@@ -272,13 +414,13 @@ vibeloop improve \
 
 ## 트러블슈팅
 
-| 증상 | 원인 | 조치 |
-| --- | --- | --- |
-| UAT가 stderr로 실패 | 빌드 누락/오염된 stdout | `pnpm build` 후 재실행 |
-| `github.reason = gh_not_authenticated` | `gh` 미로그인 | `gh auth login` 후 재실행(core UAT는 그대로 통과) |
-| `remoteDeleted=false, remoteArchived=true` | 토큰에 `delete_repo` 없음 | `gh auth refresh -s delete_repo` 후 수동 삭제 |
-| `git apply --3way` 실패(L3) | 대상 트리 불일치 | 임시 publish repo가 fixture base와 동일해야 함(자동) |
-| 선택이 `-c0`(verbose) | Arbiter 가중치/agent 변경 | `agent-candidate.cjs`의 verbose가 더 큰 diff인지 확인 |
+| 증상                                       | 원인                      | 조치                                                  |
+| ------------------------------------------ | ------------------------- | ----------------------------------------------------- |
+| UAT가 stderr로 실패                        | 빌드 누락/오염된 stdout   | `corepack pnpm build` 후 재실행                                |
+| `github.reason = gh_not_authenticated`     | `gh` 미로그인             | `gh auth login` 후 재실행(core UAT는 그대로 통과)     |
+| `remoteDeleted=false, remoteArchived=true` | 토큰에 `delete_repo` 없음 | `gh auth refresh -s delete_repo` 후 수동 삭제         |
+| `git apply --3way` 실패(L3)                | 대상 트리 불일치          | 임시 publish repo가 fixture base와 동일해야 함(자동)  |
+| 선택이 `-c0`(verbose)                      | Arbiter 가중치/agent 변경 | `agent-candidate.cjs`의 verbose가 더 큰 diff인지 확인 |
 
 ## 관련 파일
 

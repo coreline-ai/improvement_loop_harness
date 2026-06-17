@@ -12,6 +12,7 @@ import {
 import type { EvidenceResult } from './evidence.js';
 import {
   buildEvalReport,
+  collectRulepackSemanticReports,
   fallbackProvenance,
   hashArtifactRefs,
   localVerifierFromDecision,
@@ -87,13 +88,13 @@ describe('decision rules', () => {
     expect(DECISION_RULES.map((rule) => rule.code)).toEqual([
       REASON_CODES.NO_CHANGED_FILES,
       REASON_CODES.GUARD_GIT_META_TAMPER,
+      REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH,
       REASON_CODES.GUARD_PROTECTED_PATH,
       REASON_CODES.META_EVAL_REQUIRED,
       REASON_CODES.GUARD_SCOPE_VIOLATION,
       REASON_CODES.GUARD_TEST_INTEGRITY,
       REASON_CODES.GUARD_ARTIFACT_LEAK,
       REASON_CODES.GUARD_LIMIT_EXCEEDED,
-      REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH,
       REASON_CODES.GATE_REQUIRED_FAILED,
       REASON_CODES.EVIDENCE_MISSING,
       REASON_CODES.EVIDENCE_INCONCLUSIVE,
@@ -129,6 +130,25 @@ describe('decision rules', () => {
     expect(result.reasons[0]?.code).toBe(REASON_CODES.GUARD_ARTIFACT_LEAK);
   });
 
+  it('does not accept when no required gates are configured', () => {
+    const result = decide(
+      input({
+        gateRuns: [
+          gate({
+            required: false,
+            name: 'advisory_only',
+            type: 'advisory',
+            command: 'node advisory.js'
+          })
+        ]
+      })
+    );
+
+    expect(result.decision).toBe('needs_more_tests');
+    expect(result.reasons[0]?.code).toBe(REASON_CODES.EVIDENCE_INCONCLUSIVE);
+    expect(result.reasons[0]?.message).toContain('No required gates');
+  });
+
   it.each<[string, Partial<DecideInput>, string, ReasonCode]>([
     ['rule 1', { changedFiles: [] }, 'reject', REASON_CODES.NO_CHANGED_FILES],
     [
@@ -149,12 +169,18 @@ describe('decision rules', () => {
     ],
     [
       'rule 3',
+      { provenanceVerified: false },
+      'reject',
+      REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH
+    ],
+    [
+      'rule 4',
       { changedFiles: [changedFile({ path: '.env.local', protected: true })] },
       'reject',
       REASON_CODES.GUARD_PROTECTED_PATH
     ],
     [
-      'rule 4',
+      'rule 5',
       {
         changedFiles: [changedFile({ path: 'eval.yaml', protected: true })],
         metaEvaluationEnabled: true,
@@ -164,7 +190,7 @@ describe('decision rules', () => {
       REASON_CODES.META_EVAL_REQUIRED
     ],
     [
-      'rule 5',
+      'rule 6',
       {
         changedFiles: [
           changedFile({ path: 'outside.ts', allowedByWriteScope: false })
@@ -174,7 +200,7 @@ describe('decision rules', () => {
       REASON_CODES.GUARD_SCOPE_VIOLATION
     ],
     [
-      'rule 6',
+      'rule 7',
       {
         gateRuns: [
           gate({
@@ -190,7 +216,7 @@ describe('decision rules', () => {
       REASON_CODES.GUARD_TEST_INTEGRITY
     ],
     [
-      'rule 7',
+      'rule 9',
       {
         gateRuns: [
           gate({
@@ -206,13 +232,7 @@ describe('decision rules', () => {
       REASON_CODES.GUARD_LIMIT_EXCEEDED
     ],
     [
-      'rule 8',
-      { provenanceVerified: false },
-      'reject',
-      REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH
-    ],
-    [
-      'rule 9',
+      'rule 10',
       {
         gateRuns: [gate({ name: 'unit_tests', status: 'fail', exit_code: 1 })]
       },
@@ -220,19 +240,19 @@ describe('decision rules', () => {
       REASON_CODES.GATE_REQUIRED_FAILED
     ],
     [
-      'rule 10',
+      'rule 11',
       { improvementEvidence: [evidence({ status: 'missing' })] },
       'reject',
       REASON_CODES.EVIDENCE_MISSING
     ],
     [
-      'rule 11',
+      'rule 12',
       { improvementEvidence: [evidence({ status: 'inconclusive' })] },
       'needs_more_tests',
       REASON_CODES.EVIDENCE_INCONCLUSIVE
     ],
     [
-      'rule 12',
+      'rule 13',
       {
         risk: {
           areas: ['auth'],
@@ -244,12 +264,12 @@ describe('decision rules', () => {
       REASON_CODES.RISK_HUMAN_APPROVAL
     ],
     [
-      'rule 13',
+      'rule 14',
       { verifierMismatch: true },
       'needs_human_review',
       REASON_CODES.VERIFIER_MISMATCH
     ],
-    ['rule 14', {}, 'accept', REASON_CODES.ALL_PASS]
+    ['rule 15', {}, 'accept', REASON_CODES.ALL_PASS]
   ])(
     '%s returns expected decision and reason code',
     (_name, overrides, expectedDecision, expectedCode) => {
@@ -260,7 +280,7 @@ describe('decision rules', () => {
     }
   );
 
-  it('uses rule 5 before a simultaneous required gate failure', () => {
+  it('uses scope violation before a simultaneous required gate failure', () => {
     const result = decide(
       input({
         changedFiles: [
@@ -272,6 +292,47 @@ describe('decision rules', () => {
 
     expect(result.decision).toBe('reject');
     expect(result.reasons[0]?.code).toBe(REASON_CODES.GUARD_SCOPE_VIOLATION);
+  });
+
+  it('uses provenance mismatch before guard results derived from untrusted artifacts', () => {
+    const result = decide(
+      input({
+        provenanceVerified: false,
+        gateRuns: [
+          gate({
+            name: 'limits',
+            type: 'integrity',
+            command: 'builtin:limits',
+            status: 'fail',
+            exit_code: 1
+          })
+        ]
+      })
+    );
+
+    expect(result.decision).toBe('reject');
+    expect(result.reasons[0]?.code).toBe(
+      REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH
+    );
+  });
+
+  it('does not classify project commands that merely mention limits as builtin limit failures', () => {
+    const result = decide(
+      input({
+        gateRuns: [
+          gate({
+            name: 'check_rate_limits',
+            type: 'task_acceptance',
+            command: 'npm run check-rate-limits',
+            status: 'fail',
+            exit_code: 1
+          })
+        ]
+      })
+    );
+
+    expect(result.decision).toBe('reject');
+    expect(result.reasons[0]?.code).toBe(REASON_CODES.GATE_REQUIRED_FAILED);
   });
 
   it('is deterministic across repeated invocations for the same input', () => {
@@ -339,6 +400,39 @@ describe('eval-report', () => {
     });
   });
 
+  it('records optional gate errors as trust summary signals without changing the decision', () => {
+    const decision = decide(input());
+    const report = buildEvalReport({
+      loopId: 'loop-optional-error',
+      taskId: 'task-optional-error',
+      projectId: 'proj-optional-error',
+      baseCommit: 'abc123',
+      decision: decision.decision,
+      decisionReasons: decision.reasons,
+      changedFiles: [changedFile()],
+      gateRuns: [
+        gate(),
+        gate({
+          name: 'optional_timeout',
+          type: 'hard',
+          required: false,
+          status: 'error',
+          exit_code: null,
+          summary: 'gate timed out',
+          stdout_ref: 'logs/gates/optional_timeout.stdout.log',
+          stderr_ref: 'logs/gates/optional_timeout.stderr.log'
+        })
+      ],
+      improvementEvidence: [evidence()],
+      risk: { areas: [], human_approval_required: false, reason: 'none' },
+      provenance: fallbackProvenance(),
+      provenanceVerified: true
+    });
+
+    expect(report.decision).toBe('accept');
+    expect(report.trust_summary?.optional_gate_errors_count).toBe(1);
+  });
+
   it('verifies gate artifact provenance hashes and rejects mutated artifacts', async () => {
     const artifactRoot = await mkdtemp(
       path.join(os.tmpdir(), 'vibeloop-provenance-')
@@ -372,6 +466,107 @@ describe('eval-report', () => {
         schema_version: '1.1',
         provenance
       })
+    ).resolves.toBe(false);
+  });
+
+  it('records rulepack semantic verdicts in eval-report and binds their gate log provenance', async () => {
+    const artifactRoot = await mkdtemp(
+      path.join(os.tmpdir(), 'vibeloop-rulepack-provenance-')
+    );
+    await mkdir(path.join(artifactRoot, 'logs/gates'), { recursive: true });
+    const semanticRef = 'logs/gates/rulepack_semantic.stdout.log';
+    await writeFile(
+      path.join(artifactRoot, semanticRef),
+      `${JSON.stringify(
+        {
+          status: 'pass',
+          summary: 'rulepack semantic gate passed 1/1 rule(s)',
+          violations: [],
+          details: {
+            rulepack_semantic: {
+              file: 'policy/rulepack.lock.json',
+              lock_hash: 'sha256:abc',
+              source_loop_id: 'loop-n',
+              current_loop_id: 'loop-n-plus-one',
+              image: 'node:22-alpine',
+              network: 'none',
+              status: 'pass',
+              total: 1,
+              passed: 1,
+              results: [
+                {
+                  rule_id: 'rule-value-edge',
+                  status: 'pass',
+                  expected: 'pass',
+                  actual: 'pass',
+                  summary: 'command exited 0'
+                }
+              ],
+              errors: []
+            }
+          }
+        },
+        null,
+        2
+      )}\n`
+    );
+    await writeFile(
+      path.join(artifactRoot, 'logs/gates/rulepack_semantic.stderr.log'),
+      ''
+    );
+    const semanticGate = gate({
+      name: 'rulepack_semantic',
+      type: 'integrity',
+      command: 'builtin:rulepack-semantic',
+      stdout_ref: semanticRef,
+      stderr_ref: 'logs/gates/rulepack_semantic.stderr.log'
+    });
+    const rulepackSemantic = await collectRulepackSemanticReports(
+      artifactRoot,
+      [semanticGate]
+    );
+    const provenance = {
+      ...fallbackProvenance(),
+      gate_artifact_hashes: await hashArtifactRefs(artifactRoot, [
+        semanticGate.stdout_ref,
+        semanticGate.stderr_ref
+      ])
+    };
+    const report = buildEvalReport({
+      loopId: 'loop-n-plus-one',
+      taskId: 'task-1',
+      baseCommit: 'base',
+      decision: 'accept',
+      decisionReasons: [{ code: 'ALL_PASS', message: 'ok' }],
+      changedFiles: [changedFile()],
+      gateRuns: [semanticGate],
+      improvementEvidence: [],
+      provenance,
+      verifier: localVerifierFromDecision({
+        decision: 'accept',
+        gateRuns: [semanticGate]
+      }),
+      rulepackSemantic
+    });
+
+    expect(report.rulepack_semantic?.[0]).toMatchObject({
+      file: 'policy/rulepack.lock.json',
+      lock_hash: 'sha256:abc',
+      artifact_ref: semanticRef,
+      status: 'pass',
+      total: 1,
+      passed: 1
+    });
+    await expect(
+      verifyEvalReportProvenance(artifactRoot, report)
+    ).resolves.toBe(true);
+
+    await writeFile(
+      path.join(artifactRoot, semanticRef),
+      '{"tampered":true}\n'
+    );
+    await expect(
+      verifyEvalReportProvenance(artifactRoot, report)
     ).resolves.toBe(false);
   });
 

@@ -31,6 +31,7 @@ export interface VerifyTestOnBaseOptions {
   requiredTests: string[];
   artifactRoot: string;
   env?: NodeJS.ProcessEnv | undefined;
+  signal?: AbortSignal | undefined;
   timeoutMs?: number | undefined;
 }
 
@@ -58,11 +59,13 @@ export async function verifyTestOnBase(
     const base = await runCommand(command, {
       cwd: options.baseRepoPath,
       env: options.env ?? process.env,
+      signal: options.signal,
       ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {})
     });
     const candidate = await runCommand(command, {
       cwd: options.candidateRepoPath,
       env: options.env ?? process.env,
+      signal: options.signal,
       ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {})
     });
     cases.push({

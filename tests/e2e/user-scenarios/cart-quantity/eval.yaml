@@ -19,6 +19,8 @@ test_integrity:
     - it.only
   suspicious_patterns:
     - expect(true).toBe(true)
+execution:
+  isolation: none
 hidden_acceptance:
   tests:
     - name: hidden_cart_mixed_quantities

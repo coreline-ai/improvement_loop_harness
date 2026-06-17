@@ -68,6 +68,8 @@ export interface OAuthProxyPreflightResult {
   body: string;
 }
 
+export const CODEX_OAUTH_PROXY_STATS_PATH = '/__vibeloop_proxy_stats';
+
 const hopByHopHeaders = new Set([
   'connection',
   'content-length',
@@ -281,6 +283,18 @@ export function buildCodexOAuthCommand(
   return `command:${codexParts.join(' ')}`;
 }
 
+export function codexOAuthProxyStatsUrl(proxyBaseUrl: string): string {
+  return `${proxyBaseUrl.replace(/\/+$/, '')}${CODEX_OAUTH_PROXY_STATS_PATH}`;
+}
+
+function snapshotStats(stats: CodexOAuthProxyStats): CodexOAuthProxyStats {
+  return {
+    ...stats,
+    upstream_statuses: [...stats.upstream_statuses],
+    usage: { ...stats.usage }
+  };
+}
+
 export async function preflightExternalOAuthProxy(
   proxyUrl: string
 ): Promise<OAuthProxyPreflightResult> {
@@ -331,6 +345,15 @@ export async function startCodexOAuthProxy(
     try {
       const requestUrl = new URL(request.url ?? '/', `http://${host}`);
       const pathname = safePathName(requestUrl.pathname);
+
+      if (
+        request.method === 'GET' &&
+        [CODEX_OAUTH_PROXY_STATS_PATH, `/v1${CODEX_OAUTH_PROXY_STATS_PATH}`]
+          .includes(pathname)
+      ) {
+        jsonResponse(response, 200, snapshotStats(stats));
+        return;
+      }
 
       if (
         request.method === 'GET' &&

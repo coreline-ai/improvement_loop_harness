@@ -23,6 +23,7 @@ import {
 } from '@vibeloop/agent-adapters';
 import {
   buildEvalReport,
+  collectRulepackSemanticReports,
   writeEvalReport,
   fallbackProvenance,
   hashArtifactRefs,
@@ -408,7 +409,7 @@ function advisoryFindingsFor(options: {
   const builderProvider = providerForAgentSpec(options.agentSpec);
   const reviewerProvider =
     options.evalConfig.critic?.reviewer_provider?.trim() || 'undeclared';
-  return options.gateRuns
+  const advisoryFindings = options.gateRuns
     .filter((gate) => gate.type === 'advisory')
     .map((gate) => ({
       source: 'advisory_gate',
@@ -419,6 +420,19 @@ function advisoryFindingsFor(options: {
       reviewer_provider: reviewerProvider,
       same_model_review: sameModelReview
     }));
+  const optionalGateErrors = options.gateRuns
+    .filter((gate) => !gate.required && gate.status === 'error')
+    .map((gate) => ({
+      source: 'optional_gate_error',
+      gate: gate.name,
+      type: gate.type,
+      status: gate.status,
+      authority: 'trust_signal',
+      summary: gate.summary,
+      stdout_ref: gate.stdout_ref,
+      stderr_ref: gate.stderr_ref
+    }));
+  return [...advisoryFindings, ...optionalGateErrors];
 }
 
 async function writeFailureReport(options: {
@@ -527,7 +541,7 @@ export async function runKernel(
     await writeArtifact(
       layout.root,
       'input/env-snapshot.json',
-      `${JSON.stringify({ keys: Object.keys(agentEnv).sort(), env: agentEnv }, null, 2)}\n`
+      `${JSON.stringify({ keys: Object.keys(agentEnv).sort(), values_redacted: true }, null, 2)}\n`
     );
 
     throwIfCancelled(options.signal);
@@ -594,6 +608,7 @@ export async function runKernel(
         artifactRoot: layout.root,
         dataDir: options.dataDir,
         env: agentEnv,
+        signal: options.signal,
         taskFile: path.join(layout.input, 'task.yaml'),
         loopId
       }),
@@ -684,6 +699,7 @@ export async function runKernel(
             VIBELOOP_TASK_FILE: agentTaskFile,
             VIBELOOP_WORKTREE: worktree.path
           },
+          signal: options.signal,
           timeoutMs: mergeLimits(task.limits, evalConfig.limits)
             .agent_timeout_seconds
             ? mergeLimits(task.limits, evalConfig.limits)
@@ -859,6 +875,7 @@ export async function runKernel(
           worktreeRoot: worktree.path,
           artifactRoot: layout.root,
           env: agentEnv,
+          signal: options.signal,
           changedFiles,
           gitMetadataBefore,
           gitMetadataAfter,
@@ -958,6 +975,10 @@ export async function runKernel(
       candidate_patch_hash: sha256Text(diff.candidatePatch),
       gate_artifact_hashes: gateArtifactHashes
     };
+    const rulepackSemantic = await collectRulepackSemanticReports(
+      layout.root,
+      gateResult.report.gates
+    );
     const verifier = localVerifierFromDecision({
       policy: verifierPolicy,
       decision: decision.decision,
@@ -992,6 +1013,7 @@ export async function runKernel(
       provenance,
       provenanceVerified: true,
       verifier,
+      rulepackSemantic,
       artifactRefs: [
         'input/task.yaml',
         'input/eval.yaml',
@@ -1117,7 +1139,8 @@ async function maybeVerifyTestOnBase(options: {
     changedFiles: options.changedFiles,
     requiredTests,
     artifactRoot: options.layout.root,
-    env: options.env
+    env: options.env,
+    signal: options.options.signal
   });
 }
 

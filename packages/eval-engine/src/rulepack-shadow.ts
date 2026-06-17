@@ -16,11 +16,32 @@
  * decision gate over it. See docs/SELF_IMPROVEMENT_LOOP_DESIGN.md §14.
  */
 
+import { createHash } from 'node:crypto';
+import path from 'node:path';
+
+export interface RulepackCommandTestSpec {
+  kind: 'command_test';
+  /** Relative path where the confirmed adversary test is materialized. */
+  target_path: string;
+  /** Deterministic test body. Never executed outside R1 isolation. */
+  body: string;
+  /** Command to run after materializing body at target_path. */
+  command: string;
+  /** The confirmed semantic claim this rule enforces. */
+  expect: 'fail_to_pass' | 'pass_to_pass';
+  /** Semantic rules are network-free by default and must opt into no network. */
+  network: 'none';
+}
+
+export type RulepackRuleSpec = RulepackCommandTestSpec;
+
 export interface RulepackRule {
   /** Stable rule identifier. */
   id: string;
   /** Content hash of the rule's deterministic implementation/spec. */
   hash: string;
+  /** Optional executable semantic rule spec. Legacy lock-only rules omit this. */
+  spec?: RulepackRuleSpec | undefined;
 }
 
 export interface RulepackDiff {
@@ -29,6 +50,57 @@ export interface RulepackDiff {
   changed: string[];
   /** True iff nothing was removed or changed — i.e. a pure strengthening. */
   appendOnly: boolean;
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, canonicalize(entry)])
+    );
+  }
+  return value;
+}
+
+function sha256(value: unknown): string {
+  return `sha256:${createHash('sha256')
+    .update(JSON.stringify(canonicalize(value)))
+    .digest('hex')}`;
+}
+
+export function normalizeRuleTargetPath(targetPath: string): string {
+  const normalized = path.posix.normalize(targetPath.replace(/\\/g, '/'));
+  if (
+    normalized.startsWith('/') ||
+    normalized === '..' ||
+    normalized.startsWith('../') ||
+    normalized.length === 0
+  ) {
+    throw new Error(`invalid rule target path: ${targetPath}`);
+  }
+  return normalized;
+}
+
+export function hashRuleSpec(spec: RulepackRuleSpec): string {
+  return sha256({
+    kind: spec.kind,
+    target_path: normalizeRuleTargetPath(spec.target_path),
+    body: spec.body,
+    command: spec.command,
+    expect: spec.expect,
+    network: spec.network
+  });
+}
+
+export function ruleSpecHashMatches(rule: RulepackRule): boolean {
+  if (!rule.spec) return true;
+  try {
+    return rule.hash === hashRuleSpec(rule.spec);
+  } catch {
+    return false;
+  }
 }
 
 export function diffRulepack(

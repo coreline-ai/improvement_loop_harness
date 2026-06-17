@@ -158,6 +158,165 @@ describe('builtin guard checks', () => {
     );
   });
 
+  it('keeps configured forbidden test patterns even when labels match built-ins', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write(
+      'tests/example.test.ts',
+      '// test.skip should be blocked by config even without a call expression.\n'
+    );
+    const changedFiles: GuardChangedFile[] = [
+      {
+        path: 'tests/example.test.ts',
+        status: 'added',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 0
+      }
+    ];
+
+    const result = await checkTestIntegrity(repo.repoPath, changedFiles, {
+      forbidden_patterns: ['test.skip']
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.code).toBe('GUARD_TEST_INTEGRITY');
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({
+        code: 'GUARD_TEST_INTEGRITY',
+        path: 'tests/example.test.ts',
+        message: 'forbidden test pattern found: test.skip'
+      })
+    );
+  });
+
+  it('fails test-integrity for built-in JavaScript test weakening patterns', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write(
+      'tests/example.test.ts',
+      'describe.skip("suite", () => {\n  it("weakens", () => expect(total).toBe(3));\n});\n'
+    );
+    const changedFiles: GuardChangedFile[] = [
+      {
+        path: 'tests/example.test.ts',
+        status: 'added',
+        isSymlink: false,
+        addedLines: 3,
+        deletedLines: 0
+      }
+    ];
+
+    const result = await checkTestIntegrity(repo.repoPath, changedFiles, {});
+
+    expect(result.status).toBe('fail');
+    expect(result.code).toBe('GUARD_TEST_INTEGRITY');
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({
+        code: 'GUARD_TEST_INTEGRITY',
+        message: expect.stringContaining('describe.skip')
+      })
+    );
+  });
+
+  it('fails test-integrity for built-in Python and JVM skip markers', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write(
+      'tests/test_cart.py',
+      'import pytest\n\n@pytest.mark.skip(reason="weakens")\ndef test_cart_total():\n    assert total == 3\n'
+    );
+    await repo.write(
+      'tests/CartQuantityTest.java',
+      'import org.junit.jupiter.api.Disabled;\n\n@Disabled\nclass CartQuantityTest {}\n'
+    );
+    const changedFiles: GuardChangedFile[] = [
+      {
+        path: 'tests/test_cart.py',
+        status: 'added',
+        isSymlink: false,
+        addedLines: 5,
+        deletedLines: 0
+      },
+      {
+        path: 'tests/CartQuantityTest.java',
+        status: 'added',
+        isSymlink: false,
+        addedLines: 4,
+        deletedLines: 0
+      }
+    ];
+
+    const result = await checkTestIntegrity(repo.repoPath, changedFiles, {});
+
+    expect(result.status).toBe('fail');
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'tests/test_cart.py',
+          message: expect.stringContaining('@pytest.mark.skip')
+        }),
+        expect.objectContaining({
+          path: 'tests/CartQuantityTest.java',
+          message: expect.stringContaining('@Disabled')
+        })
+      ])
+    );
+  });
+
+  it('fails test-integrity for built-in suspicious no-op assertions', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write(
+      'tests/example.test.ts',
+      'it("placeholder", () => {\n  assert.ok(true);\n});\n'
+    );
+    const changedFiles: GuardChangedFile[] = [
+      {
+        path: 'tests/example.test.ts',
+        status: 'added',
+        isSymlink: false,
+        addedLines: 3,
+        deletedLines: 0
+      }
+    ];
+
+    const result = await checkTestIntegrity(repo.repoPath, changedFiles, {});
+
+    expect(result.status).toBe('fail');
+    expect(result.code).toBe('GUARD_TEST_SUSPICIOUS');
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({
+        code: 'GUARD_TEST_SUSPICIOUS',
+        message: expect.stringContaining('assert(true)')
+      })
+    );
+  });
+
+  it('fails test-integrity for commented-out assertions', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write(
+      'tests/example.test.ts',
+      'it("placeholder", () => {\n  // expect(total).toBe(3);\n});\n'
+    );
+    const changedFiles: GuardChangedFile[] = [
+      {
+        path: 'tests/example.test.ts',
+        status: 'added',
+        isSymlink: false,
+        addedLines: 3,
+        deletedLines: 0
+      }
+    ];
+
+    const result = await checkTestIntegrity(repo.repoPath, changedFiles, {});
+
+    expect(result.status).toBe('fail');
+    expect(result.code).toBe('GUARD_TEST_SUSPICIOUS');
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({
+        code: 'GUARD_TEST_SUSPICIOUS',
+        message: expect.stringContaining('commented assertion')
+      })
+    );
+  });
+
   it('fails limits when changed lines exceed the configured maximum', () => {
     const changedFiles: GuardChangedFile[] = [
       {

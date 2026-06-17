@@ -13,7 +13,7 @@ Use this reference whenever the task touches hidden tests, OAuth, API keys, prot
 
 ## PR candidate rules
 
-Prepare a PR candidate only when VibeLoop produced `decision=accept` with `ALL_PASS`, or when a human explicitly approves a non-accept result. Include failed/advisory findings in the PR body if present.
+Prepare a PR candidate only when VibeLoop produced the full deterministic predicate: selected candidate, `decision=accept`, first reason `ALL_PASS`, `qualified=true`, and `final_verification.passed=true` for selection/improve flows. A plain accept without quality or final reverify is not enough. Include advisory findings in the PR body if present; failed deterministic gates mean no PR candidate.
 
 ## Redaction checklist
 

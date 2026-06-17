@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { decideShadowPromotion, diffRulepack } from './rulepack-shadow.js';
+import {
+  decideShadowPromotion,
+  diffRulepack,
+  hashRuleSpec,
+  normalizeRuleTargetPath,
+  ruleSpecHashMatches
+} from './rulepack-shadow.js';
 
 const base = [
   { id: 'Q1', hash: 'h1' },
@@ -74,5 +80,47 @@ describe('decideShadowPromotion', () => {
     });
     expect(decision.promote).toBe(false);
     expect(decision.reasons).toContain('no_new_rules');
+  });
+});
+
+describe('content-addressed RuleSpec', () => {
+  const spec = {
+    kind: 'command_test' as const,
+    target_path: 'tests/adversary/fixed-edge.test.cjs',
+    body: 'process.exit(0);\n',
+    command: 'node tests/adversary/fixed-edge.test.cjs',
+    expect: 'pass_to_pass' as const,
+    network: 'none' as const
+  };
+
+  it('hashes the canonical executable spec and verifies rule hash binding', () => {
+    const hash = hashRuleSpec(spec);
+    expect(hash).toMatch(/^sha256:/);
+    expect(
+      ruleSpecHashMatches({
+        id: 'adversary:p-fixed-edge',
+        hash,
+        spec
+      })
+    ).toBe(true);
+    expect(
+      ruleSpecHashMatches({
+        id: 'adversary:p-fixed-edge',
+        hash,
+        spec: { ...spec, body: 'process.exit(1);\n' }
+      })
+    ).toBe(false);
+  });
+
+  it('rejects absolute or escaping rule target paths', () => {
+    expect(normalizeRuleTargetPath('tests/adversary/test.cjs')).toBe(
+      'tests/adversary/test.cjs'
+    );
+    expect(() => normalizeRuleTargetPath('../hidden/test.cjs')).toThrow(
+      /invalid rule target path/
+    );
+    expect(() => normalizeRuleTargetPath('/tmp/test.cjs')).toThrow(
+      /invalid rule target path/
+    );
   });
 });

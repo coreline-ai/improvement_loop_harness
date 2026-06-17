@@ -3,6 +3,7 @@ import {
   ACTIVE_LOOP_STATUSES,
   type ApprovalRecord,
   type ArtifactRecord,
+  type CreateActiveLoopInput,
   type AgentRunRecord,
   type CreateApprovalInput,
   type CreateAgentRunInput,
@@ -231,6 +232,23 @@ export class MemoryStore implements Store {
     };
     this.loops.set(record.id, record);
     return copy(record);
+  }
+
+  async createLoopIfNoActive(input: CreateActiveLoopInput): Promise<LoopRunRecord | null> {
+    if (
+      [...this.loops.values()].some(
+        (loop) => loop.taskId === input.taskId && ACTIVE_LOOP_STATUSES.has(loop.status)
+      )
+    ) {
+      return null;
+    }
+    const currentMax = Math.max(
+      0,
+      ...[...this.loops.values()]
+        .filter((loop) => loop.taskId === input.taskId)
+        .map((loop) => loop.iteration)
+    );
+    return this.createLoop({ ...input, iteration: currentMax + 1 });
   }
 
   async listLoops(taskId: string): Promise<LoopRunRecord[]> {

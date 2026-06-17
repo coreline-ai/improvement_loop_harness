@@ -11,6 +11,7 @@ import {
   type QualityReport
 } from '@vibeloop/eval-engine';
 import { runKernel } from './run.js';
+import { isPrCandidate } from './pr-candidate.js';
 import {
   filterAdversaryReviewOutput,
   fixedAdversaryReviewContext,
@@ -82,6 +83,20 @@ export interface ImprovementLoopOptions {
    */
   deadlineMs?: number | undefined;
   /**
+   * Trust-floor token budget (B4): when paired with `getTokenUsage`, no further
+   * candidates are launched once observed provider usage reaches this total.
+   * In-flight candidates are NOT interrupted. Undefined = no token ceiling.
+   */
+  tokenBudgetTotal?: number | undefined;
+  /**
+   * Optional provider usage source, typically backed by an OAuth/API proxy. The
+   * loop samples it before launching each candidate and after kernels complete.
+   * If omitted, token usage remains `null` and token budget is not enforced.
+   */
+  getTokenUsage?:
+    | (() => TokenUsageSnapshot | Promise<TokenUsageSnapshot>)
+    | undefined;
+  /**
    * Skip the B2 re-execution of the selected patch (keep only the B3 provenance
    * hash binding). Default false — the selected candidate is re-applied on a
    * fresh worktree and must reproduce accept ∧ qualified before it is a PR
@@ -125,6 +140,13 @@ export interface ImprovementLoopOptions {
   adversaryRequireDifferentProvider?: boolean | undefined;
 }
 
+export interface TokenUsageSnapshot {
+  prompt_tokens?: number | undefined;
+  completion_tokens?: number | undefined;
+  total_tokens: number;
+  requests?: number | undefined;
+}
+
 export interface CandidateScore {
   evidence_present: number;
   changed_files: number;
@@ -142,8 +164,12 @@ export interface CandidateScore {
  */
 export interface FinalVerification {
   candidate_id: string;
+  /** B3: expected sha256 for the selected candidate.patch at promotion time. */
+  candidate_patch_hash?: string | undefined;
   /** B3: on-disk patch + gate-artifact hashes match what the report recorded. */
   provenance_ok: boolean;
+  /** B2: true once the final reverify kernel was launched. */
+  reverify_attempted: boolean;
   /** B2: the selected patch was re-applied + gates re-run on a fresh worktree. */
   reverified: boolean;
   reverify_decision?: string | undefined;
@@ -162,9 +188,18 @@ export interface FinalVerification {
 export interface LoopLimits {
   max_candidates: number | null;
   candidates_run: number;
+  /** Candidate kernels plus final reverify kernels. */
+  kernel_runs: number;
+  /** Final reverify kernel attempts. */
+  reverify_runs: number;
+  /** Base-worktree test-on-base checks launched inside kernels. */
+  test_on_base_runs: number;
   cap_hit: boolean;
   deadline_ms: number | null;
   deadline_hit: boolean;
+  token_budget_total: number | null;
+  token_usage_total: number | null;
+  token_budget_hit: boolean;
 }
 
 /**
@@ -304,6 +339,7 @@ export async function verifySelectedCandidate(
   const fv: FinalVerification = {
     candidate_id: selected.candidateId,
     provenance_ok: false,
+    reverify_attempted: false,
     reverified: false,
     passed: false
   };
@@ -314,6 +350,7 @@ export async function verifySelectedCandidate(
     fv.reason = 'REPORT_MISSING';
     return fv;
   }
+  fv.candidate_patch_hash = report.provenance?.candidate_patch_hash;
   const provenanceOk =
     (await verifyEvalReportProvenance(selected.artifactRoot, report)) &&
     (await verifyCandidatePatchHash(selected.artifactRoot, report));
@@ -339,6 +376,7 @@ export async function verifySelectedCandidate(
   }
   let reverify: Awaited<ReturnType<typeof runKernel>>;
   try {
+    fv.reverify_attempted = true;
     reverify = await runKernel({
       repoPath: ctx.repoPath,
       taskFile: ctx.taskFile,
@@ -636,14 +674,33 @@ export async function runImprovementLoop(
   const outcomes: CandidateOutcome[] = [];
   let resolvedProjectId = options.projectId ?? 'default';
   let candidateCounter = 0;
+  let candidateKernelRuns = 0;
+  let candidateTestOnBaseRuns = 0;
+  const testOnBaseEnabled = (task.acceptance?.required_tests?.length ?? 0) > 0;
 
   // B4 — trust-floor cost bounds. Enforced BEFORE each kernel run so neither the
   // candidate count nor the wall-clock budget can be exceeded by the harness.
   const startedAt = Date.now();
-  const { maxCandidates, deadlineMs } = options;
+  const { maxCandidates, deadlineMs, tokenBudgetTotal } = options;
   let capHit = false;
   let deadlineHit = false;
-  const budgetExhausted = (): boolean => {
+  let tokenBudgetHit = false;
+  let tokenUsageTotal: number | null = null;
+  const refreshTokenUsage = async (): Promise<void> => {
+    if (!options.getTokenUsage) return;
+    const usage = await options.getTokenUsage();
+    tokenUsageTotal = Math.max(0, usage.total_tokens);
+  };
+  const budgetExhausted = async (): Promise<boolean> => {
+    await refreshTokenUsage();
+    if (
+      tokenBudgetTotal !== undefined &&
+      tokenUsageTotal !== null &&
+      tokenUsageTotal >= tokenBudgetTotal
+    ) {
+      tokenBudgetHit = true;
+      return true;
+    }
     if (maxCandidates !== undefined && candidateCounter >= maxCandidates) {
       capHit = true;
       return true;
@@ -663,9 +720,11 @@ export async function runImprovementLoop(
     round: number
   ): Promise<void> => {
     for (const agentSpec of specs) {
-      if (budgetExhausted()) return;
+      if (await budgetExhausted()) return;
       const candidateId = `${baseLoopId}-c${candidateCounter}`;
       candidateCounter += 1;
+      candidateKernelRuns += 1;
+      if (testOnBaseEnabled) candidateTestOnBaseRuns += 1;
       const result = await runKernel({
         repoPath: options.repoPath,
         taskFile: options.taskFile,
@@ -699,6 +758,7 @@ export async function runImprovementLoop(
         );
       }
       outcomes.push(outcome);
+      await refreshTokenUsage();
     }
   };
 
@@ -817,6 +877,7 @@ export async function runImprovementLoop(
     if (!finalVerification.passed) {
       selected = undefined;
     }
+    await refreshTokenUsage();
   }
 
   let adversaryReview: AdversaryReviewReport | undefined;
@@ -887,11 +948,20 @@ export async function runImprovementLoop(
   });
 
   const limits: LoopLimits = {
+    reverify_runs: finalVerification?.reverify_attempted ? 1 : 0,
     max_candidates: maxCandidates ?? null,
     candidates_run: outcomes.length,
+    kernel_runs:
+      candidateKernelRuns + (finalVerification?.reverify_attempted ? 1 : 0),
+    test_on_base_runs:
+      candidateTestOnBaseRuns +
+      (finalVerification?.reverify_attempted && testOnBaseEnabled ? 1 : 0),
     cap_hit: capHit,
     deadline_ms: deadlineMs ?? null,
-    deadline_hit: deadlineHit
+    deadline_hit: deadlineHit,
+    token_budget_total: tokenBudgetTotal ?? null,
+    token_usage_total: tokenUsageTotal,
+    token_budget_hit: tokenBudgetHit
   };
 
   const selectionReport: SelectionReport = {
@@ -906,7 +976,13 @@ export async function runImprovementLoop(
     selected_patch: selected
       ? path.join(selected.artifactRoot, CANDIDATE_PATCH_REF)
       : null,
-    pr_candidate: !!selected,
+    pr_candidate: isPrCandidate({
+      decision: selected?.decision ?? null,
+      allPass: selected?.decision === 'accept',
+      qualified: selected?.qualified ?? null,
+      selected,
+      finalVerification: finalVerification ?? null
+    }),
     final_verification: finalVerification ?? null,
     advisory_tie_break: advisoryTieBreak ?? null,
     selection_quality: selectionQuality,

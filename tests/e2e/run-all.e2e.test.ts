@@ -235,6 +235,8 @@ async function writeTaskEvalScenario(
       '    - it.only',
       '  suspicious_patterns:',
       '    - expect(true).toBe(true)',
+      'execution:',
+      '  isolation: none',
       ...(fixture.hiddenAcceptance && hiddenSourcePath
         ? [
             'hidden_acceptance:',

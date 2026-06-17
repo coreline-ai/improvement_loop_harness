@@ -29,6 +29,19 @@ describe('runCommand', () => {
     expect(Date.now() - start).toBeLessThan(2500);
   });
 
+  it('terminates the command when the abort signal fires', async () => {
+    const controller = new AbortController();
+    const start = Date.now();
+    setTimeout(() => controller.abort(), 100).unref();
+
+    const result = await runCommand('sleep 10', {
+      signal: controller.signal
+    });
+
+    expect(result.status).toBe('error');
+    expect(result.timedOut).toBe(false);
+    expect(Date.now() - start).toBeLessThan(2500);
+  });
 
   it('caps stdout and stderr buffers while preserving exit-code status', async () => {
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'vibeloop-exec-buffer-'));

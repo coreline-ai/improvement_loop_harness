@@ -15,11 +15,13 @@ import { describe, expect, it } from 'vitest';
 import { createTempGitRepo } from '../../../tests/helpers/repo.js';
 import { captureBaseline, type BaselineReport } from './baseline.js';
 import { detectAddsRegressionTest } from './detectors/adds-regression-test.js';
+import { detectFixesReproducedFailure } from './detectors/fixes-reproduced-failure.js';
 import { detectImprovesLatency } from './detectors/improves-latency.js';
 import { detectIncreasesCoverage } from './detectors/increases-coverage.js';
 import { EvalInterpolationError } from './errors.js';
 import { interpolate, interpolationValues } from './interpolate.js';
 import { runGates } from './orchestrator.js';
+import { hashRuleSpec } from './rulepack-shadow.js';
 import { verifyTestOnBase } from './test-on-base.js';
 import type { GateRunContext } from './types.js';
 
@@ -53,6 +55,7 @@ function baseConfig(gates: EvalConfig['gates']): EvalConfig {
       forbidden_patterns: ['it.only', 'test.skip'],
       suspicious_patterns: ['expect(true).toBe(true)']
     },
+    execution: { isolation: 'none' },
     gates
   };
 }
@@ -93,6 +96,13 @@ async function contextFor(options: {
       }
     ]
   };
+}
+
+async function contextWithEvalConfig(
+  evalConfig: EvalConfig
+): Promise<GateRunContext> {
+  const base = await contextFor({ gates: evalConfig.gates });
+  return { ...base, evalConfig };
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -148,6 +158,57 @@ function frozenRulepackLock(overrides: Record<string, unknown> = {}): string {
   )}\n`;
 }
 
+function semanticRulepackLock(options: {
+  spec: {
+    kind: 'command_test';
+    target_path: string;
+    body: string;
+    command: string;
+    expect: 'fail_to_pass' | 'pass_to_pass';
+    network: 'none';
+  };
+  sourceLoopId?: string | undefined;
+}): string {
+  const rule = {
+    id: 'adversary:p-value-edge',
+    hash: hashRuleSpec(options.spec),
+    spec: options.spec
+  };
+  const lockInput = {
+    source_candidate_ref: 'candidate.json',
+    source_replay_ref: 'replay.json',
+    source_loop_id: options.sourceLoopId ?? 'learned-loop',
+    source_base_commit: 'base-before-learning',
+    rules: [{ id: 'baseline:rule', hash: 'sha256:base' }, rule],
+    added_rules: [rule],
+    diff: {
+      added: ['adversary:p-value-edge'],
+      removed: [],
+      changed: [],
+      appendOnly: true
+    },
+    replay: {
+      replaySafe: true,
+      total: 2,
+      matched: 2,
+      mismatches: []
+    }
+  };
+  return `${JSON.stringify(
+    {
+      schema_version: '1.0',
+      kind: 'frozen_rulepack',
+      authority: 'fixed_next_loop_gate',
+      decision_impact: 'next_loop_only',
+      ...lockInput,
+      frozen_at: new Date(0).toISOString(),
+      lock_hash: sha256(lockInput)
+    },
+    null,
+    2
+  )}\n`;
+}
+
 describe('interpolation', () => {
   it('substitutes the five eval variables and rejects unsupported or unresolved placeholders', () => {
     const values = interpolationValues({
@@ -167,10 +228,97 @@ describe('interpolation', () => {
     expect(() => interpolate('echo ${UNKNOWN}', values)).toThrow(
       EvalInterpolationError
     );
+    expect(() =>
+      interpolate('node ${TASK_FILE}', {
+        ...values,
+        TASK_FILE: '/tmp/task.yaml; touch /tmp/pwned'
+      })
+    ).toThrow(EvalInterpolationError);
   });
 });
 
 describe('runGates', () => {
+  it('fails closed instead of running project commands when execution isolation is missing', async () => {
+    const context = await contextWithEvalConfig({
+      schema_version: '1.0',
+      project: 'missing-r1',
+      gates: [
+        {
+          name: 'host_probe',
+          type: 'hard',
+          command:
+            "node -e \"require('node:fs').writeFileSync('${ARTIFACT_ROOT}/host-ran.txt','ran')\"",
+          required: true
+        }
+      ]
+    });
+
+    const result = await runGates(context);
+
+    expect(result.report.gates[0]).toMatchObject({
+      status: 'error',
+      summary:
+        'project command gates require explicit execution.isolation: container or none'
+    });
+    await expect(
+      fileExists(path.join(context.artifactRoot, 'host-ran.txt'))
+    ).resolves.toBe(false);
+  });
+
+  it('rejects duplicate gate names before running any gate command', async () => {
+    const context = await contextFor({
+      gates: [
+        {
+          name: 'unit_tests',
+          type: 'hard',
+          command:
+            "node -e \"require('node:fs').writeFileSync('${ARTIFACT_ROOT}/marker.txt','ran')\"",
+          required: false
+        },
+        {
+          name: 'unit_tests',
+          type: 'hard',
+          command: 'node -e "process.exit(0)"',
+          required: false
+        }
+      ]
+    });
+
+    await expect(runGates(context)).rejects.toThrow(
+      "Duplicate gate name 'unit_tests' is not allowed"
+    );
+    await expect(
+      fileExists(path.join(context.artifactRoot, 'marker.txt'))
+    ).resolves.toBe(false);
+  });
+
+  it('rejects gate names that would overwrite the same log artifacts', async () => {
+    const context = await contextFor({
+      gates: [
+        {
+          name: 'lint/check',
+          type: 'hard',
+          command:
+            "node -e \"require('node:fs').writeFileSync('${ARTIFACT_ROOT}/marker.txt','ran')\"",
+          required: false
+        },
+        {
+          name: 'lint_check',
+          type: 'hard',
+          command: 'node -e "process.exit(0)"',
+          required: false
+        }
+      ]
+    });
+
+    await expect(runGates(context)).rejects.toThrow(
+      "Gate names 'lint/check' and 'lint_check' collide on log artifact name 'lint_check'"
+    );
+    await expect(
+      fileExists(path.join(context.artifactRoot, 'marker.txt'))
+    ).resolves.toBe(false);
+  });
+
   it('skips project commands when a required guard fails before spawning them', async () => {
     const context = await contextFor({
       gates: [
@@ -421,6 +569,226 @@ describe('builtin:rulepack-lock gate (next-loop frozen rulepack invariant)', () 
     expect(stdout).toContain('RULEPACK_LOCK_REPLAY_UNSAFE');
     expect(stdout).toContain('RULEPACK_LOCK_HASH_MISMATCH');
   });
+
+  it('fails closed when an executable rule spec no longer matches its rule hash', async () => {
+    const context = await contextFor({ gates: rulepackGate });
+    await mkdir(path.join(context.worktreeRoot, 'policy'), { recursive: true });
+    const spec = {
+      kind: 'command_test' as const,
+      target_path: 'tests/adversary/fixed-edge.test.cjs',
+      body: 'process.exit(0);\n',
+      command: 'node tests/adversary/fixed-edge.test.cjs',
+      expect: 'pass_to_pass' as const,
+      network: 'none' as const
+    };
+    const rules = [
+      { id: 'baseline:rule', hash: 'sha256:base' },
+      {
+        id: 'adversary:p-edge',
+        hash: hashRuleSpec(spec),
+        spec: { ...spec, body: 'process.exit(1);\n' }
+      }
+    ];
+    const lockInput = {
+      source_candidate_ref: 'candidate.json',
+      source_replay_ref: 'replay.json',
+      rules,
+      added_rules: [rules[1]],
+      diff: {
+        added: ['adversary:p-edge'],
+        removed: [],
+        changed: [],
+        appendOnly: true
+      },
+      replay: {
+        replaySafe: true,
+        total: 1,
+        matched: 1,
+        mismatches: []
+      }
+    };
+    await writeFile(
+      path.join(context.worktreeRoot, 'policy/rulepack.lock.json'),
+      `${JSON.stringify(
+        {
+          schema_version: '1.0',
+          kind: 'frozen_rulepack',
+          authority: 'fixed_next_loop_gate',
+          decision_impact: 'next_loop_only',
+          ...lockInput,
+          frozen_at: new Date(0).toISOString(),
+          lock_hash: sha256(lockInput)
+        },
+        null,
+        2
+      )}\n`
+    );
+    context.evalConfig.rulepack_lock = {
+      file: 'policy/rulepack.lock.json'
+    };
+
+    const result = await runGates(context);
+    const gate = result.report.gates.find((g) => g.name === 'rulepack_lock');
+    expect(gate?.status).toBe('fail');
+    const stdout = await readFile(
+      path.join(context.artifactRoot, gate!.stdout_ref!),
+      'utf8'
+    );
+    expect(stdout).toContain('RULEPACK_LOCK_RULE_SPEC_HASH');
+  });
+});
+
+describe('builtin:rulepack-semantic gate', () => {
+  const semanticGate: EvalConfig['gates'] = [
+    {
+      name: 'rulepack_semantic',
+      type: 'integrity',
+      command: 'builtin:rulepack-semantic',
+      required: true
+    }
+  ];
+  const valueSpec = {
+    kind: 'command_test' as const,
+    target_path: 'tests/adversary/value-semantic.test.cjs',
+    body: [
+      "const value = require('../../src/value.cjs');",
+      'if (value !== 2) process.exit(1);',
+      ''
+    ].join('\n'),
+    command: 'node tests/adversary/value-semantic.test.cjs',
+    expect: 'fail_to_pass' as const,
+    network: 'none' as const
+  };
+
+  async function contextWithSemanticRule(
+    valueSource: string,
+    sourceLoopId = 'learned-loop'
+  ): Promise<GateRunContext> {
+    const context = await contextFor({ gates: semanticGate });
+    await mkdir(path.join(context.worktreeRoot, 'policy'), { recursive: true });
+    await mkdir(path.join(context.worktreeRoot, 'src'), { recursive: true });
+    await writeFile(
+      path.join(context.worktreeRoot, 'src/value.cjs'),
+      valueSource
+    );
+    await writeFile(
+      path.join(context.worktreeRoot, 'policy/rulepack.lock.json'),
+      semanticRulepackLock({ spec: valueSpec, sourceLoopId })
+    );
+    context.evalConfig.rulepack_semantic = {
+      file: 'policy/rulepack.lock.json',
+      image: 'node:22-alpine',
+      network: 'none'
+    };
+    context.rulepackSemanticRuntimeAvailable = async () => true;
+    context.rulepackSemanticCommandRunner = async (_command, options) => {
+      const valueFile = await readFile(
+        path.join(options.worktreePath, 'src/value.cjs'),
+        'utf8'
+      );
+      return valueFile.includes('module.exports = 2')
+        ? { status: 'pass', stdout: '', stderr: '' }
+        : { status: 'fail', stdout: 'value edge failed\n', stderr: '' };
+    };
+    return context;
+  }
+
+  it('passes a known-good candidate through the executable frozen rulepack gate', async () => {
+    const context = await contextWithSemanticRule('module.exports = 2;\n');
+
+    const result = await runGates(context);
+    const gate = result.report.gates.find(
+      (entry) => entry.name === 'rulepack_semantic'
+    );
+    expect(gate?.status).toBe('pass');
+    expect(gate?.summary).toContain('passed 1/1');
+  });
+
+  it('rejects a known-bad candidate through the executable frozen rulepack gate', async () => {
+    const context = await contextWithSemanticRule('module.exports = 1;\n');
+
+    const result = await runGates(context);
+    const gate = result.report.gates.find(
+      (entry) => entry.name === 'rulepack_semantic'
+    );
+    expect(gate?.status).toBe('fail');
+    expect(gate?.summary).toContain('0/1 passed');
+    const stdout = await readFile(
+      path.join(context.artifactRoot, gate!.stdout_ref!),
+      'utf8'
+    );
+    const parsed = JSON.parse(stdout) as {
+      details?: {
+        rulepack_semantic?: {
+          status: string;
+          total: number;
+          passed: number;
+          results: Array<{ rule_id: string; status: string }>;
+        };
+      };
+    };
+    expect(stdout).toContain('RULEPACK_SEMANTIC_RULE_FAILED');
+    expect(parsed.details?.rulepack_semantic).toMatchObject({
+      status: 'fail',
+      total: 1,
+      passed: 0
+    });
+    expect(parsed.details?.rulepack_semantic?.results[0]).toMatchObject({
+      rule_id: 'adversary:p-value-edge',
+      status: 'fail'
+    });
+  });
+
+  it('fails closed when a frozen rulepack is applied to its source loop', async () => {
+    const context = await contextWithSemanticRule(
+      'module.exports = 2;\n',
+      'loop-phase-six'
+    );
+    let ran = false;
+    context.rulepackSemanticCommandRunner = async () => {
+      ran = true;
+      return { status: 'pass', stdout: '', stderr: '' };
+    };
+
+    const result = await runGates(context);
+    const gate = result.report.gates.find(
+      (entry) => entry.name === 'rulepack_semantic'
+    );
+    expect(ran).toBe(false);
+    expect(gate?.status).toBe('fail');
+    const stdout = await readFile(
+      path.join(context.artifactRoot, gate!.stdout_ref!),
+      'utf8'
+    );
+    expect(stdout).toContain('RULEPACK_CURRENT_LOOP_APPLICATION');
+  });
+
+  it('fails closed before execution when the frozen rulepack lock is invalid', async () => {
+    const context = await contextFor({ gates: semanticGate });
+    await mkdir(path.join(context.worktreeRoot, 'policy'), { recursive: true });
+    await writeFile(
+      path.join(context.worktreeRoot, 'policy/rulepack.lock.json'),
+      frozenRulepackLock({ replay: { replaySafe: false } })
+    );
+    context.evalConfig.rulepack_semantic = {
+      file: 'policy/rulepack.lock.json',
+      image: 'node:22-alpine',
+      network: 'none'
+    };
+
+    const result = await runGates(context);
+    const gate = result.report.gates.find(
+      (entry) => entry.name === 'rulepack_semantic'
+    );
+    expect(gate?.status).toBe('fail');
+    expect(gate?.summary).toContain('semantic lock validation failed');
+    const stdout = await readFile(
+      path.join(context.artifactRoot, gate!.stdout_ref!),
+      'utf8'
+    );
+    expect(stdout).toContain('RULEPACK_SEMANTIC_LOCK_INVALID');
+    expect(stdout).toContain('RULEPACK_LOCK_REPLAY_UNSAFE');
+  });
 });
 
 describe('baseline, test-on-base, and evidence detection', () => {
@@ -635,6 +1003,72 @@ describe('baseline, test-on-base, and evidence detection', () => {
     expect(evidence).toMatchObject({
       type: 'increases_coverage',
       status: 'present'
+    });
+  });
+
+  it('requires test-integrity pass before using baseline red-test fallback evidence', () => {
+    const baseline: BaselineReport = {
+      schema_version: '1.0',
+      project: 'fixes-fixture',
+      project_id: 'proj-fixes',
+      base_commit: 'base-fixes',
+      eval_config_hash: 'hash',
+      cache_key: 'cache',
+      cache_hit: false,
+      generated_at: new Date('2026-06-10T00:00:00.000Z').toISOString(),
+      gate_runs: [],
+      base_red_tests: ['unit_tests'],
+      metrics: {}
+    };
+    const unitGate = {
+      name: 'unit_tests',
+      type: 'task_acceptance' as const,
+      required: true,
+      command: 'npm test',
+      status: 'pass' as const,
+      exit_code: 0,
+      started_at: null,
+      finished_at: null,
+      duration_ms: null,
+      stdout_ref: null,
+      stderr_ref: null,
+      summary: null
+    };
+    const testIntegrityGate = {
+      name: 'test_integrity',
+      type: 'integrity' as const,
+      required: true,
+      command: 'builtin:test-integrity',
+      status: 'pass' as const,
+      exit_code: 0,
+      started_at: null,
+      finished_at: null,
+      duration_ms: null,
+      stdout_ref: null,
+      stderr_ref: null,
+      summary: null
+    };
+
+    expect(
+      detectFixesReproducedFailure({
+        changedFiles: [],
+        baseline,
+        gateRuns: [unitGate]
+      })
+    ).toMatchObject({
+      type: 'fixes_reproduced_failure',
+      status: 'inconclusive'
+    });
+    expect(
+      detectFixesReproducedFailure({
+        changedFiles: [],
+        baseline,
+        gateRuns: [unitGate, testIntegrityGate]
+      })
+    ).toMatchObject({
+      type: 'fixes_reproduced_failure',
+      status: 'present',
+      supporting_gate: 'unit_tests'
     });
   });
 });

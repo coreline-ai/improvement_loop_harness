@@ -2,6 +2,7 @@ import type { EvalGate, GateType } from '@vibeloop/task-protocol';
 import { executeBuiltinGate, isBuiltinGate } from './builtin.js';
 import { executeCommandGate } from './gate-executor.js';
 import {
+  assertUniqueGateNames,
   createGateReport,
   skippedGateResult,
   writeGateReport
@@ -43,6 +44,7 @@ export interface RunGatesResult {
 export async function runGates(
   context: GateRunContext
 ): Promise<RunGatesResult> {
+  assertUniqueGateNames(context.evalConfig.gates);
   const results: GateReportEntry[] = [];
   let skipAfterRequiredGuardFailure = false;
   let skipAfterRequiredProjectFailure = false;

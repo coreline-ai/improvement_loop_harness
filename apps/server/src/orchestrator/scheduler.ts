@@ -89,7 +89,7 @@ function isLowRiskCandidate(candidate: ImprovementCandidateRecord): boolean {
   return candidate.riskAreaHint === 'none' || candidate.riskAreaHint === 'low';
 }
 
-function isSelectableCandidate(
+export function isCandidateSelectableForMode(
   candidate: ImprovementCandidateRecord,
   mode: OrchestratorMode
 ): boolean {
@@ -412,7 +412,9 @@ export class LoopOrchestratorScheduler {
   ): Promise<ImprovementCandidateRecord | null> {
     const candidates = await this.store.listCandidates(projectId);
     return (
-      candidates.find((candidate) => isSelectableCandidate(candidate, mode)) ??
+      candidates.find((candidate) =>
+        isCandidateSelectableForMode(candidate, mode)
+      ) ??
       null
     );
   }
@@ -431,12 +433,19 @@ export class LoopOrchestratorScheduler {
     const baseCommit = await (
       this.options.fetchLatestBase ?? defaultFetchLatestBase
     )({ project });
-    const loop = await this.store.createLoop({
+    const loop = await this.store.createLoopIfNoActive({
       taskId: task.id,
-      iteration: await this.store.nextLoopIteration(task.id),
       status: 'queued',
       baseCommit
     });
+    if (!loop) {
+      await this.store.updateCandidate(queued.id, { status: 'approved' });
+      await this.store.addOrchestratorEvent(project.id, 'loop.active_exists', {
+        candidate_id: queued.id,
+        task_id: task.id
+      });
+      return;
+    }
     const current = await this.ensureState(project.id);
     const normalized = resetDailyBudgetIfNeeded(current, this.now());
     await this.store.updateCandidate(queued.id, { status: 'running' });

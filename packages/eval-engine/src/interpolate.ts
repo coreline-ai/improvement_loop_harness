@@ -11,6 +11,7 @@ export const EVAL_INTERPOLATION_VARIABLES = [
 
 const VARIABLE_PATTERN = /\$\{([A-Z0-9_]+)\}/g;
 const ALLOWED = new Set<string>(EVAL_INTERPOLATION_VARIABLES);
+const SHELL_META_PATTERN = /[;&|$`<>()\n\r]/;
 
 export function findVariables(input: string): string[] {
   return [...input.matchAll(VARIABLE_PATTERN)]
@@ -56,8 +57,15 @@ export function interpolate(
   assertAllowedVariables(input, context);
   const output = input.replace(
     VARIABLE_PATTERN,
-    (placeholder, name: keyof InterpolationValues) =>
-      values[name] ?? placeholder
+    (placeholder, name: keyof InterpolationValues) => {
+      const replacement = values[name] ?? placeholder;
+      if (replacement !== placeholder && SHELL_META_PATTERN.test(replacement)) {
+        throw new EvalInterpolationError(
+          `${context} interpolation value ${name} contains shell metacharacters`
+        );
+      }
+      return replacement;
+    }
   );
   const residual = findVariables(output);
   if (residual.length > 0) {

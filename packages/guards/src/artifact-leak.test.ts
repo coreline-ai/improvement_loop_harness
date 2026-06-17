@@ -80,6 +80,23 @@ describe('scanArtifactLeak', () => {
     ).toBe(true);
   });
 
+  it('redacts whitespace-bearing quoted token assignments without leaving raw values', () => {
+    const out = scanArtifactLeak({
+      stdout:
+        'agent debug: secret="alpha beta gamma" and "api_key": "json key with spaces"',
+      config: { forbidden_literals: [] }
+    });
+
+    expect(out.result.status).toBe('pass');
+    expect(out.redactedStdout).not.toContain('alpha beta gamma');
+    expect(out.redactedStdout).not.toContain('json key with spaces');
+    expect(out.redactedStdout).toContain('secret="[REDACTED]"');
+    expect(out.redactedStdout).toContain('"api_key": "[REDACTED]"');
+    expect(
+      out.findings.some((f) => f.label === 'token_assignment' && !f.rejecting)
+    ).toBe(true);
+  });
+
   it('does not scan stderr when scan_agent_stderr is false', () => {
     const out = scanArtifactLeak({
       stderr: 'leak skill-loop-cart-quantity',
@@ -156,6 +173,23 @@ describe('scanPatchForLeak (v2 candidate.patch scan)', () => {
     });
     expect(on.result.status).toBe('fail');
   });
+
+  it('rejects whitespace-bearing token assignments in patches when token_like is opted in', () => {
+    const out = scanPatchForLeak('+ const secret = "alpha beta gamma";\n', {
+      scan_patch: true,
+      builtins: { token_like: true }
+    });
+
+    expect(out.result.status).toBe('fail');
+    expect(out.result.code).toBe('GUARD_ARTIFACT_LEAK');
+    expect(JSON.stringify(out.result)).not.toContain('alpha beta gamma');
+    expect(out.findings[0]).toMatchObject({
+      source: 'patch',
+      kind: 'token_like',
+      label: 'token_assignment',
+      rejecting: true
+    });
+  });
 });
 
 describe('mergeArtifactLeakResults', () => {
@@ -191,6 +225,18 @@ describe('redactForLeak (gate-log redact-only)', () => {
     expect(out).not.toContain('abcdefgh12345'); // token redacted regardless of opt-in
     expect(out).toContain('coverage_percent=81'); // metric line untouched
     expect(out.endsWith('END')).toBe(true); // no truncation marker
+  });
+
+  it('redacts whitespace-bearing quoted assignments in gate logs', () => {
+    const out = redactForLeak(
+      'secret="alpha beta gamma"\n"api_key": "json key with spaces"',
+      { forbidden_literals: [] }
+    );
+
+    expect(out).not.toContain('alpha beta gamma');
+    expect(out).not.toContain('json key with spaces');
+    expect(out).toContain('secret="[REDACTED]"');
+    expect(out).toContain('"api_key": "[REDACTED]"');
   });
 
   it('returns the text unchanged when config is undefined', () => {

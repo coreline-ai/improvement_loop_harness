@@ -24,6 +24,8 @@ export interface FrozenRulepack {
   decision_impact: 'next_loop_only';
   source_candidate_ref: string;
   source_replay_ref: string;
+  source_loop_id: string;
+  source_base_commit: string;
   frozen_at: string;
   rules: RulepackRule[];
   added_rules: RulepackRule[];
@@ -124,6 +126,8 @@ function buildFrozenRulepack(options: {
   const lockInput = {
     source_candidate_ref: options.candidateFile,
     source_replay_ref: options.replayFile,
+    source_loop_id: options.candidate.source_loop_id,
+    source_base_commit: options.candidate.source_base_commit,
     rules: options.candidate.proposed_rules,
     added_rules: options.candidate.added_rules,
     diff: options.diff,
@@ -141,6 +145,8 @@ function buildFrozenRulepack(options: {
     decision_impact: 'next_loop_only',
     source_candidate_ref: options.candidateFile,
     source_replay_ref: options.replayFile,
+    source_loop_id: options.candidate.source_loop_id,
+    source_base_commit: options.candidate.source_base_commit,
     frozen_at: new Date().toISOString(),
     rules: options.candidate.proposed_rules,
     added_rules: options.candidate.added_rules,
@@ -165,6 +171,8 @@ export async function freezeAdversaryRulepack(
   if (candidate.next_step !== 'm4_replay_freeze_required') {
     reasons.push('candidate_next_step_not_m4');
   }
+  if (!candidate.source_loop_id) reasons.push('source_loop_missing');
+  if (!candidate.source_base_commit) reasons.push('source_base_commit_missing');
   if (!candidate.diff.appendOnly || !diff.appendOnly) {
     reasons.push('not_append_only');
   }

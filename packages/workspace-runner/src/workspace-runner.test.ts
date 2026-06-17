@@ -1,5 +1,6 @@
 import {
   access,
+  chmod,
   lstat,
   mkdir,
   readFile,
@@ -151,6 +152,184 @@ describe('base commit and worktree isolation', () => {
 });
 
 describe('dependency provisioning', () => {
+  it('runs the default installer with scrubbed env and scripts disabled', async () => {
+    const dataDir = await tempDir('vibeloop-deps-safe-data-');
+    const workspace = await tempDir('vibeloop-deps-safe-ws-');
+    const fakeBin = await tempDir('vibeloop-deps-safe-bin-');
+    const fakeNpm = path.join(fakeBin, 'npm');
+    await writeFile(path.join(workspace, 'package-lock.json'), '{}\n');
+    await writeFile(
+      path.join(workspace, 'package.json'),
+      JSON.stringify(
+        {
+          name: 'fixture',
+          version: '1.0.0',
+          scripts: { postinstall: 'node -e "process.exit(99)"' }
+        },
+        null,
+        2
+      )
+    );
+    await writeFile(
+      fakeNpm,
+      [
+        '#!/bin/sh',
+        'printf "%s\\n" "$@" > "$PWD/install-args.txt"',
+        'env > "$PWD/install-env.txt"',
+        'mkdir -p "$PWD/node_modules/fake"',
+        'printf ok > "$PWD/node_modules/fake/index.js"',
+        ''
+      ].join('\n')
+    );
+    await chmod(fakeNpm, 0o700);
+
+    await expect(
+      provisionDependencies({
+        workspaceRoot: workspace,
+        dataDir,
+        projectId: 'proj-safe-install',
+        env: {
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`,
+          SECRET_TOKEN: 'must-not-leak',
+          NPM_TOKEN: 'must-not-leak',
+          VIBELOOP_SAFE_VALUE: 'kept'
+        }
+      })
+    ).resolves.toMatchObject({ status: 'cache_miss', manager: 'npm' });
+
+    await expect(readFile(path.join(workspace, 'install-args.txt'), 'utf8')).resolves.toContain(
+      '--ignore-scripts'
+    );
+    const installEnv = await readFile(
+      path.join(workspace, 'install-env.txt'),
+      'utf8'
+    );
+    expect(installEnv).toContain('VIBELOOP_SAFE_VALUE=kept');
+    expect(installEnv).not.toContain('SECRET_TOKEN=');
+    expect(installEnv).not.toContain('NPM_TOKEN=');
+    expect(installEnv).not.toContain('must-not-leak');
+  }, 10_000);
+
+  it('runs yarn installs with frozen lockfile and scripts disabled', async () => {
+    const dataDir = await tempDir('vibeloop-deps-yarn-data-');
+    const workspace = await tempDir('vibeloop-deps-yarn-ws-');
+    const fakeBin = await tempDir('vibeloop-deps-yarn-bin-');
+    const fakeYarn = path.join(fakeBin, 'yarn');
+    await writeFile(path.join(workspace, 'yarn.lock'), '# yarn lockfile\n');
+    await writeFile(
+      path.join(workspace, 'package.json'),
+      '{"name":"fixture","version":"1.0.0"}\n'
+    );
+    await writeFile(
+      fakeYarn,
+      [
+        '#!/bin/sh',
+        'printf "%s\\n" "$@" > "$PWD/install-args.txt"',
+        'mkdir -p "$PWD/node_modules/fake"',
+        'printf ok > "$PWD/node_modules/fake/index.js"',
+        ''
+      ].join('\n')
+    );
+    await chmod(fakeYarn, 0o700);
+
+    await expect(
+      provisionDependencies({
+        workspaceRoot: workspace,
+        dataDir,
+        projectId: 'proj-yarn-safe-install',
+        env: {
+          PATH: `${fakeBin}:${process.env.PATH ?? ''}`
+        }
+      })
+    ).resolves.toMatchObject({ status: 'cache_miss', manager: 'yarn' });
+
+    const installArgs = await readFile(
+      path.join(workspace, 'install-args.txt'),
+      'utf8'
+    );
+    expect(installArgs).toContain('--frozen-lockfile');
+    expect(installArgs).toContain('--ignore-scripts');
+  }, 10_000);
+
+  it('falls back to corepack for pnpm lockfiles when pnpm is not on PATH', async () => {
+    const dataDir = await tempDir('vibeloop-deps-pnpm-corepack-data-');
+    const workspace = await tempDir('vibeloop-deps-pnpm-corepack-ws-');
+    const fakeBin = await tempDir('vibeloop-deps-pnpm-corepack-bin-');
+    const fakeCorepack = path.join(fakeBin, 'corepack');
+    await writeFile(
+      path.join(workspace, 'pnpm-lock.yaml'),
+      "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n"
+    );
+    await writeFile(
+      path.join(workspace, 'package.json'),
+      '{"name":"fixture","version":"1.0.0"}\n'
+    );
+    await writeFile(
+      fakeCorepack,
+      [
+        '#!/bin/sh',
+        'printf "%s\\n" "$@" > "$PWD/install-args.txt"',
+        '/bin/mkdir -p "$PWD/node_modules/fake"',
+        'printf ok > "$PWD/node_modules/fake/index.js"',
+        ''
+      ].join('\n')
+    );
+    await chmod(fakeCorepack, 0o700);
+
+    await expect(
+      provisionDependencies({
+        workspaceRoot: workspace,
+        dataDir,
+        projectId: 'proj-pnpm-corepack-install',
+        env: {
+          PATH: fakeBin
+        }
+      })
+    ).resolves.toMatchObject({ status: 'cache_miss', manager: 'pnpm' });
+
+    await expect(
+      readFile(path.join(workspace, 'install-args.txt'), 'utf8')
+    ).resolves.toBe('pnpm\ninstall\n--frozen-lockfile\n--ignore-scripts\n');
+  }, 10_000);
+
+  it('falls back to corepack for yarn lockfiles when yarn is not on PATH', async () => {
+    const dataDir = await tempDir('vibeloop-deps-yarn-corepack-data-');
+    const workspace = await tempDir('vibeloop-deps-yarn-corepack-ws-');
+    const fakeBin = await tempDir('vibeloop-deps-yarn-corepack-bin-');
+    const fakeCorepack = path.join(fakeBin, 'corepack');
+    await writeFile(path.join(workspace, 'yarn.lock'), '# yarn lockfile v1\n');
+    await writeFile(
+      path.join(workspace, 'package.json'),
+      '{"name":"fixture","version":"1.0.0"}\n'
+    );
+    await writeFile(
+      fakeCorepack,
+      [
+        '#!/bin/sh',
+        'printf "%s\\n" "$@" > "$PWD/install-args.txt"',
+        '/bin/mkdir -p "$PWD/node_modules/fake"',
+        'printf ok > "$PWD/node_modules/fake/index.js"',
+        ''
+      ].join('\n')
+    );
+    await chmod(fakeCorepack, 0o700);
+
+    await expect(
+      provisionDependencies({
+        workspaceRoot: workspace,
+        dataDir,
+        projectId: 'proj-yarn-corepack-install',
+        env: {
+          PATH: fakeBin
+        }
+      })
+    ).resolves.toMatchObject({ status: 'cache_miss', manager: 'yarn' });
+
+    await expect(
+      readFile(path.join(workspace, 'install-args.txt'), 'utf8')
+    ).resolves.toBe('yarn\ninstall\n--frozen-lockfile\n--ignore-scripts\n');
+  }, 10_000);
+
   it('populates dependency cache on first run and copies it on the second run', async () => {
     const dataDir = await tempDir('vibeloop-deps-cache-');
     const workspaceOne = await tempDir('vibeloop-deps-ws1-');
@@ -209,6 +388,65 @@ describe('dependency provisioning', () => {
       (await lstat(path.join(workspaceTwo, 'node_modules'))).isSymbolicLink()
     ).toBe(false);
   });
+
+  it('rejects a tampered dependency cache and reinstalls before copying', async () => {
+    const dataDir = await tempDir('vibeloop-deps-tamper-cache-');
+    const workspaceOne = await tempDir('vibeloop-deps-tamper-ws1-');
+    const workspaceTwo = await tempDir('vibeloop-deps-tamper-ws2-');
+    const lockfile = '{"lockfileVersion": 3}\n';
+    let installCount = 0;
+
+    for (const workspace of [workspaceOne, workspaceTwo]) {
+      await writeFile(path.join(workspace, 'package-lock.json'), lockfile);
+      await writeFile(
+        path.join(workspace, 'package.json'),
+        '{"name":"fixture","version":"1.0.0"}\n'
+      );
+    }
+
+    const installer = async ({
+      workspaceRoot
+    }: {
+      workspaceRoot: string;
+    }): Promise<void> => {
+      installCount += 1;
+      await mkdir(path.join(workspaceRoot, 'node_modules', 'fixture'), {
+        recursive: true
+      });
+      await writeFile(
+        path.join(workspaceRoot, 'node_modules', 'fixture', 'index.js'),
+        `module.exports = ${installCount};\n`
+      );
+    };
+
+    const first = await provisionDependencies({
+      workspaceRoot: workspaceOne,
+      dataDir,
+      projectId: 'proj-tamper',
+      installer
+    });
+    await writeFile(
+      path.join(first.cachePath ?? '', 'fixture', 'index.js'),
+      'module.exports = "tampered";\n'
+    );
+
+    await expect(
+      provisionDependencies({
+        workspaceRoot: workspaceTwo,
+        dataDir,
+        projectId: 'proj-tamper',
+        installer
+      })
+    ).resolves.toMatchObject({ status: 'cache_miss', manager: 'npm' });
+
+    expect(installCount).toBe(2);
+    await expect(
+      readFile(
+        path.join(workspaceTwo, 'node_modules', 'fixture', 'index.js'),
+        'utf8'
+      )
+    ).resolves.toBe('module.exports = 2;\n');
+  });
 });
 
 describe('environment scrub', () => {
@@ -221,6 +459,9 @@ describe('environment scrub', () => {
         CI: 'true',
         NODE_ENV: 'test',
         VIBELOOP_DATA_DIR: dataDir,
+        VIBELOOP_PROXY_BASE_URL: 'https://user:pass@example.test',
+        VIBELOOP_DATABASE_DSN: 'postgres://user:pass@example.test/db',
+        VIBELOOP_CALLBACK_ENDPOINT: 'https://example.test/callback',
         ANTHROPIC_API_KEY: 'secret',
         GITHUB_TOKEN: 'secret',
         PASSWORD: 'secret',
@@ -239,6 +480,9 @@ describe('environment scrub', () => {
     expect(output).not.toHaveProperty('ANTHROPIC_API_KEY');
     expect(output).not.toHaveProperty('GITHUB_TOKEN');
     expect(output).not.toHaveProperty('PASSWORD');
+    expect(output).not.toHaveProperty('VIBELOOP_PROXY_BASE_URL');
+    expect(output).not.toHaveProperty('VIBELOOP_DATABASE_DSN');
+    expect(output).not.toHaveProperty('VIBELOOP_CALLBACK_ENDPOINT');
     expect(output).not.toHaveProperty('RANDOM');
   });
 });

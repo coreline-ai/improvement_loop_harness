@@ -2,6 +2,7 @@ import {
   TASK_SCHEMA_ID,
   validateOrThrow,
   type EvalConfig,
+  type EvalGate,
   type TaskDefinition
 } from '@vibeloop/task-protocol';
 import type {
@@ -22,6 +23,13 @@ const HUMAN_APPROVAL_DEFAULTS = new Set([
   'admin',
   'prompt_injection',
   'unknown'
+]);
+const PROJECT_GATE_TYPES = new Set<EvalGate['type']>([
+  'hard',
+  'task_acceptance',
+  'regression',
+  'security',
+  'performance'
 ]);
 
 function slug(value: string): string {
@@ -69,14 +77,31 @@ function requiredEvidence(source: DiscoveryCandidate['source']): string[] {
 }
 
 function fallbackWriteScope(evalConfig: EvalConfig | undefined): string[] {
+  const normalizeScopeEntry = (entry: string): string =>
+    entry.replace(/\\/g, '/').trim().replace(/\/+$/, '');
+  const protectedPaths = new Set(
+    (evalConfig?.protected_paths ?? [])
+      .map(normalizeScopeEntry)
+      .filter(Boolean)
+  );
   const configured = [
     ...new Set(Object.values(evalConfig?.risk_classification ?? {}).flat())
   ]
-    .map((entry) => entry.replace(/\\/g, '/').trim())
-    .filter((entry) => entry.length > 0 && !entry.startsWith('.env'));
+    .map((entry) => {
+      const raw = entry.replace(/\\/g, '/').trim();
+      return { raw, normalized: normalizeScopeEntry(raw) };
+    })
+    .filter(({ raw, normalized }) => {
+      if (raw.length === 0 || normalized.startsWith('.env')) return false;
+      if (protectedPaths.has(normalized)) return false;
+      return ![...protectedPaths].some((protectedPath) =>
+        normalized.startsWith(`${protectedPath}/`)
+      );
+    })
+    .map(({ raw }) => raw);
   return configured.length > 0
     ? configured
-    : ['src/', 'lib/', 'app/', 'packages/', 'tests/'];
+    : ['src/', 'lib/', 'app/', 'packages/'];
 }
 
 function writeScope(
@@ -115,6 +140,43 @@ function humanApprovalRequired(
   return configured.has(riskArea) || HUMAN_APPROVAL_DEFAULTS.has(riskArea);
 }
 
+function isProjectGate(gate: EvalGate): boolean {
+  return !gate.command.startsWith('builtin:') && PROJECT_GATE_TYPES.has(gate.type);
+}
+
+function gateMatchesSource(
+  source: DiscoveryCandidate['source'],
+  gate: EvalGate
+): boolean {
+  const text = `${gate.name} ${gate.command}`.toLowerCase();
+  switch (source) {
+    case 'test_failure':
+      return gate.type === 'task_acceptance' || /test|spec/.test(text);
+    case 'typecheck':
+      return /typecheck|tsc/.test(text);
+    case 'lint':
+      return /lint|eslint/.test(text);
+    case 'security_scan':
+      return gate.type === 'security' || /security|audit|semgrep|gitleaks/.test(text);
+    case 'manual':
+      return true;
+  }
+}
+
+function fallbackAcceptanceCommands(
+  candidate: DiscoveryCandidate,
+  evalConfig: EvalConfig | undefined
+): string[] {
+  if (candidate.reproCommand) return [candidate.reproCommand];
+  const projectGates = (evalConfig?.gates ?? []).filter(
+    (gate) => gate.required && isProjectGate(gate)
+  );
+  const matching = projectGates.filter((gate) =>
+    gateMatchesSource(candidate.source, gate)
+  );
+  return [...new Set((matching.length > 0 ? matching : projectGates).map((gate) => gate.command))];
+}
+
 export function generateTaskFromCandidate(
   candidate: DiscoveryCandidate,
   options: GenerateTaskOptions = {}
@@ -122,6 +184,10 @@ export function generateTaskFromCandidate(
   const riskArea = riskFromConfig(candidate, options.evalConfig);
   const scope = writeScope(candidate, options.evalConfig);
   const evidence = requiredEvidence(candidate.source);
+  const acceptanceCommands = fallbackAcceptanceCommands(
+    candidate,
+    options.evalConfig
+  );
   const task = validateOrThrow<TaskDefinition>(
     TASK_SCHEMA_ID,
     {
@@ -131,17 +197,16 @@ export function generateTaskFromCandidate(
       objective: objectiveFor(candidate),
       base_branch: options.baseBranch ?? 'main',
       risk_area: riskArea,
-      human_approval_required: humanApprovalRequired(
-        riskArea,
-        options.evalConfig
-      ),
+      human_approval_required:
+        humanApprovalRequired(riskArea, options.evalConfig) ||
+        acceptanceCommands.length === 0,
       write_scope: scope,
       required_evidence: evidence,
       // The failing command becomes the acceptance test so the harness can
       // verify the required evidence (e.g. fixes_reproduced_failure via
       // test-on-base: failed on base, passes on candidate).
-      ...(candidate.reproCommand
-        ? { acceptance: { required_tests: [candidate.reproCommand] } }
+      ...(acceptanceCommands.length > 0
+        ? { acceptance: { required_tests: acceptanceCommands } }
         : {}),
       ...(options.evalConfig?.limits
         ? { limits: options.evalConfig.limits }
@@ -154,7 +219,13 @@ export function generateTaskFromCandidate(
           ? { evidence_summary: candidate.evidenceSummary }
           : {}),
         error_code: candidate.location.errorCode,
-        test_name: candidate.location.testName ?? null
+        test_name: candidate.location.testName ?? null,
+        gate_name: candidate.location.gateName ?? null,
+        acceptance_source: candidate.reproCommand
+          ? 'candidate_repro_command'
+          : acceptanceCommands.length > 0
+            ? 'eval_required_gate'
+            : 'missing_requires_human_review'
       }
     },
     `candidate ${candidate.fingerprint} generated task`

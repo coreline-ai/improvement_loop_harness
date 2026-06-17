@@ -24,6 +24,12 @@ import {
   buildCodexOAuthCommand,
   startCodexOAuthProxy
 } from '../../packages/agent-adapters/dist/index.js';
+import {
+  shouldPruneUatTmp,
+  writeUatEvidenceBundle,
+  writeUatEvidenceLedger
+} from './evidence-bundle.mjs';
+import { tokenBudgetCliArgs, tokenBudgetLedger } from './token-budget.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -33,7 +39,7 @@ const model = process.env.VIBELOOP_UAT_MODEL || 'gpt-5.5';
 const reasoningEffort = process.env.VIBELOOP_UAT_REASONING_EFFORT || 'xhigh';
 const owner = process.env.VIBELOOP_UAT_GITHUB_OWNER || 'coreline-ai';
 const keepRemote = process.env.VIBELOOP_UAT_KEEP_REMOTE === '1';
-const keepTmp = process.env.VIBELOOP_UAT_KEEP_TMP === '1';
+const pruneTmp = shouldPruneUatTmp();
 const defaultQualityJudgeCommand = `${JSON.stringify(process.execPath)} ${JSON.stringify(
   path.join(repoRoot, 'scripts/uat/quality-judge-best-patch.mjs')
 )}`;
@@ -182,6 +188,7 @@ async function runIssue({
   issueIndex,
   tag,
   agentSpec,
+  tokenBudgetArgs,
   qualityJudgeCommand,
   dataDir,
   localRepo,
@@ -218,6 +225,7 @@ async function runIssue({
     baseCommit,
     '--quality-judge',
     qualityJudgeCommand,
+    ...tokenBudgetArgs,
     '--skip-dependency-install'
   ]);
   await writeFile(`${logPrefix}.stdout.log`, cli.stdout);
@@ -462,6 +470,7 @@ async function main() {
       reasoningEffort,
       requiresOpenaiAuth: true
     });
+    const tokenBudgetArgs = tokenBudgetCliArgs(proxy.baseUrl);
 
     const iterations = [];
     let previousBranch = null;
@@ -471,6 +480,7 @@ async function main() {
         issueIndex: index + 1,
         tag,
         agentSpec,
+        tokenBudgetArgs,
         qualityJudgeCommand,
         dataDir,
         localRepo,
@@ -531,6 +541,7 @@ async function main() {
       orchestrator:
         'scripted issue queue; real Codex builder/challenger per issue; deterministic Harness authority',
       builder: { real_llm: true, model, via: 'chatgpt-oauth-proxy' },
+      token_budget: tokenBudgetLedger(),
       github: {
         repo: fullRepo,
         url: `https://github.com/${fullRepo}`,
@@ -590,6 +601,41 @@ async function main() {
       iterations,
       evidence: { tmp_root: tmpRoot, data_dir: dataDir, local_repo: localRepo }
     };
+    const evidenceBundle = await writeUatEvidenceBundle({
+      scenario: ledger.scenario,
+      runId: `realuser-multi-${tag}`,
+      tmpRoot,
+      dataDir,
+      output: { iterations },
+      proxyStats: proxy?.stats,
+      extraFiles: issues.flatMap((issue) => [
+        {
+          label: `${issue.slug}_stdout`,
+          path: path.join(dataDir, `multi-${issue.slug}.stdout.log`)
+        },
+        {
+          label: `${issue.slug}_stderr`,
+          path: path.join(dataDir, `multi-${issue.slug}.stderr.log`)
+        }
+      ]),
+      extraJson: {
+        github: ledger.github,
+        verification: {
+          verification_status: ledger.verification_status,
+          improvement_status: ledger.improvement_status,
+          issue_queue_exhausted: issueQueueExhausted
+        }
+      }
+    });
+    ledger.evidence = {
+      ...ledger.evidence,
+      evidence_bundle: evidenceBundle.bundle_dir,
+      evidence_manifest: evidenceBundle.manifest_path,
+      evidence_ledger: path.join(evidenceBundle.bundle_dir, 'ledger.json'),
+      evidence_copied_count: evidenceBundle.copied_count,
+      evidence_missing_count: evidenceBundle.missing_count,
+      tmp_prune_requested: pruneTmp
+    };
 
     if (
       ledger.status === 'REAL_USER_MULTI_FULL_IMPROVEMENT_PASS' &&
@@ -618,6 +664,7 @@ async function main() {
     }
 
     assertNoHiddenLeak('ledger', ledger);
+    await writeUatEvidenceLedger(evidenceBundle, ledger);
     console.log(JSON.stringify(ledger, null, 2));
     if (!verificationPass) process.exitCode = 1;
     else if (
@@ -632,7 +679,7 @@ async function main() {
       if (del.code !== 0)
         await run('gh', ['repo', 'archive', fullRepo, '--yes']);
     }
-    if (!keepTmp) {
+    if (pruneTmp) {
       await rm(tmpRoot, { recursive: true, force: true }).catch(
         () => undefined
       );

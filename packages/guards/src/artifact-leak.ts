@@ -34,13 +34,24 @@ export interface ArtifactLeakConfig {
 
 const DEFAULT_MAX_SCAN_BYTES = 1_048_576;
 
-const TOKEN_PATTERNS: ReadonlyArray<{ label: string; source: string }> = [
+const TOKEN_PATTERNS: ReadonlyArray<{
+  label: string;
+  source: string;
+  replacement?: string;
+}> = [
   { label: 'bearer', source: 'Bearer\\s+[A-Za-z0-9._~+/-]{8,}=*' },
   { label: 'openai_key', source: '\\bsk-[A-Za-z0-9_-]{8,}' },
   {
     label: 'token_assignment',
     source:
-      '((?:access|refresh)[_-]?token|api[_-]?key|secret|password)(["\']?\\s*[:=]\\s*["\']?)([^\\s"\']+)'
+      '(["\']?(?:(?:access|refresh)[_-]?token|api[_-]?key|secret|password)["\']?)(\\s*[:=]\\s*)(["\'])([^\\r\\n]*?)(\\3)',
+    replacement: '$1$2$3[REDACTED]$5'
+  },
+  {
+    label: 'token_assignment',
+    source:
+      '(["\']?(?:(?:access|refresh)[_-]?token|api[_-]?key|secret|password)["\']?)(\\s*[:=]\\s*)([^\\s"\',}]+)',
+    replacement: '$1$2[REDACTED]'
   }
 ];
 
@@ -108,9 +119,7 @@ function scanSource(
       });
       redacted = redacted.replace(
         new RegExp(pattern.source, 'gi'),
-        pattern.label === 'token_assignment'
-          ? '$1$2[REDACTED]'
-          : `[REDACTED:${pattern.label}]`
+        pattern.replacement ?? `[REDACTED:${pattern.label}]`
       );
     }
   }
@@ -273,9 +282,7 @@ export function redactForLeak(
   for (const pattern of TOKEN_PATTERNS) {
     redacted = redacted.replace(
       new RegExp(pattern.source, 'gi'),
-      pattern.label === 'token_assignment'
-        ? '$1$2[REDACTED]'
-        : `[REDACTED:${pattern.label}]`
+      pattern.replacement ?? `[REDACTED:${pattern.label}]`
     );
   }
   return redacted;

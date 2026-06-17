@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, readFile, stat, symlink } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  readFile,
+  stat,
+  symlink,
+  writeFile
+} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -11,7 +18,11 @@ import {
   readManifest,
   verifyArtifactChecksums
 } from './manifest.js';
-import { collectExpired, deleteExpiredRuns } from './retention.js';
+import {
+  collectExpired,
+  deleteExpiredRun,
+  deleteExpiredRuns
+} from './retention.js';
 import { createRedactor } from './redaction.js';
 import { readArtifactText, writeArtifact } from './writer.js';
 
@@ -41,6 +52,35 @@ describe('createRunDir', () => {
         (await stat(path.join(layout.root, directory))).isDirectory()
       ).toBe(true);
     }
+  });
+
+  it('rejects unsafe project and loop identifiers before creating run paths', async () => {
+    const dataDir = await tempDataDir();
+
+    await expect(
+      createRunDir({
+        dataDir,
+        projectId: '../escape',
+        loopId: 'loop-1'
+      })
+    ).rejects.toThrow(ArtifactPathError);
+    await expect(
+      createRunDir({
+        dataDir,
+        projectId: 'proj-1',
+        loopId: '../escape'
+      })
+    ).rejects.toThrow(ArtifactPathError);
+  });
+
+  it('rejects layout.path traversal outside the run root', async () => {
+    const layout = await createRunDir({
+      dataDir: await tempDataDir(),
+      projectId: 'proj-1',
+      loopId: 'loop-path'
+    });
+
+    expect(() => layout.path('../escape.txt')).toThrow(ArtifactPathError);
   });
 });
 
@@ -97,6 +137,59 @@ describe('writeArtifact and redaction', () => {
     expect(output).toContain('api_key="[REDACTED]"');
     expect(output).toContain('literal=[REDACTED]');
   });
+
+  it('redacts quoted secret values that contain whitespace before writing logs', async () => {
+    const layout = await createRunDir({
+      dataDir: await tempDataDir(),
+      projectId: 'proj-1',
+      loopId: 'loop-redact-whitespace'
+    });
+
+    await writeArtifact(
+      layout.root,
+      'logs/agent.stdout.log',
+      [
+        'secret="alpha beta gamma"',
+        "token: 'multi word token'",
+        '{"api_key": "json key with spaces"}'
+      ].join('\n')
+    );
+
+    const output = await readArtifactText(layout.root, 'logs/agent.stdout.log');
+    expect(output).not.toContain('alpha beta gamma');
+    expect(output).not.toContain('multi word token');
+    expect(output).not.toContain('json key with spaces');
+    expect(output).toContain('secret="[REDACTED]"');
+    expect(output).toContain("token: '[REDACTED]'");
+    expect(output).toContain('"api_key": "[REDACTED]"');
+  });
+
+  it('uses the default redactor for text and Buffer artifact writes', async () => {
+    const layout = await createRunDir({
+      dataDir: await tempDataDir(),
+      projectId: 'proj-1',
+      loopId: 'loop-default-redact'
+    });
+
+    await writeArtifact(
+      layout.root,
+      'logs/text.log',
+      'Bearer abc.def.ghi token=abc123 sk-testsecret123'
+    );
+    await writeArtifact(
+      layout.root,
+      'logs/buffer.log',
+      Buffer.from('password=buffer-secret ghp_abcdefghijklmnopqrstuvwxyz')
+    );
+
+    const text = await readArtifactText(layout.root, 'logs/text.log');
+    const buffer = await readArtifactText(layout.root, 'logs/buffer.log');
+    expect(text).not.toContain('abc.def.ghi');
+    expect(text).not.toContain('abc123');
+    expect(text).not.toContain('sk-testsecret123');
+    expect(buffer).not.toContain('buffer-secret');
+    expect(buffer).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz');
+  });
 });
 
 describe('manifest finalization', () => {
@@ -125,6 +218,11 @@ describe('manifest finalization', () => {
     });
 
     expect(finalized.status).toBe('rejected');
+    expect(finalized.manifest_integrity).toMatchObject({
+      algorithm: 'hmac-sha256',
+      key_ref: 'data-dir'
+    });
+    expect(finalized.manifest_integrity?.signature).toMatch(/^[a-f0-9]{64}$/);
     expect(finalized.artifacts).toHaveLength(1);
     expect(finalized.artifacts?.[0]).toMatchObject({
       path: 'logs/eval-runner.log',
@@ -139,6 +237,100 @@ describe('manifest finalization', () => {
     await expect(
       writeArtifact(layout.root, 'logs/after-finalize.log', 'late write')
     ).rejects.toThrow(ArtifactImmutableError);
+  });
+
+  it('redacts token-like manifest fields before persisting manifest.json', async () => {
+    const layout = await createRunDir({
+      dataDir: await tempDataDir(),
+      projectId: 'proj-1',
+      loopId: 'loop-manifest-redact'
+    });
+
+    await initializeManifest(layout, {
+      taskId: 'task-ghp_abcdefghijklmnopqrstuvwxyz',
+      baseCommit: 'token=manifest-secret'
+    });
+
+    const manifestText = await readFile(layout.manifest, 'utf8');
+    expect(manifestText).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz');
+    expect(manifestText).not.toContain('manifest-secret');
+    expect(manifestText).toContain('[REDACTED]');
+  });
+
+  it('fails checksum verification when manifest artifact paths escape the run root', async () => {
+    const layout = await createRunDir({
+      dataDir: await tempDataDir(),
+      projectId: 'proj-1',
+      loopId: 'loop-manifest-path'
+    });
+
+    await initializeManifest(layout);
+    await writeArtifact(layout.root, 'logs/eval-runner.log', 'ok\n');
+    const finalized = await finalizeManifest(layout, {
+      status: 'rejected',
+      decision: 'rejected',
+      finalizedAt: new Date('2026-06-10T01:00:00.000Z')
+    });
+    await writeFile(
+      layout.manifest,
+      `${JSON.stringify(
+        {
+          ...finalized,
+          artifacts: [
+            {
+              path: '../escape.log',
+              sha256: '0'.repeat(64),
+              size_bytes: 1
+            }
+          ]
+        },
+        null,
+        2
+      )}\n`
+    );
+
+    await expect(verifyArtifactChecksums(layout)).resolves.toBe(false);
+  });
+
+  it('fails checksum verification when manifest content or artifact set changes after signing', async () => {
+    const layout = await createRunDir({
+      dataDir: await tempDataDir(),
+      projectId: 'proj-1',
+      loopId: 'loop-manifest-signature'
+    });
+
+    await initializeManifest(layout);
+    await writeArtifact(layout.root, 'logs/eval-runner.log', 'ok\n');
+    const finalized = await finalizeManifest(layout, {
+      status: 'rejected',
+      decision: 'rejected',
+      finalizedAt: new Date('2026-06-10T01:00:00.000Z')
+    });
+
+    await writeFile(
+      layout.manifest,
+      `${JSON.stringify({ ...finalized, status: 'accepted' }, null, 2)}\n`
+    );
+    await expect(verifyArtifactChecksums(layout)).resolves.toBe(false);
+  });
+
+  it('fails checksum verification when an unmanifested artifact is added', async () => {
+    const layout = await createRunDir({
+      dataDir: await tempDataDir(),
+      projectId: 'proj-1',
+      loopId: 'loop-extra-file'
+    });
+
+    await initializeManifest(layout);
+    await writeArtifact(layout.root, 'logs/eval-runner.log', 'ok\n');
+    await finalizeManifest(layout, {
+      status: 'rejected',
+      decision: 'rejected',
+      finalizedAt: new Date('2026-06-10T01:00:00.000Z')
+    });
+    await writeFile(path.join(layout.logs, 'late-direct-write.log'), 'late\n');
+
+    await expect(verifyArtifactChecksums(layout)).resolves.toBe(false);
   });
 });
 
@@ -242,5 +434,129 @@ describe('retention', () => {
     expect(expired).toHaveLength(1);
     expect(expired[0]?.runRoot).toBe(layout.root);
     expect(expired[0]?.manifest.loop_id).toBe('loop-retention');
+  });
+
+  it('does not collect running or audit-kept runs even when expires_at is stale', async () => {
+    const dataDir = await tempDataDir();
+    const stale = new Date('2026-06-10T01:00:00.000Z');
+    const runningLayout = await createRunDir({
+      dataDir,
+      projectId: 'proj-gc',
+      loopId: 'loop-running'
+    });
+    const auditLayout = await createRunDir({
+      dataDir,
+      projectId: 'proj-gc',
+      loopId: 'loop-audit'
+    });
+
+    const running = await initializeManifest(runningLayout, { createdAt: stale });
+    await writeFile(
+      runningLayout.manifest,
+      `${JSON.stringify(
+        { ...running, expires_at: stale.toISOString() },
+        null,
+        2
+      )}\n`
+    );
+    await initializeManifest(auditLayout, { createdAt: stale });
+    await writeArtifact(auditLayout.root, 'reports/eval-report.json', '{}\n');
+    const audit = await finalizeManifest(auditLayout, {
+      status: 'rejected',
+      decision: 'rejected',
+      finalizedAt: stale
+    });
+    await writeFile(
+      auditLayout.manifest,
+      `${JSON.stringify({ ...audit, audit_keep: true }, null, 2)}\n`
+    );
+
+    await expect(collectExpired(dataDir, plusDays(stale, 31))).resolves.toEqual(
+      []
+    );
+  });
+
+  it('does not delete audit-kept runs during retention GC', async () => {
+    const dataDir = await tempDataDir();
+    const stale = new Date('2026-06-10T01:00:00.000Z');
+    const auditLayout = await createRunDir({
+      dataDir,
+      projectId: 'proj-gc',
+      loopId: 'loop-audit-gc'
+    });
+
+    await initializeManifest(auditLayout, { createdAt: stale });
+    await writeArtifact(auditLayout.root, 'reports/eval-report.json', '{}\n');
+    const audit = await finalizeManifest(auditLayout, {
+      status: 'rejected',
+      decision: 'rejected',
+      finalizedAt: stale
+    });
+    await writeFile(
+      auditLayout.manifest,
+      `${JSON.stringify({ ...audit, audit_keep: true }, null, 2)}\n`
+    );
+
+    await expect(
+      deleteExpiredRuns(dataDir, plusDays(stale, 31))
+    ).resolves.toEqual([]);
+    await expect(access(auditLayout.root)).resolves.toBeUndefined();
+  });
+
+  it('skips malformed manifests instead of aborting the whole GC scan', async () => {
+    const dataDir = await tempDataDir();
+    const stale = new Date('2026-06-10T01:00:00.000Z');
+    const badLayout = await createRunDir({
+      dataDir,
+      projectId: 'proj-gc',
+      loopId: 'loop-bad-manifest'
+    });
+    const goodLayout = await createRunDir({
+      dataDir,
+      projectId: 'proj-gc',
+      loopId: 'loop-good-manifest'
+    });
+
+    await writeFile(badLayout.manifest, '{not-json');
+    await initializeManifest(goodLayout, { createdAt: stale });
+    await writeArtifact(goodLayout.root, 'reports/eval-report.json', '{}\n');
+    await finalizeManifest(goodLayout, {
+      status: 'rejected',
+      decision: 'rejected',
+      finalizedAt: stale
+    });
+
+    const expired = await collectExpired(dataDir, plusDays(stale, 31));
+    expect(expired.map((run) => run.manifest.loop_id)).toEqual([
+      'loop-good-manifest'
+    ]);
+  });
+
+  it('rechecks run status before deleting an expired run', async () => {
+    const dataDir = await tempDataDir();
+    const stale = new Date('2026-06-10T01:00:00.000Z');
+    const layout = await createRunDir({
+      dataDir,
+      projectId: 'proj-gc',
+      loopId: 'loop-recheck'
+    });
+
+    await initializeManifest(layout, { createdAt: stale });
+    await writeArtifact(layout.root, 'reports/eval-report.json', '{}\n');
+    const finalized = await finalizeManifest(layout, {
+      status: 'rejected',
+      decision: 'rejected',
+      finalizedAt: stale
+    });
+    const [expired] = await collectExpired(dataDir, plusDays(stale, 31));
+    await writeFile(
+      layout.manifest,
+      `${JSON.stringify({ ...finalized, status: 'running' }, null, 2)}\n`
+    );
+
+    await expect(
+      deleteExpiredRun(dataDir, expired!, plusDays(stale, 31))
+    ).resolves.toBeNull();
+    await expect(access(layout.root)).resolves.toBeUndefined();
   });
 });

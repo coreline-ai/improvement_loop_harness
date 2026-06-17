@@ -18,7 +18,7 @@ export default defineConfig({
       env: { VIBELOOP_API_TOKEN: 'test-token' }
     },
     {
-      command: 'pnpm dev --hostname 127.0.0.1 --port 4314',
+      command: 'corepack pnpm dev --hostname 127.0.0.1 --port 4314',
       url: 'http://127.0.0.1:4314/projects',
       reuseExistingServer: false,
       timeout: 30_000,

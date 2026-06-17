@@ -32,6 +32,8 @@ improvement_evidence:
   required_any:
     - fixes_reproduced_failure
     - adds_regression_test
+execution:
+  isolation: none
 gates:
   - name: git_meta_integrity
     type: integrity

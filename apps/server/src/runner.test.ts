@@ -71,6 +71,8 @@ async function createRunnerRepo(): Promise<TempRepo> {
       '    - it.only',
       '  suspicious_patterns:',
       '    - expect(true).toBe(true)',
+      'execution:',
+      '  isolation: none',
       'gates:',
       '  - name: git_meta_integrity',
       '    type: integrity',
@@ -317,6 +319,41 @@ describe('server main bootstrap', () => {
   it('requires VIBELOOP_API_TOKEN and an explicit store mode', () => {
     expect(() => loadServerConfig({})).toThrow('VIBELOOP_API_TOKEN is required');
     expect(() => loadServerConfig({ VIBELOOP_API_TOKEN: TOKEN })).toThrow('DATABASE_URL is required unless VIBELOOP_STORE=memory is set');
+  });
+
+  it('validates the default server agent spec against the server execution policy', () => {
+    const baseEnv = {
+      VIBELOOP_API_TOKEN: TOKEN,
+      VIBELOOP_STORE: 'memory'
+    };
+
+    expect(loadServerConfig(baseEnv).agentSpec).toBe('codex');
+    expect(
+      loadServerConfig({
+        ...baseEnv,
+        VIBELOOP_AGENT_SPEC: 'mock:/tmp/scenario.json'
+      }).agentSpec
+    ).toBe('mock:/tmp/scenario.json');
+    expect(() =>
+      loadServerConfig({
+        ...baseEnv,
+        VIBELOOP_AGENT_SPEC: 'shell:node -e "process.exit(0)"'
+      })
+    ).toThrow('VIBELOOP_AGENT_SPEC is not allowed by server policy');
+    expect(() =>
+      loadServerConfig({
+        ...baseEnv,
+        VIBELOOP_AGENT_SPEC: 'command:node -e "process.exit(0)"'
+      })
+    ).toThrow('command agents are disabled on the server');
+    expect(() =>
+      loadServerConfig({
+        ...baseEnv,
+        VIBELOOP_AGENT_SPEC: 'command:node -e "process.exit(0)"',
+        VIBELOOP_ALLOW_COMMAND_AGENT: 'true',
+        VIBELOOP_AGENT_SPEC_ALLOWLIST: 'codex,mock:*,command:*'
+      })
+    ).toThrow('command agents are disabled on the server');
   });
 
   it('starts an HTTP server with memory store and enforces bearer auth', async () => {

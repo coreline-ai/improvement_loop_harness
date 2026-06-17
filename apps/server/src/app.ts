@@ -14,6 +14,8 @@ import { registerProjectRoutes } from './routes/projects.js';
 import { registerOrchestratorRoutes } from './routes/orchestrator.js';
 import { registerPullRequestRoutes, type PullRequestManager } from './routes/pull-requests.js';
 import { registerTaskRoutes } from './routes/tasks.js';
+import { registerSecurity, type SecurityOptions } from './security.js';
+import type { AgentSpecPolicy } from './agent-policy.js';
 import type { Store } from './types.js';
 
 export interface CreateAppOptions {
@@ -24,6 +26,8 @@ export interface CreateAppOptions {
   logger?: boolean | undefined;
   pullRequestManager?: PullRequestManager | undefined;
   fetchLatestBase?: FetchLatestBase | undefined;
+  agentSpecPolicy?: AgentSpecPolicy | undefined;
+  security?: SecurityOptions | undefined;
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
@@ -49,10 +53,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     sendError(reply, new ApiError(404, 'NOT_FOUND', 'route not found'));
   });
 
+  await registerSecurity(app, options.security);
   await registerAuth(app, { token: options.token });
   await registerProjectRoutes(app, store);
   await registerTaskRoutes(app, store);
-  await registerLoopRoutes(app, store, queue);
+  await registerLoopRoutes(app, store, queue, options.agentSpecPolicy);
   await registerEventRoutes(app, store, options.sseReplayOnly === undefined ? {} : { replayOnly: options.sseReplayOnly });
   await registerApprovalRoutes(app, store);
   await registerCandidateRoutes(app, store);

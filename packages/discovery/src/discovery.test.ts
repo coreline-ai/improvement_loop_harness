@@ -3,8 +3,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createTempGitRepo } from '../../../tests/helpers/repo.js';
-import { dedupeCandidates, failureClusterKey } from './fingerprint.js';
-import { discoverCandidates, selectTopCandidates } from './collectors/index.js';
+import {
+  candidateFingerprint,
+  dedupeCandidates,
+  failureClusterKey
+} from './fingerprint.js';
+import {
+  discoverCandidates,
+  selectTopCandidates,
+  selectTopCandidatesWithReport
+} from './collectors/index.js';
 import { generateTaskFromCandidate } from './task-gen.js';
 import type { EvalConfig } from '@vibeloop/task-protocol';
 
@@ -22,6 +30,7 @@ function evalConfig(command: string): EvalConfig {
     },
     human_approval_risk_areas: ['auth', 'unknown'],
     limits: { max_changed_files: 10, max_changed_lines: 200 },
+    execution: { isolation: 'none' },
     gates: [
       {
         name: 'unit_tests',
@@ -61,6 +70,23 @@ describe('failureClusterKey', () => {
         errorCode: ''
       })
     ).toBe('security_scan:secrets:unknown');
+  });
+});
+
+describe('candidateFingerprint', () => {
+  it('keeps project-level candidates from different gates distinct', () => {
+    const first = candidateFingerprint('test_failure', {
+      filePath: 'project',
+      gateName: 'unit_tests',
+      errorCode: 'TEST_FAILURE'
+    });
+    const second = candidateFingerprint('test_failure', {
+      filePath: 'project',
+      gateName: 'integration_tests',
+      errorCode: 'TEST_FAILURE'
+    });
+
+    expect(first).not.toBe(second);
   });
 });
 
@@ -211,6 +237,7 @@ describe('discovery package', () => {
         none: ['src/', 'tests/']
       },
       limits: { max_changed_files: 10, max_changed_lines: 200 },
+      execution: { isolation: 'none' },
       gates: [
         {
           name: 'auto_command_0',
@@ -239,6 +266,131 @@ describe('discovery package', () => {
     ]);
   });
 
+  it('uses required eval gates as acceptance when a candidate has no repro command', () => {
+    const generated = generateTaskFromCandidate(
+      {
+        source: 'lint',
+        fingerprint: 'lint-no-repro',
+        title: 'Lint failure',
+        evidenceRefs: [],
+        priority: 70,
+        status: 'proposed',
+        location: {
+          filePath: 'project',
+          errorCode: 'LINT_FAILURE'
+        }
+      },
+      {
+        evalConfig: {
+          schema_version: '1.0',
+          project: 'lint-fallback',
+          risk_classification: { none: ['src/'] },
+          gates: [
+            {
+              name: 'lint',
+              type: 'hard',
+              command: 'npm run lint',
+              required: true
+            },
+            {
+              name: 'unit_tests',
+              type: 'task_acceptance',
+              command: 'npm test',
+              required: true
+            }
+          ]
+        },
+        baseBranch: 'main'
+      }
+    );
+
+    expect(generated.task.acceptance?.required_tests).toEqual([
+      'npm run lint'
+    ]);
+    expect(generated.task.human_approval_required).toBe(false);
+    expect(generated.task.metadata?.acceptance_source).toBe(
+      'eval_required_gate'
+    );
+  });
+
+  it('requires human review when a generated task has no reproducible acceptance command', () => {
+    const generated = generateTaskFromCandidate(
+      {
+        source: 'manual',
+        fingerprint: 'manual-no-repro',
+        title: 'Manual issue',
+        evidenceRefs: [],
+        priority: 60,
+        status: 'proposed',
+        location: {
+          filePath: 'project',
+          errorCode: 'MANUAL'
+        }
+      },
+      {
+        evalConfig: {
+          schema_version: '1.0',
+          project: 'manual-fallback',
+          risk_classification: { none: ['src/'] },
+          gates: [
+            {
+              name: 'advisory',
+              type: 'advisory',
+              command: 'node advisory.js',
+              required: false
+            }
+          ]
+        },
+        baseBranch: 'main'
+      }
+    );
+
+    expect(generated.task.acceptance).toBeUndefined();
+    expect(generated.task.human_approval_required).toBe(true);
+    expect(generated.task.write_scope.allowed).toEqual(['src/']);
+    expect(generated.task.metadata?.acceptance_source).toBe(
+      'missing_requires_human_review'
+    );
+  });
+
+  it('excludes protected paths from fallback project write scope', () => {
+    const generated = generateTaskFromCandidate(
+      {
+        source: 'manual',
+        fingerprint: 'manual-protected-scope',
+        title: 'Manual issue',
+        evidenceRefs: [],
+        priority: 60,
+        status: 'proposed',
+        location: {
+          filePath: 'project',
+          errorCode: 'MANUAL'
+        }
+      },
+      {
+        evalConfig: {
+          schema_version: '1.0',
+          project: 'manual-protected-scope',
+          protected_paths: ['secrets/', 'docs/private'],
+          risk_classification: {
+            none: ['src/', 'secrets/', 'docs/private/runbook.md']
+          },
+          gates: [
+            {
+              name: 'unit_tests',
+              type: 'task_acceptance',
+              command: 'npm test',
+              required: true
+            }
+          ]
+        },
+        baseBranch: 'main'
+      }
+    );
+
+    expect(generated.task.write_scope.allowed).toEqual(['src/']);
+  });
+
   it('keeps only the top 50 proposed candidates by priority', async () => {
     const candidates = Array.from({ length: 55 }, (_, index) => ({
       source: 'test_failure' as const,
@@ -257,5 +409,68 @@ describe('discovery package', () => {
     expect(top).toHaveLength(50);
     expect(top[0]?.priority).toBe(54);
     expect(top.at(-1)?.priority).toBe(5);
+  });
+
+  it('reports candidates dropped by the discovery cap after priority ranking', () => {
+    const candidates = [
+      {
+        source: 'lint' as const,
+        fingerprint: 'fp-lint',
+        title: 'b lint issue',
+        evidenceRefs: [],
+        priority: 70,
+        status: 'proposed' as const,
+        location: {
+          filePath: 'src/lint.js',
+          errorCode: 'LINT_FAILURE'
+        }
+      },
+      {
+        source: 'security_scan' as const,
+        fingerprint: 'fp-security',
+        title: 'a critical security issue',
+        evidenceRefs: [],
+        priority: 90,
+        status: 'proposed' as const,
+        location: {
+          filePath: 'src/security.js',
+          errorCode: 'SECURITY_SCAN_FAILURE'
+        }
+      },
+      {
+        source: 'test_failure' as const,
+        fingerprint: 'fp-test',
+        title: 'c test issue',
+        evidenceRefs: [],
+        priority: 80,
+        status: 'proposed' as const,
+        location: {
+          filePath: 'tests/cart.test.js',
+          errorCode: 'TEST_FAILURE'
+        }
+      }
+    ];
+
+    const result = selectTopCandidatesWithReport(candidates, 2, 4);
+
+    expect(result.candidates.map((candidate) => candidate.fingerprint)).toEqual(
+      ['fp-security', 'fp-test']
+    );
+    expect(result.report).toMatchObject({
+      max_proposed: 2,
+      raw_count: 4,
+      deduped_count: 3,
+      selected_count: 2,
+      dropped_count: 1,
+      cap_applied: true,
+      sort_order: 'priority_desc_title_asc'
+    });
+    expect(result.report.dropped).toEqual([
+      expect.objectContaining({
+        fingerprint: 'fp-lint',
+        reason: 'max_proposed_cap',
+        priority: 70
+      })
+    ]);
   });
 });

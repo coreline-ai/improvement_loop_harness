@@ -8,6 +8,7 @@ export interface RunCommandOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
+  signal?: AbortSignal | undefined;
   maxBufferBytes?: number;
   stdoutFile?: string | undefined;
   stderrFile?: string | undefined;
@@ -125,6 +126,7 @@ function forceKillProcessGroup(pid: number | undefined): void {
 export async function runCommand(command: string, options: RunCommandOptions = {}): Promise<RunCommandResult> {
   const startedAt = Date.now();
   let timedOut = false;
+  let aborted = false;
   const stdout = createBoundedOutputBuffer();
   const stderr = createBoundedOutputBuffer();
   const maxBufferBytes = options.maxBufferBytes ?? DEFAULT_MAX_BUFFER_BYTES;
@@ -134,6 +136,7 @@ export async function runCommand(command: string, options: RunCommandOptions = {
     let timeoutTimer: NodeJS.Timeout | undefined;
     let forceKillTimer: NodeJS.Timeout | undefined;
     let safetyResolveTimer: NodeJS.Timeout | undefined;
+    let abortListener: (() => void) | undefined;
 
     const subprocess = spawn(command, {
       shell: true,
@@ -142,6 +145,26 @@ export async function runCommand(command: string, options: RunCommandOptions = {
       ...(options.cwd ? { cwd: options.cwd } : {}),
       env: options.env ?? process.env
     });
+
+    const terminateSubprocess = (): void => {
+      killProcessGroup(subprocess.pid);
+      if (!forceKillTimer) {
+        forceKillTimer = setTimeout(
+          () => forceKillProcessGroup(subprocess.pid),
+          250
+        );
+        forceKillTimer.unref();
+      }
+      if (!safetyResolveTimer) {
+        safetyResolveTimer = setTimeout(() => {
+          subprocess.stdout?.destroy();
+          subprocess.stderr?.destroy();
+          subprocess.unref();
+          finish(null, 'error');
+        }, 5_000);
+        safetyResolveTimer.unref();
+      }
+    };
 
     subprocess.stdout?.on('data', (chunk: Buffer | string) => {
       appendBoundedOutput(stdout, chunk, maxBufferBytes);
@@ -165,9 +188,13 @@ export async function runCommand(command: string, options: RunCommandOptions = {
       if (safetyResolveTimer) {
         clearTimeout(safetyResolveTimer);
       }
+      if (abortListener) {
+        options.signal?.removeEventListener('abort', abortListener);
+      }
 
       const status =
-        forceStatus ?? (timedOut ? 'error' : exitCode === 0 ? 'pass' : 'fail');
+        forceStatus ??
+        (timedOut || aborted ? 'error' : exitCode === 0 ? 'pass' : 'fail');
       const finalStdout = stripFinalNewline(readBoundedOutput(stdout));
       const finalStderr = stripFinalNewline(readBoundedOutput(stderr));
       void Promise.all([
@@ -200,24 +227,21 @@ export async function runCommand(command: string, options: RunCommandOptions = {
     if (options.timeoutMs && options.timeoutMs > 0) {
       timeoutTimer = setTimeout(() => {
         timedOut = true;
-        killProcessGroup(subprocess.pid);
-        forceKillTimer = setTimeout(
-          () => forceKillProcessGroup(subprocess.pid),
-          250
-        );
-        forceKillTimer.unref();
-        // If even SIGKILL cannot complete cleanly, resolve after a short safety window.
-        // This favors anti-hang behavior for the harness; an extreme OS/runtime failure
-        // could still leave a child process behind and must be handled by the host.
-        safetyResolveTimer = setTimeout(() => {
-          subprocess.stdout?.destroy();
-          subprocess.stderr?.destroy();
-          subprocess.unref();
-          finish(null, 'error');
-        }, 5_000);
-        safetyResolveTimer.unref();
+        terminateSubprocess();
       }, options.timeoutMs);
       timeoutTimer.unref();
+    }
+
+    if (options.signal) {
+      abortListener = () => {
+        aborted = true;
+        terminateSubprocess();
+      };
+      if (options.signal.aborted) {
+        abortListener();
+      } else {
+        options.signal.addEventListener('abort', abortListener, { once: true });
+      }
     }
   });
 }

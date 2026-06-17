@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createTempGitRepo } from '../../../tests/helpers/repo.js';
+import { hashRuleSpec } from '../../eval-engine/src/rulepack-shadow.js';
 import { EXIT_CODES } from './exit-codes.js';
 import { createProgram, VERSION } from './index.js';
 import { renderLoopHtmlReport } from './commands/report.js';
@@ -100,6 +101,8 @@ async function writeFixtureTaskEval(options: {
         '    - it.only',
         '  suspicious_patterns:',
         '    - expect(true).toBe(true)',
+        'execution:',
+        '  isolation: none',
         'gates:',
         '  - name: protected_files',
         '    type: scope',
@@ -168,6 +171,8 @@ function frozenRulepackFixture(): Record<string, unknown> {
   const lockInput = {
     source_candidate_ref: 'adversary-rulepack-candidate.json',
     source_replay_ref: 'm4-replay-result.json',
+    source_loop_id: 'source-loop',
+    source_base_commit: 'abc123',
     rules: [
       { id: 'baseline:rule', hash: 'sha256:base' },
       { id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }
@@ -215,9 +220,139 @@ describe('createProgram', () => {
       'orchestrate',
       'report',
       'retry',
+      'rulepack',
       'run'
     ]);
   });
+});
+
+it('rulepack inspect reports semantic readiness for executable frozen rulepacks', async () => {
+  const dir = await tempDir('vibeloop-rulepack-inspect-');
+  const rulepackFile = path.join(dir, 'rulepack.lock.json');
+  const spec = {
+    kind: 'command_test' as const,
+    target_path: 'tests/adversary/value.test.cjs',
+    body: 'process.exit(0);\n',
+    command: 'node tests/adversary/value.test.cjs',
+    expect: 'pass_to_pass' as const,
+    network: 'none' as const
+  };
+  const rule = {
+    id: 'adversary:p-value',
+    hash: hashRuleSpec(spec),
+    spec
+  };
+  const lockInput = {
+    source_candidate_ref: 'rulepack-candidate.json',
+    source_replay_ref: 'm4-replay.json',
+    source_loop_id: 'loop-n',
+    source_base_commit: 'base-before-learning',
+    rules: [{ id: 'baseline:rule', hash: 'sha256:base' }, rule],
+    added_rules: [rule],
+    diff: {
+      added: ['adversary:p-value'],
+      removed: [],
+      changed: [],
+      appendOnly: true
+    },
+    replay: {
+      replaySafe: true,
+      total: 1,
+      matched: 1,
+      mismatches: []
+    }
+  };
+  await writeFile(
+    rulepackFile,
+    `${JSON.stringify(
+      {
+        schema_version: '1.0',
+        kind: 'frozen_rulepack',
+        authority: 'fixed_next_loop_gate',
+        decision_impact: 'next_loop_only',
+        ...lockInput,
+        frozen_at: new Date(0).toISOString(),
+        lock_hash: sha256(lockInput)
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'rulepack',
+      'inspect',
+      rulepackFile
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    valid: boolean;
+    semantic_ready: boolean;
+    status: string;
+    executable_rule_count: number;
+    violations: unknown[];
+    semantic_violations: unknown[];
+  };
+  expect(output).toMatchObject({
+    valid: true,
+    semantic_ready: true,
+    status: 'semantic_ready',
+    executable_rule_count: 1,
+    violations: [],
+    semantic_violations: []
+  });
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+});
+
+it('rulepack inspect rejects replay-unsafe or tampered frozen rulepacks', async () => {
+  const dir = await tempDir('vibeloop-rulepack-inspect-invalid-');
+  const rulepackFile = path.join(dir, 'rulepack.lock.json');
+  const tampered = frozenRulepackFixture();
+  (tampered.replay as { replaySafe: boolean }).replaySafe = false;
+  await writeFile(rulepackFile, `${JSON.stringify(tampered, null, 2)}\n`);
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'rulepack',
+      'inspect',
+      rulepackFile
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    valid: boolean;
+    status: string;
+    violations: Array<{ code: string }>;
+  };
+  expect(output.valid).toBe(false);
+  expect(output.status).toBe('invalid');
+  expect(output.violations.map((entry) => entry.code)).toEqual(
+    expect.arrayContaining([
+      'RULEPACK_REPLAY_UNSAFE',
+      'RULEPACK_LOCK_HASH_MISMATCH'
+    ])
+  );
+  expect(process.exitCode).toBe(EXIT_CODES.reject);
+  process.exitCode = 0;
 });
 
 it('adversary-rulepack-replay-corpus builds replay cases from M2-confirmed proposals', async () => {
@@ -266,6 +401,8 @@ it('adversary-rulepack-replay-corpus builds replay cases from M2-confirmed propo
         status: 'candidate_created_m4_required',
         reasons: [],
         selected_candidate_id: 'handoff-c0',
+        source_loop_id: 'handoff-loop',
+        source_base_commit: 'abc123',
         source_handoff_ref: handoffFile,
         source_confirmation_ref: path.join(dir, 'm2-confirmation.json'),
         current_rules: [{ id: 'baseline:rule', hash: 'sha256:base' }],
@@ -532,6 +669,11 @@ it('adversary-rulepack-candidate emits candidate-only rules after confirmed M2 e
         proposal_count: 1,
         confirmed_count: 1,
         all_confirmed: true,
+        execution: {
+          image: 'node:22',
+          test_command: 'node tests/adversary/fixed-edge.test.cjs',
+          network: 'none'
+        },
         next_step: 'm4_replay_freeze_required',
         confirmations: [
           {
@@ -579,7 +721,20 @@ it('adversary-rulepack-candidate emits candidate-only rules after confirmed M2 e
     decision_impact: string;
     candidate_created: boolean;
     next_step: string;
-    added_rules: Array<{ id: string; hash: string }>;
+    source_loop_id: string;
+    source_base_commit: string;
+    added_rules: Array<{
+      id: string;
+      hash: string;
+      spec: {
+        kind: 'command_test';
+        target_path: string;
+        body: string;
+        command: string;
+        expect: 'fail_to_pass' | 'pass_to_pass';
+        network: 'none';
+      };
+    }>;
     diff: { added: string[]; removed: string[]; changed: string[] };
   };
   const persisted = JSON.parse(
@@ -591,6 +746,8 @@ it('adversary-rulepack-candidate emits candidate-only rules after confirmed M2 e
     decision_impact: 'none',
     candidate_created: true,
     next_step: 'm4_replay_freeze_required',
+    source_loop_id: 'handoff-loop',
+    source_base_commit: 'abc123',
     diff: {
       added: ['adversary:p-fixed-edge'],
       removed: [],
@@ -600,9 +757,20 @@ it('adversary-rulepack-candidate emits candidate-only rules after confirmed M2 e
   expect(output.added_rules).toEqual([
     expect.objectContaining({
       id: 'adversary:p-fixed-edge',
-      hash: expect.stringMatching(/^sha256:/)
+      hash: expect.stringMatching(/^sha256:/),
+      spec: {
+        kind: 'command_test',
+        target_path: 'tests/adversary/fixed-edge.test.cjs',
+        body: '// fixed edge guard\nprocess.exit(0);\n',
+        command: 'node tests/adversary/fixed-edge.test.cjs',
+        expect: 'pass_to_pass',
+        network: 'none'
+      }
     })
   ]);
+  expect(output.added_rules[0]?.hash).toBe(
+    hashRuleSpec(output.added_rules[0]!.spec)
+  );
   expect(persisted).toMatchObject(output);
   expect(process.exitCode).toBe(EXIT_CODES.accept);
   process.exitCode = 0;
@@ -716,6 +884,19 @@ it('adversary-rulepack-freeze freezes replay-safe candidates as next-loop-only f
   const replayFile = path.join(dir, 'm4-replay.json');
   const outFile = path.join(dir, 'freeze-report.json');
   const rulepackOutFile = path.join(dir, 'rulepack.lock.json');
+  const fixedEdgeSpec = {
+    kind: 'command_test' as const,
+    target_path: 'tests/adversary/fixed-edge.test.cjs',
+    body: '// fixed edge guard\nprocess.exit(0);\n',
+    command: 'node tests/adversary/fixed-edge.test.cjs',
+    expect: 'pass_to_pass' as const,
+    network: 'none' as const
+  };
+  const fixedEdgeRule = {
+    id: 'adversary:p-fixed-edge',
+    hash: hashRuleSpec(fixedEdgeSpec),
+    spec: fixedEdgeSpec
+  };
   await writeFile(
     candidateFile,
     `${JSON.stringify(
@@ -728,14 +909,16 @@ it('adversary-rulepack-freeze freezes replay-safe candidates as next-loop-only f
         status: 'candidate_created_m4_required',
         reasons: [],
         selected_candidate_id: 'handoff-c0',
+        source_loop_id: 'handoff-loop',
+        source_base_commit: 'abc123',
         source_handoff_ref: '/tmp/handoff.json',
         source_confirmation_ref: '/tmp/confirmation.json',
         current_rules: [{ id: 'baseline:rule', hash: 'sha256:base' }],
         proposed_rules: [
           { id: 'baseline:rule', hash: 'sha256:base' },
-          { id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }
+          fixedEdgeRule
         ],
-        added_rules: [{ id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }],
+        added_rules: [fixedEdgeRule],
         diff: {
           added: ['adversary:p-fixed-edge'],
           removed: [],
@@ -789,8 +972,10 @@ it('adversary-rulepack-freeze freezes replay-safe candidates as next-loop-only f
     frozen_rulepack: {
       authority: string;
       decision_impact: string;
+      source_loop_id: string;
+      source_base_commit: string;
       lock_hash: string;
-      rules: Array<{ id: string; hash: string }>;
+      rules: Array<{ id: string; hash: string; spec?: unknown }>;
     };
   };
   const persisted = JSON.parse(
@@ -809,10 +994,9 @@ it('adversary-rulepack-freeze freezes replay-safe candidates as next-loop-only f
     frozen_rulepack: {
       authority: 'fixed_next_loop_gate',
       decision_impact: 'next_loop_only',
-      rules: [
-        { id: 'baseline:rule', hash: 'sha256:base' },
-        { id: 'adversary:p-fixed-edge', hash: 'sha256:edge' }
-      ]
+      source_loop_id: 'handoff-loop',
+      source_base_commit: 'abc123',
+      rules: [{ id: 'baseline:rule', hash: 'sha256:base' }, fixedEdgeRule]
     }
   });
   expect(output.frozen_rulepack.lock_hash).toMatch(/^sha256:/);
@@ -838,6 +1022,8 @@ it('adversary-rulepack-freeze rejects replay-unsafe or current-loop-applied cand
         status: 'candidate_created_m4_required',
         reasons: [],
         selected_candidate_id: 'handoff-c0',
+        source_loop_id: 'handoff-loop',
+        source_base_commit: 'abc123',
         source_handoff_ref: '/tmp/handoff.json',
         source_confirmation_ref: '/tmp/confirmation.json',
         current_rules: [],
@@ -932,9 +1118,19 @@ it('runs discover dry-run and prints structured candidates without saving them',
   }
   const output = JSON.parse(logs.join('\n')) as {
     candidates: Array<{ source: string; location: { filePath: string } }>;
+    discovery_report: {
+      selected_count: number;
+      dropped_count: number;
+      cap_applied: boolean;
+    };
   };
 
   expect(output.candidates).toHaveLength(1);
+  expect(output.discovery_report).toMatchObject({
+    selected_count: 1,
+    dropped_count: 0,
+    cap_applied: false
+  });
   expect(output.candidates[0]).toMatchObject({
     source: 'test_failure',
     location: { filePath: 'tests/failing.test.js' }
@@ -1241,6 +1437,227 @@ it('improve can push the selected final-verified patch and create a GitHub draft
   process.exitCode = 0;
 });
 
+it('improve refuses GitHub draft PR creation when final reverify is skipped', async () => {
+  await expect(
+    createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'improve',
+      '--repo',
+      '.',
+      '--task',
+      'task.yaml',
+      '--eval',
+      'eval.yaml',
+      '--agent',
+      'mock:scenario.json',
+      '--skip-final-reverify',
+      '--github-draft-pr',
+      '--github-repo',
+      'coreline-ai/improvement_loop_harness'
+    ])
+  ).rejects.toThrow(/requires final re-execution/);
+});
+
+it('improve warns to stderr for risky local-only flags', async () => {
+  const warnings: string[] = [];
+  const spy = vi
+    .spyOn(console, 'error')
+    .mockImplementation((value: string) => warnings.push(value));
+  try {
+    await expect(
+      createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        'improve',
+        '--repo',
+        '.',
+        '--task',
+        'missing-task.yaml',
+        '--eval',
+        'missing-eval.yaml',
+        '--agent',
+        'mock:scenario.json',
+        '--skip-final-reverify',
+        '--allow-dirty'
+      ])
+    ).rejects.toThrow();
+  } finally {
+    spy.mockRestore();
+  }
+
+  expect(warnings.join('\n')).toContain('--skip-final-reverify skips B2');
+  expect(warnings.join('\n')).toContain('--allow-dirty permits auto-base');
+});
+
+it('improve requires an image when overlaying a semantic rulepack gate', async () => {
+  await expect(
+    createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'improve',
+      '--repo',
+      '.',
+      '--task',
+      'task.yaml',
+      '--eval',
+      'eval.yaml',
+      '--agent',
+      'mock:scenario.json',
+      '--rulepack-semantic',
+      'policy/rulepack.lock.json'
+    ])
+  ).rejects.toThrow(/--rulepack-semantic requires --rulepack-semantic-image/);
+});
+
+it('improve overlays a semantic rulepack gate and fails closed on an invalid lock', async () => {
+  const repo = await createTempGitRepo();
+  await repo.write('src/value.cjs', 'module.exports = 1;\n');
+  const tampered = frozenRulepackFixture();
+  (tampered.replay as { replaySafe: boolean }).replaySafe = false;
+  await repo.write(
+    'policy/rulepack.lock.json',
+    `${JSON.stringify(tampered, null, 2)}\n`
+  );
+  await repo.git(['add', '-A']);
+  await repo.git(['commit', '-m', 'seed tampered semantic rulepack lock']);
+
+  const fixtureDir = await tempDir('vibeloop-cli-semantic-fixture-');
+  const dataDir = await tempDir('vibeloop-cli-semantic-data-');
+  const { taskFile, evalFile } = await writeFixtureTaskEval({
+    dir: fixtureDir,
+    taskId: 'cli-rulepack-semantic'
+  });
+  const fix = await writeScenario(fixtureDir, 'cli-semantic-fix', [
+    { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
+    {
+      type: 'create',
+      path: 'tests/regression.test.js',
+      content:
+        "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+    }
+  ]);
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'improve',
+      '--repo',
+      repo.repoPath,
+      '--task',
+      taskFile,
+      '--eval',
+      evalFile,
+      '--agent',
+      `mock:${fix}`,
+      '--out',
+      dataDir,
+      '--loop-id',
+      'cli-semantic-loop',
+      '--skip-dependency-install',
+      '--rulepack-semantic',
+      'policy/rulepack.lock.json',
+      '--rulepack-semantic-image',
+      'node:22-alpine'
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    accepted_count: number;
+    selected_candidate_id: string | null;
+    selection_report: string;
+  };
+  expect(output.accepted_count).toBe(0);
+  expect(output.selected_candidate_id).toBeNull();
+
+  const overlayEvalPath = path.join(
+    dataDir,
+    'projects',
+    'default',
+    'improve',
+    'cli-semantic-loop',
+    'eval.rulepack-semantic.json'
+  );
+  const overlayEval = JSON.parse(await readFile(overlayEvalPath, 'utf8')) as {
+    gates: Array<{ name: string; command: string; required: boolean }>;
+    protected_paths: string[];
+    rulepack_semantic?: {
+      file: string;
+      image: string;
+      network: string;
+      current_loop_id: string;
+      required_authority: string;
+      required_decision_impact: string;
+    };
+  };
+  expect(overlayEval.gates).toContainEqual(
+    expect.objectContaining({
+      name: 'rulepack_semantic',
+      command: 'builtin:rulepack-semantic',
+      required: true
+    })
+  );
+  expect(overlayEval.protected_paths).toContain('policy/rulepack.lock.json');
+  expect(overlayEval.rulepack_semantic).toMatchObject({
+    file: 'policy/rulepack.lock.json',
+    image: 'node:22-alpine',
+    network: 'none',
+    current_loop_id: 'cli-semantic-loop',
+    required_authority: 'fixed_next_loop_gate',
+    required_decision_impact: 'next_loop_only'
+  });
+
+  const selection = JSON.parse(
+    await readFile(output.selection_report, 'utf8')
+  ) as {
+    accepted_count: number;
+    candidates: Array<{ report_path?: string }>;
+  };
+  expect(selection.accepted_count).toBe(0);
+  const report = JSON.parse(
+    await readFile(selection.candidates[0]!.report_path!, 'utf8')
+  ) as {
+    decision: string;
+    gate_runs: Array<{ name: string; status: string; stdout_ref: string }>;
+    rulepack_semantic?: Array<{
+      file: string;
+      image: string;
+      current_loop_id: string;
+      status: string;
+    }>;
+  };
+  expect(report.decision).toBe('reject');
+  const semanticGate = report.gate_runs.find(
+    (entry) => entry.name === 'rulepack_semantic'
+  );
+  expect(semanticGate?.status).toBe('fail');
+  expect(report.rulepack_semantic?.[0]).toMatchObject({
+    file: 'policy/rulepack.lock.json',
+    image: 'node:22-alpine',
+    current_loop_id: 'cli-semantic-loop',
+    status: 'fail'
+  });
+  const stdout = await readFile(
+    path.join(
+      path.dirname(selection.candidates[0]!.report_path!),
+      '..',
+      semanticGate!.stdout_ref
+    ),
+    'utf8'
+  );
+  expect(stdout).toContain('RULEPACK_LOCK_REPLAY_UNSAFE');
+  expect(stdout).toContain('RULEPACK_LOCK_HASH_MISMATCH');
+  expect(process.exitCode).toBe(EXIT_CODES.reject);
+  process.exitCode = 0;
+});
+
 describe('resolveSameModelReview', () => {
   it.each([
     ['mock:scenario.json', undefined, false],
@@ -1426,13 +1843,251 @@ describe('runImprovementLoop', () => {
     expect(result.candidates).toHaveLength(2);
     expect(result.limits?.cap_hit).toBe(true);
     expect(result.limits?.candidates_run).toBe(2);
+    expect(result.limits?.kernel_runs).toBe(3);
+    expect(result.limits?.reverify_runs).toBe(1);
+    expect(result.limits?.test_on_base_runs).toBe(3);
     expect(result.limits?.max_candidates).toBe(2);
 
     const report = JSON.parse(
       await readFile(result.selectionReportPath!, 'utf8')
-    ) as { limits: { cap_hit: boolean; candidates_run: number } };
+    ) as {
+      limits: {
+        cap_hit: boolean;
+        candidates_run: number;
+        kernel_runs: number;
+        reverify_runs: number;
+        test_on_base_runs: number;
+      };
+    };
     expect(report.limits.cap_hit).toBe(true);
     expect(report.limits.candidates_run).toBe(2);
+    expect(report.limits.kernel_runs).toBe(3);
+    expect(report.limits.reverify_runs).toBe(1);
+    expect(report.limits.test_on_base_runs).toBe(3);
+  });
+
+  it('enforces the provider token budget hook (B4) and records token_budget_hit', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-token-budget-data-');
+    const fixtureDir = await tempDir('vibeloop-token-budget-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'token-budget'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const fix = await writeScenario(fixtureDir, 'token-budget-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+    const usageSamples = [0, 20, 20];
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'token-budget-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`, `mock:${fix}`],
+      tokenBudgetTotal: 10,
+      getTokenUsage: () => ({
+        total_tokens: usageSamples.shift() ?? 20
+      })
+    });
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.limits).toMatchObject({
+      token_budget_total: 10,
+      token_usage_total: 20,
+      token_budget_hit: true,
+      candidates_run: 1
+    });
+
+    const report = JSON.parse(
+      await readFile(result.selectionReportPath!, 'utf8')
+    ) as {
+      limits: {
+        token_budget_total: number;
+        token_usage_total: number;
+        token_budget_hit: boolean;
+      };
+    };
+    expect(report.limits).toMatchObject({
+      token_budget_total: 10,
+      token_usage_total: 20,
+      token_budget_hit: true
+    });
+  });
+
+  it('exposes the provider token budget through the improve CLI (B4)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-cli-token-budget-data-');
+    const fixtureDir = await tempDir('vibeloop-cli-token-budget-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'cli-token-budget'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const fix = await writeScenario(fixtureDir, 'cli-token-budget-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+    const usageSamples = [0, 20, 20];
+    const server = createServer((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        `${JSON.stringify({
+          usage: { total_tokens: usageSamples.shift() ?? 20 }
+        })}\n`
+      );
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve)
+    );
+    const address = server.address();
+    if (!address || typeof address === 'string')
+      throw new Error('server failed');
+
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        'improve',
+        '--repo',
+        repo.repoPath,
+        '--task',
+        taskFile,
+        '--eval',
+        evalFile,
+        '--agent',
+        `mock:${fix}`,
+        '--agent',
+        `mock:${fix}`,
+        '--out',
+        dataDir,
+        '--loop-id',
+        'cli-token-budget-1',
+        '--skip-dependency-install',
+        '--token-budget-total',
+        '10',
+        '--llm-proxy-url',
+        `http://127.0.0.1:${address.port}`
+      ]);
+    } finally {
+      spy.mockRestore();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
+
+    const output = JSON.parse(logs.join('\n')) as {
+      candidate_count: number;
+      limits: {
+        token_budget_total: number;
+        token_usage_total: number;
+        token_budget_hit: boolean;
+        candidates_run: number;
+      };
+    };
+    expect(output.candidate_count).toBe(1);
+    expect(output.limits).toMatchObject({
+      token_budget_total: 10,
+      token_usage_total: 20,
+      token_budget_hit: true,
+      candidates_run: 1
+    });
+    expect(process.exitCode).toBe(EXIT_CODES.accept);
+    process.exitCode = 0;
+  });
+
+  it('exposes the deadline cost ceiling through the improve CLI (B4)', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-deadline-data-');
+    const fixtureDir = await tempDir('vibeloop-deadline-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'deadline'
+    });
+    const fix = await writeScenario(fixtureDir, 'deadline-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+    ]);
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        'improve',
+        '--repo',
+        repo.repoPath,
+        '--task',
+        taskFile,
+        '--eval',
+        evalFile,
+        '--agent',
+        `mock:${fix}`,
+        '--out',
+        dataDir,
+        '--loop-id',
+        'deadline-1',
+        '--skip-dependency-install',
+        '--deadline',
+        '0'
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const output = JSON.parse(logs.join('\n')) as {
+      candidate_count: number;
+      limits: {
+        deadline_ms: number;
+        deadline_hit: boolean;
+        candidates_run: number;
+        kernel_runs: number;
+        reverify_runs: number;
+        test_on_base_runs: number;
+      };
+    };
+    expect(output.candidate_count).toBe(0);
+    expect(output.limits).toMatchObject({
+      deadline_ms: 0,
+      deadline_hit: true,
+      candidates_run: 0,
+      kernel_runs: 0,
+      reverify_runs: 0,
+      test_on_base_runs: 0
+    });
+    expect(process.exitCode).toBe(EXIT_CODES.reject);
+    process.exitCode = 0;
   });
 
   it('re-verifies the selected patch on a fresh worktree before PR candidacy (B2/B3)', async () => {
@@ -1472,6 +2127,7 @@ describe('runImprovementLoop', () => {
     const fv = result.finalVerification;
     expect(fv?.passed).toBe(true);
     expect(fv?.provenance_ok).toBe(true);
+    expect(fv?.reverify_attempted).toBe(true);
     expect(fv?.reverified).toBe(true);
     expect(fv?.reverify_decision).toBe('accept');
     expect(fv?.reverify_qualified).toBe(true);
@@ -1480,11 +2136,28 @@ describe('runImprovementLoop', () => {
       await readFile(result.selectionReportPath!, 'utf8')
     ) as {
       pr_candidate: boolean;
-      final_verification: { passed: boolean; reverified: boolean };
+      final_verification: {
+        passed: boolean;
+        reverify_attempted: boolean;
+        reverified: boolean;
+      };
+      limits: {
+        candidates_run: number;
+        kernel_runs: number;
+        reverify_runs: number;
+        test_on_base_runs: number;
+      };
     };
     expect(report.pr_candidate).toBe(true);
     expect(report.final_verification.passed).toBe(true);
+    expect(report.final_verification.reverify_attempted).toBe(true);
     expect(report.final_verification.reverified).toBe(true);
+    expect(report.limits).toMatchObject({
+      candidates_run: 1,
+      kernel_runs: 2,
+      reverify_runs: 1,
+      test_on_base_runs: 2
+    });
   });
 
   it('skipFinalReverify keeps the provenance binding but skips re-execution', async () => {
@@ -1522,9 +2195,19 @@ describe('runImprovementLoop', () => {
     });
 
     expect(result.selected?.candidateId).toBe('skiprv-1-c0');
+    expect(result.finalVerification?.candidate_patch_hash).toMatch(
+      /^[a-f0-9]{64}$/
+    );
     expect(result.finalVerification?.provenance_ok).toBe(true);
+    expect(result.finalVerification?.reverify_attempted).toBe(false);
     expect(result.finalVerification?.reverified).toBe(false);
     expect(result.finalVerification?.passed).toBe(true);
+    expect(result.limits).toMatchObject({
+      candidates_run: 1,
+      kernel_runs: 1,
+      reverify_runs: 0,
+      test_on_base_runs: 1
+    });
   });
 
   it('refuses a dirty source repo (auto base) but proceeds with allowDirty or a pinned base (#1)', async () => {
@@ -1967,6 +2650,8 @@ describe('runImprovementLoop', () => {
         '  forbidden_patterns:',
         '    - test.skip',
         '    - it.only',
+        'execution:',
+        '  isolation: none',
         'gates:',
         '  - name: unit_tests',
         '    type: task_acceptance',
@@ -2504,6 +3189,8 @@ describe('runKernel', () => {
       }
     ]);
 
+    const previousSnapshotValue = process.env.VIBELOOP_ENV_SNAPSHOT_TEST_VALUE;
+    process.env.VIBELOOP_ENV_SNAPSHOT_TEST_VALUE = 'do-not-persist-this-value';
     const result = await runKernel({
       repoPath: repo.repoPath,
       taskFile,
@@ -2513,11 +3200,22 @@ describe('runKernel', () => {
       loopId: 'loop-cli-happy',
       skipDependencyInstall: true
     });
+    if (previousSnapshotValue === undefined) {
+      delete process.env.VIBELOOP_ENV_SNAPSHOT_TEST_VALUE;
+    } else {
+      process.env.VIBELOOP_ENV_SNAPSHOT_TEST_VALUE = previousSnapshotValue;
+    }
     const report = JSON.parse(await readFile(result.reportPath!, 'utf8')) as {
       decision: string;
       improvement_evidence: Array<{ status: string }>;
       artifact_refs: string[];
     };
+    const envSnapshot = JSON.parse(
+      await readFile(
+        path.join(result.layout.input, 'env-snapshot.json'),
+        'utf8'
+      )
+    ) as { keys: string[]; values_redacted: boolean; env?: unknown };
 
     expect(result.exitCode).toBe(EXIT_CODES.accept);
     expect(result.status).toBe('accepted');
@@ -2537,6 +3235,12 @@ describe('runKernel', () => {
     await expect(
       fileExists(path.join(result.layout.input, 'env-snapshot.json'))
     ).resolves.toBe(true);
+    expect(envSnapshot.values_redacted).toBe(true);
+    expect(envSnapshot.keys).toContain('VIBELOOP_ENV_SNAPSHOT_TEST_VALUE');
+    expect(envSnapshot.env).toBeUndefined();
+    expect(JSON.stringify(envSnapshot)).not.toContain(
+      'do-not-persist-this-value'
+    );
     await expect(
       fileExists(path.join(result.layout.workspace, 'workspace-ref.json'))
     ).resolves.toBe(true);
@@ -2544,6 +3248,118 @@ describe('runKernel', () => {
     const html = await renderLoopHtmlReport({ dataDir, loopId: result.loopId });
     expect(html.fileUrl).toMatch(/^file:\/\//);
     expect(await readFile(html.path, 'utf8')).toContain('VibeLoop Eval Report');
+  });
+
+  it('keeps optional gate errors as report trust signals without changing accept decisions', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-cli-optional-gate-data-');
+    const fixtureDir = await tempDir('vibeloop-cli-optional-gate-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'cli-optional-gate-error',
+      gates: [
+        'schema_version: "1.0"',
+        'project: cli-fixture',
+        'protected_paths:',
+        '  - .env',
+        '  - .env.*',
+        '  - eval.yaml',
+        '  - scripts/eval.sh',
+        'risk_classification:',
+        '  none:',
+        '    - src/',
+        '    - tests/',
+        'limits:',
+        '  max_changed_files: 10',
+        '  max_changed_lines: 200',
+        'test_integrity:',
+        '  forbidden_patterns:',
+        '    - test.skip',
+        '    - it.only',
+        '  suspicious_patterns:',
+        '    - expect(true).toBe(true)',
+        'execution:',
+        '  isolation: none',
+        'gates:',
+        '  - name: protected_files',
+        '    type: scope',
+        '    command: builtin:protected-files',
+        '    required: true',
+        '  - name: diff_scope',
+        '    type: scope',
+        '    command: builtin:diff-scope',
+        '    required: true',
+        '  - name: limits',
+        '    type: integrity',
+        '    command: builtin:limits',
+        '    required: true',
+        '  - name: test_integrity',
+        '    type: integrity',
+        '    command: builtin:test-integrity',
+        '    required: true',
+        '  - name: unit_tests',
+        '    type: task_acceptance',
+        '    command: node tests/regression.test.js',
+        '    required: true',
+        '  - name: optional_timeout',
+        '    type: hard',
+        '    command: node -e "setInterval(()=>{},1000)"',
+        '    required: false',
+        '    timeout_seconds: 1',
+        ''
+      ].join('\n')
+    });
+    const scenario = await writeScenario(fixtureDir, 'optional-gate-error', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+      }
+    ]);
+
+    const result = await runKernel({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      agentSpec: `mock:${scenario}`,
+      loopId: 'loop-cli-optional-gate-error',
+      skipDependencyInstall: true
+    });
+    const report = JSON.parse(await readFile(result.reportPath!, 'utf8')) as {
+      decision: string;
+      gate_runs: Array<{ name: string; status: string; summary?: string }>;
+      trust_summary?: {
+        advisory_findings_count?: number;
+        optional_gate_errors_count?: number;
+      };
+      advisory_findings?: Array<{
+        source?: string;
+        gate?: string;
+        authority?: string;
+      }>;
+    };
+
+    expect(result.status).toBe('accepted');
+    expect(report.decision).toBe('accept');
+    expect(
+      report.gate_runs.find((gate) => gate.name === 'optional_timeout')
+    ).toMatchObject({ status: 'error', summary: 'gate timed out' });
+    expect(report.trust_summary?.optional_gate_errors_count).toBe(1);
+    expect(report.trust_summary?.advisory_findings_count).toBe(1);
+    expect(report.advisory_findings).toContainEqual(
+      expect.objectContaining({
+        source: 'optional_gate_error',
+        gate: 'optional_timeout',
+        authority: 'trust_signal'
+      })
+    );
   });
 
   it('computes deterministic quality (qualified) as a separate gate without changing the correctness decision', async () => {
@@ -2744,6 +3560,7 @@ describe('orchestrate (auto mode)', () => {
     repoPath: string;
     evalFile: string;
     git: (args: readonly string[]) => Promise<string>;
+    write: (filePath: string, content: string) => Promise<void>;
   }> {
     const repo = await createTempGitRepo();
     await repo.write('src/value.cjs', 'module.exports = 1;\n');
@@ -2771,6 +3588,8 @@ describe('orchestrate (auto mode)', () => {
         'limits:',
         '  max_changed_files: 10',
         '  max_changed_lines: 200',
+        'execution:',
+        '  isolation: none',
         'gates:',
         '  - name: protected_files',
         '    type: scope',
@@ -2796,7 +3615,8 @@ describe('orchestrate (auto mode)', () => {
     return {
       repoPath: repo.repoPath,
       evalFile: path.join(repo.repoPath, 'eval.yaml'),
-      git: repo.git
+      git: repo.git,
+      write: repo.write
     };
   }
 
@@ -2838,6 +3658,8 @@ describe('orchestrate (auto mode)', () => {
     const output = JSON.parse(logs[logs.length - 1]!) as {
       mode: string;
       discovered: number;
+      raw_discovered: number;
+      dropped_by_discovery_cap: number;
       processed: number;
       pr_candidates: number;
       discovery_report: string;
@@ -2852,6 +3674,8 @@ describe('orchestrate (auto mode)', () => {
 
     expect(output.mode).toBe('auto');
     expect(output.discovered).toBeGreaterThanOrEqual(1);
+    expect(output.raw_discovered).toBeGreaterThanOrEqual(output.discovered);
+    expect(output.dropped_by_discovery_cap).toBe(0);
     expect(output.processed).toBe(1);
     expect(output.issues).toHaveLength(1);
     expect(output.issues[0]?.source).toBe('test_failure');
@@ -2860,7 +3684,220 @@ describe('orchestrate (auto mode)', () => {
     expect(output.pr_candidates).toBe(1);
     // discovery report persisted to disk (step 6).
     await expect(fileExists(output.discovery_report)).resolves.toBe(true);
+    const discoveryReport = JSON.parse(
+      await readFile(output.discovery_report, 'utf8')
+    ) as {
+      discovery_cap: { selected_count: number; dropped_count: number };
+    };
+    expect(discoveryReport.discovery_cap).toMatchObject({
+      selected_count: output.discovered,
+      dropped_count: 0
+    });
     expect(process.exitCode).toBe(EXIT_CODES.accept);
+  });
+
+  it('requires --carry-rulepack-image when carrying a frozen semantic rulepack', async () => {
+    const repo = await seedRepoWithFailingTest();
+    await expect(
+      createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        'orchestrate',
+        '--repo',
+        repo.repoPath,
+        '--eval',
+        repo.evalFile,
+        '--agent',
+        'mock:scenario.json',
+        '--carry-rulepack',
+        'policy/rulepack.lock.json'
+      ])
+    ).rejects.toThrow(/--carry-rulepack requires --carry-rulepack-image/);
+  });
+
+  it('surfaces issue execution errors as failed when no PR candidate exists', async () => {
+    const repo = await seedRepoWithFailingTest();
+    await repo.write('UNCOMMITTED.md', 'dirty source\n');
+    const fixtureDir = await tempDir('vibeloop-orch-failed-fixture-');
+    const fix = await writeScenario(fixtureDir, 'orch-failed-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+    ]);
+    const dataDir = await tempDir('vibeloop-orch-failed-data-');
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        '--data-dir',
+        dataDir,
+        'orchestrate',
+        '--repo',
+        repo.repoPath,
+        '--eval',
+        repo.evalFile,
+        '--agent',
+        `mock:${fix}`,
+        '--skip-dependency-install'
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const output = JSON.parse(logs[logs.length - 1]!) as {
+      status: string;
+      pr_candidates: number;
+      error_count: number;
+      issues: Array<{ pr_candidate: boolean; error?: string }>;
+    };
+    expect(output.status).toBe('failed');
+    expect(output.pr_candidates).toBe(0);
+    expect(output.error_count).toBe(1);
+    expect(output.issues[0]).toMatchObject({ pr_candidate: false });
+    expect(output.issues[0]?.error).toContain('uncommitted change');
+    expect(process.exitCode).toBe(EXIT_CODES.failed);
+    process.exitCode = 0;
+  });
+
+  it('carries a frozen semantic rulepack into an existing eval and fails closed on an invalid lock', async () => {
+    const repo = await seedRepoWithFailingTest();
+    const tampered = frozenRulepackFixture();
+    (tampered.replay as { replaySafe: boolean }).replaySafe = false;
+    await repo.write(
+      'policy/rulepack.lock.json',
+      `${JSON.stringify(tampered, null, 2)}\n`
+    );
+    await repo.git(['add', 'policy/rulepack.lock.json']);
+    await repo.git(['commit', '-m', 'add tampered carried rulepack']);
+
+    const fixtureDir = await tempDir('vibeloop-orch-carry-fixture-');
+    const fix = await writeScenario(fixtureDir, 'orch-carry-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+    ]);
+    const dataDir = await tempDir('vibeloop-orch-carry-data-');
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        '--data-dir',
+        dataDir,
+        'orchestrate',
+        '--repo',
+        repo.repoPath,
+        '--eval',
+        repo.evalFile,
+        '--loop-id',
+        'carry-loop-n1',
+        '--carry-rulepack',
+        'policy/rulepack.lock.json',
+        '--carry-rulepack-image',
+        'node:22-alpine',
+        '--agent',
+        `mock:${fix}`,
+        '--skip-dependency-install'
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const output = JSON.parse(logs[logs.length - 1]!) as {
+      eval_file: string;
+      generated_eval: boolean;
+      carried_rulepack: {
+        file: string;
+        image: string;
+        current_loop_id: string;
+      } | null;
+      pr_candidates: number;
+      issues: Array<{
+        pr_candidate: boolean;
+        selected_candidate_id: string | null;
+        selection_report: string;
+      }>;
+    };
+    expect(output.generated_eval).toBe(false);
+    expect(output.eval_file).toContain('eval.carry-rulepack.json');
+    expect(output.carried_rulepack).toMatchObject({
+      file: 'policy/rulepack.lock.json',
+      image: 'node:22-alpine',
+      current_loop_id: 'carry-loop-n1'
+    });
+
+    const carriedEval = JSON.parse(
+      await readFile(output.eval_file, 'utf8')
+    ) as {
+      protected_paths: string[];
+      gates: Array<{ name: string; command: string; required: boolean }>;
+      rulepack_semantic?: {
+        file: string;
+        image: string;
+        current_loop_id: string;
+      };
+    };
+    expect(carriedEval.protected_paths).toContain('policy/rulepack.lock.json');
+    expect(carriedEval.gates).toContainEqual(
+      expect.objectContaining({
+        name: 'rulepack_semantic',
+        command: 'builtin:rulepack-semantic',
+        required: true
+      })
+    );
+    expect(carriedEval.rulepack_semantic).toMatchObject({
+      file: 'policy/rulepack.lock.json',
+      image: 'node:22-alpine',
+      current_loop_id: 'carry-loop-n1'
+    });
+
+    expect(output.pr_candidates).toBe(0);
+    expect(output.issues[0]).toMatchObject({
+      pr_candidate: false,
+      selected_candidate_id: null
+    });
+    const selection = JSON.parse(
+      await readFile(output.issues[0]!.selection_report, 'utf8')
+    ) as {
+      accepted_count: number;
+      candidates: Array<{ report_path?: string }>;
+    };
+    expect(selection.accepted_count).toBe(0);
+    const report = JSON.parse(
+      await readFile(selection.candidates[0]!.report_path!, 'utf8')
+    ) as {
+      decision: string;
+      gate_runs: Array<{ name: string; status: string }>;
+      rulepack_semantic?: Array<{
+        file: string;
+        image: string;
+        current_loop_id: string;
+        status: string;
+      }>;
+    };
+    expect(report.decision).toBe('reject');
+    expect(
+      report.gate_runs.find((entry) => entry.name === 'rulepack_semantic')
+        ?.status
+    ).toBe('fail');
+    expect(report.rulepack_semantic?.[0]).toMatchObject({
+      file: 'policy/rulepack.lock.json',
+      image: 'node:22-alpine',
+      current_loop_id: 'carry-loop-n1',
+      status: 'fail'
+    });
+    expect(process.exitCode).toBe(EXIT_CODES.reject);
   });
 
   it('can cumulatively promote selected patches, rediscover the next issue, and publish stacked draft PRs (RU-3 substrate)', async () => {
@@ -2890,6 +3927,8 @@ describe('orchestrate (auto mode)', () => {
         'limits:',
         '  max_changed_files: 10',
         '  max_changed_lines: 200',
+        'execution:',
+        '  isolation: none',
         'gates:',
         '  - name: protected_files',
         '    type: scope',
@@ -3066,6 +4105,8 @@ describe('orchestrate (auto mode)', () => {
       'main',
       output.issues[0]!.draft_pr!.branch_name
     ]);
+    expect(output.issues[0]!.draft_pr!.branch_name).toContain('-i0/');
+    expect(output.issues[1]!.draft_pr!.branch_name).toContain('-i1/');
     expect(output.issues.map((issue) => issue.draft_pr?.pr_url)).toEqual([
       'https://github.com/coreline-ai/improvement_loop_harness/pull/21',
       'https://github.com/coreline-ai/improvement_loop_harness/pull/22'
@@ -3360,6 +4401,141 @@ describe('orchestrate (auto mode)', () => {
     );
     expect(stdout).toContain('RULEPACK_LOCK_REPLAY_UNSAFE');
     expect(stdout).toContain('RULEPACK_LOCK_HASH_MISMATCH');
+    expect(process.exitCode).toBe(EXIT_CODES.reject);
+  });
+
+  it('generates a semantic rulepack gate and fails closed before execution on an invalid lock', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write('src/value.cjs', 'module.exports = 1;\n');
+    await repo.write(
+      'tests/value.test.cjs',
+      "const v = require('../src/value.cjs');\nif (v !== 2) { console.error('FAIL src/value.cjs: expected 2 got ' + v); process.exit(1); }\n"
+    );
+    await repo.write(
+      'package.json',
+      `${JSON.stringify({ scripts: { test: 'node tests/value.test.cjs' } }, null, 2)}\n`
+    );
+    const tampered = frozenRulepackFixture();
+    (tampered.replay as { replaySafe: boolean }).replaySafe = false;
+    await repo.write(
+      'policy/rulepack.lock.json',
+      `${JSON.stringify(tampered, null, 2)}\n`
+    );
+    await repo.git(['add', '-A']);
+    await repo.git(['commit', '-m', 'seed tampered semantic rulepack lock']);
+
+    const fixtureDir = await tempDir('vibeloop-orch-semantic-fixture-');
+    const fix = await writeScenario(fixtureDir, 'orch-semantic-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      }
+    ]);
+    const dataDir = await tempDir('vibeloop-orch-semantic-data-');
+    const logs: string[] = [];
+    const spy = vi
+      .spyOn(console, 'log')
+      .mockImplementation((value: string) => logs.push(value));
+    try {
+      await createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        '--data-dir',
+        dataDir,
+        'orchestrate',
+        '--repo',
+        repo.repoPath,
+        '--loop-id',
+        'semantic-loop-n1',
+        '--generate-eval',
+        '--eval-rulepack-semantic',
+        'policy/rulepack.lock.json',
+        '--eval-rulepack-semantic-image',
+        'node:22-alpine',
+        '--agent',
+        `mock:${fix}`,
+        '--skip-dependency-install'
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+
+    const output = JSON.parse(logs[logs.length - 1]!) as {
+      eval_file: string;
+      pr_candidates: number;
+      issues: Array<{
+        pr_candidate: boolean;
+        selected_candidate_id: string | null;
+        selection_report: string;
+      }>;
+    };
+    const generatedEval = JSON.parse(
+      await readFile(output.eval_file, 'utf8')
+    ) as {
+      gates: Array<{ name: string; command: string }>;
+      protected_paths: string[];
+      rulepack_semantic?: {
+        file: string;
+        image: string;
+        network: string;
+        current_loop_id: string;
+        required_authority: string;
+        required_decision_impact: string;
+      };
+    };
+    expect(generatedEval.gates).toContainEqual(
+      expect.objectContaining({
+        name: 'rulepack_semantic',
+        command: 'builtin:rulepack-semantic',
+        required: true
+      })
+    );
+    expect(generatedEval.rulepack_semantic).toMatchObject({
+      file: 'policy/rulepack.lock.json',
+      image: 'node:22-alpine',
+      network: 'none',
+      current_loop_id: 'semantic-loop-n1',
+      required_authority: 'fixed_next_loop_gate',
+      required_decision_impact: 'next_loop_only'
+    });
+    expect(generatedEval.protected_paths).toContain(
+      'policy/rulepack.lock.json'
+    );
+    expect(output.pr_candidates).toBe(0);
+    expect(output.issues[0]).toMatchObject({
+      pr_candidate: false
+    });
+    const selection = JSON.parse(
+      await readFile(output.issues[0]!.selection_report, 'utf8')
+    ) as {
+      accepted_count: number;
+      candidates: Array<{ report_path?: string }>;
+    };
+    expect(selection.accepted_count).toBe(0);
+    const report = JSON.parse(
+      await readFile(selection.candidates[0]!.report_path!, 'utf8')
+    ) as {
+      decision: string;
+      gate_runs: Array<{ name: string; status: string; stdout_ref: string }>;
+      rulepack_semantic?: Array<{
+        file: string;
+        image: string;
+        current_loop_id: string;
+        status: string;
+      }>;
+    };
+    expect(report.decision).toBe('reject');
+    const semanticGate = report.gate_runs.find(
+      (entry) => entry.name === 'rulepack_semantic'
+    );
+    expect(semanticGate?.status).toBe('fail');
+    expect(report.rulepack_semantic?.[0]).toMatchObject({
+      file: 'policy/rulepack.lock.json',
+      image: 'node:22-alpine',
+      current_loop_id: 'semantic-loop-n1',
+      status: 'fail'
+    });
     expect(process.exitCode).toBe(EXIT_CODES.reject);
   });
 

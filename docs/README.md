@@ -29,11 +29,16 @@
 
 ## 개발 계획
 
+- ⭐ [RELEASE_GATE_MATRIX.md](./RELEASE_GATE_MATRIX.md) — **production/autonomous 단일 실행 순서(P0~P5)** + 중복 owner 확정. 아래 미착수 계획들의 게이트 순서를 묶는 단일 소스(합본 인덱스).
 - [../dev-plan/implement_20260610_223129.md](../dev-plan/implement_20260610_223129.md) — 전체 개발 계획 (Phase 1~17, MVP-0~4) — **완료**
 - [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) — 3차 검토 반영 계획 (Phase 1~5: 서버 조립·Store 계약 테스트·스펙 개정·CI) — 반영 완료, 원격 CI 통과
 - [../dev-plan/implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md) — 신뢰 경계 보강 구현 완료 (Phase 1~7: provenance·hidden test·verifier lane·trust boundary 표시)
 - [../dev-plan/implement_20260612_183255.md](../dev-plan/implement_20260612_183255.md) — 5차 검토 반영 패치 완료 (Phase 1~4: same_model_review 교체·CI actions 인상·체크박스 정합·exec 버퍼 상한)
 - [../dev-plan/implement_20260613_085309.md](../dev-plan/implement_20260613_085309.md) — 모듈 분리 및 Skill 우선 제품화 개발 계획 (Phase 1~8: SDK/API 경계·OAuth proxy module·Skill skeleton·templates·실사용 루프 UAT)
+- [../dev-plan/implement_20260615_064636.md](../dev-plan/implement_20260615_064636.md) — Frozen Rule Semantic Runner / Adversary Semantic Gate 개발 계획 (Phase 1~5: 자가개선 루프 닫힘 고리, **core runner/gate/provenance 구현·타깃 검증 완료 / live adversary evidence는 091537 Phase 3 잔여**)
+- [../dev-plan/implement_20260615_090058.md](../dev-plan/implement_20260615_090058.md) — 7차 검토 반영: 신뢰 경계 횡단 보강 (Phase 1~7: fail-open 차단·Store 분기·신뢰 바닥 봉인·결정 엔진·컨트롤플레인 보안·discovery/github·문서 드리프트, **Phase 1 구현·타깃 검증 완료 / Phase 2 코드 보강·Postgres contract 증거 잔여 / Phase 3~5 구현·로컬 검증 완료·완료체크 보류 / Phase 6 구현·타깃 검증 완료 / Phase 7 문서 드리프트 정정 완료 / 전체 로컬 검증 green / 커밋 미수행**)
+- [../dev-plan/implement_20260615_090746.md](../dev-plan/implement_20260615_090746.md) — 운영 경계·안전 계약 보강 / production·autonomous 게이팅 (외부 리뷰 needs revision 반영: Critical agent_spec host 실행·cancel 실효화·active loop race·서버 PR 격리·중앙 PR predicate·env redaction, **Phase 1~6 구현·로컬 검증 완료 / 커밋 미수행**)
+- [../dev-plan/implement_20260615_091537.md](../dev-plan/implement_20260615_091537.md) — 제품 준비도 검증: 범용 repo·live adversary·감사 증거 (Phase 1~5: 증거 영속화·다양한 toolchain 매트릭스·live adversary lane·실 Codex 확장·정직성 갱신 — "live 실험됨↔제품으로 닫힘" 간극, **Phase 1 증거 보존 완료 / Phase 2 controlled matrix 완료 / Phase 3 live adversary 잔여 / Phase 4 대표 live 완료 / Phase 5 정직성 갱신 완료**)
 
 ## 실제 사용자 시나리오 테스트
 
@@ -50,6 +55,7 @@
 - [EXPERT_REVIEW_4_20260612.md](./EXPERT_REVIEW_4_20260612.md) — 4차 전문가 검토: 신뢰 경계 보강 계획(implement_20260612_061855) (2026-06-12, 전 항목 반영 완료)
 - [EXPERT_REVIEW_5_20260612.md](./EXPERT_REVIEW_5_20260612.md) — 5차 전문가 검토: 검토 반영·신뢰 경계 구현 검증 (2026-06-12, 전 항목 반영 완료)
 - [EXPERT_REVIEW_6_20260612.md](./EXPERT_REVIEW_6_20260612.md) — 6차 전문가 검토: 5차 반영 패치 구현 검증 (2026-06-12, 발견 0건 — **검토 사이클 종결**, 경미 관찰 O1만 선택 과제)
+- [EXPERT_REVIEW_7_20260615.md](./EXPERT_REVIEW_7_20260615.md) — 7차 전문가 검토: 전 코드베이스·문서 심층 감사 + 개발 예정 항목 정리 (2026-06-15, **신규 감사** — High 11/Med 18/Low 13 + 드리프트 5, 4개 횡단 테마, frozen rule semantic runner 등 개발 마스터 리스트)
 
 ## 현재 결론
 

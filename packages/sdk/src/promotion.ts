@@ -1,10 +1,14 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import {
   buildPullRequestBody,
   createDraftPullRequest,
+  deleteRemoteBranch,
   parseGitHubRepo,
   prepareBranchAndPush,
   type EvalReportSummaryInput
 } from '@vibeloop/github-integration';
+import { scanPatchForLeak, type ArtifactLeakConfig } from '@vibeloop/guards';
 import { safeGit, worktreeStatus } from '@vibeloop/workspace-runner';
 import type { AdversaryReviewReport } from './adversary-review.js';
 
@@ -13,6 +17,8 @@ export interface PromoteSelectedPatchOptions {
   baseCommit: string;
   branchName: string;
   patchPath: string;
+  expectedPatchHash?: string | undefined;
+  artifactLeak?: ArtifactLeakConfig | undefined;
   commitMessage: string;
   timeoutMs?: number | undefined;
 }
@@ -37,6 +43,8 @@ export interface PublishDraftPrOptions {
   baseRef: string;
   branchName: string;
   patchPath: string;
+  expectedPatchHash?: string | undefined;
+  artifactLeak?: ArtifactLeakConfig | undefined;
   commitMessage: string;
   githubRepo: string;
   token: string;
@@ -71,6 +79,8 @@ export interface CheckoutPromotionBranchOptions {
 export interface CommitSelectedPatchOptions {
   repoPath: string;
   patchPath: string;
+  expectedPatchHash?: string | undefined;
+  artifactLeak?: ArtifactLeakConfig | undefined;
   commitMessage: string;
   timeoutMs?: number | undefined;
 }
@@ -91,6 +101,43 @@ async function assertClean(repoPath: string, timeoutMs: number): Promise<void> {
       `Cannot promote selected patch into a branch while source repo is dirty (${status.entries.length} change(s)). Commit/stash first.`
     );
   }
+}
+
+async function assertPatchHash(
+  patchPath: string,
+  expectedPatchHash: string | undefined
+): Promise<void> {
+  if (!expectedPatchHash) return;
+  const actual = createHash('sha256')
+    .update(await readFile(patchPath))
+    .digest('hex');
+  if (actual !== expectedPatchHash) {
+    throw new Error(
+      `candidate patch hash mismatch before promotion: expected ${expectedPatchHash}, got ${actual}`
+    );
+  }
+}
+
+async function assertPatchLeakClean(
+  patchPath: string,
+  artifactLeak: ArtifactLeakConfig | undefined
+): Promise<void> {
+  if (artifactLeak?.scan_patch !== true) return;
+  const scan = scanPatchForLeak(await readFile(patchPath, 'utf8'), artifactLeak);
+  if (scan.result.status === 'fail') {
+    throw new Error(
+      `candidate patch failed artifact-leak rescan before promotion: ${scan.result.summary}`
+    );
+  }
+}
+
+async function assertPromotionPatchSafe(options: {
+  patchPath: string;
+  expectedPatchHash?: string | undefined;
+  artifactLeak?: ArtifactLeakConfig | undefined;
+}): Promise<void> {
+  await assertPatchHash(options.patchPath, options.expectedPatchHash);
+  await assertPatchLeakClean(options.patchPath, options.artifactLeak);
 }
 
 export async function checkoutPromotionBranch(
@@ -129,6 +176,11 @@ export async function commitSelectedPatchOnCurrentBranch(
   const baseCommit = (
     await safeGit(options.repoPath, ['rev-parse', 'HEAD'], { timeoutMs })
   ).stdout.trim();
+  await assertPromotionPatchSafe({
+    patchPath: options.patchPath,
+    expectedPatchHash: options.expectedPatchHash,
+    artifactLeak: options.artifactLeak
+  });
   await safeGit(options.repoPath, ['apply', '--index', options.patchPath], {
     timeoutMs
   });
@@ -160,6 +212,11 @@ export async function promoteSelectedPatch(
   options: PromoteSelectedPatchOptions
 ): Promise<PromotionResult> {
   const timeoutMs = options.timeoutMs ?? 30_000;
+  await assertPromotionPatchSafe({
+    patchPath: options.patchPath,
+    expectedPatchHash: options.expectedPatchHash,
+    artifactLeak: options.artifactLeak
+  });
   await checkoutPromotionBranch({
     repoPath: options.repoPath,
     branchName: options.branchName,
@@ -169,6 +226,8 @@ export async function promoteSelectedPatch(
   return commitSelectedPatchOnCurrentBranch({
     repoPath: options.repoPath,
     patchPath: options.patchPath,
+    expectedPatchHash: options.expectedPatchHash,
+    artifactLeak: options.artifactLeak,
     commitMessage: options.commitMessage,
     timeoutMs
   });
@@ -195,6 +254,11 @@ export async function publishSelectedPatchDraftPr(
   const pushUrl =
     options.pushUrl ?? `https://github.com/${repo.owner}/${repo.repo}.git`;
   const timeoutMs = options.timeoutMs ?? 30_000;
+  await assertPromotionPatchSafe({
+    patchPath: options.patchPath,
+    expectedPatchHash: options.expectedPatchHash,
+    artifactLeak: options.artifactLeak
+  });
   const originalRef = await safeGit(
     options.repoPath,
     ['symbolic-ref', '--quiet', '--short', 'HEAD'],
@@ -212,6 +276,7 @@ export async function publishSelectedPatchDraftPr(
       baseRef: options.baseRef,
       branchName,
       candidatePatchPath: options.patchPath,
+      expectedPatchHash: options.expectedPatchHash,
       commitMessage: options.commitMessage,
       pushUrl,
       token: options.token,
@@ -222,16 +287,30 @@ export async function publishSelectedPatchDraftPr(
       buildPullRequestBody(options.report ?? {}, {
         adversaryReview: options.adversaryReview ?? null
       });
-    const pr = await createDraftPullRequest({
-      owner: repo.owner,
-      repo: repo.repo,
-      token: options.token,
-      headBranch: branch.branchName,
-      baseBranch: options.baseRef,
-      title: options.title,
-      body,
-      apiBaseUrl: options.apiBaseUrl
-    });
+    let pr: Awaited<ReturnType<typeof createDraftPullRequest>>;
+    try {
+      pr = await createDraftPullRequest({
+        owner: repo.owner,
+        repo: repo.repo,
+        token: options.token,
+        headBranch: branch.branchName,
+        baseBranch: options.baseRef,
+        title: options.title,
+        body,
+        apiBaseUrl: options.apiBaseUrl
+      });
+    } catch (error) {
+      if (!branch.remotePreexisting) {
+        await deleteRemoteBranch({
+          repoPath: options.repoPath,
+          pushUrl,
+          branchName: branch.branchName,
+          token: options.token,
+          timeoutMs
+        }).catch(() => undefined);
+      }
+      throw error;
+    }
     return {
       branch_name: branch.branchName,
       head_sha: branch.headSha,

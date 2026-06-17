@@ -19,10 +19,7 @@
   "properties": {
     "schema_version": {
       "type": "string",
-      "enum": [
-        "1.0",
-        "1.1"
-      ]
+      "enum": ["1.0", "1.1"]
     },
     "loop_id": {
       "type": "string"
@@ -37,29 +34,18 @@
       "type": "string"
     },
     "candidate_commit": {
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": ["string", "null"]
     },
     "decision": {
       "type": "string",
-      "enum": [
-        "accept",
-        "reject",
-        "needs_human_review",
-        "needs_more_tests"
-      ]
+      "enum": ["accept", "reject", "needs_human_review", "needs_more_tests"]
     },
     "decision_reasons": {
       "description": "Machine-readable reasons from the decision engine's first-match-wins rule table. Not free-form strings.",
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "code",
-          "message"
-        ],
+        "required": ["code", "message"],
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -71,10 +57,7 @@
             "minLength": 1
           },
           "ref": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         }
       }
@@ -83,12 +66,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "path",
-          "status",
-          "allowed_by_write_scope",
-          "protected"
-        ],
+        "required": ["path", "status", "allowed_by_write_scope", "protected"],
         "additionalProperties": false,
         "properties": {
           "path": {
@@ -106,10 +84,7 @@
             ]
           },
           "old_path": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "allowed_by_write_scope": {
             "type": "boolean"
@@ -124,13 +99,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "name",
-          "type",
-          "required",
-          "status",
-          "exit_code"
-        ],
+        "required": ["name", "type", "required", "status", "exit_code"],
         "additionalProperties": false,
         "properties": {
           "name": {
@@ -147,50 +116,26 @@
           },
           "status": {
             "type": "string",
-            "enum": [
-              "pass",
-              "fail",
-              "skipped",
-              "error"
-            ]
+            "enum": ["pass", "fail", "skipped", "error"]
           },
           "exit_code": {
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "duration_ms": {
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": ["integer", "null"]
           },
           "stdout_ref": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "stderr_ref": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "summary": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "group": {
             "type": "string",
-            "enum": [
-              "fail_to_pass",
-              "pass_to_pass",
-              "hidden_acceptance"
-            ]
+            "enum": ["fail_to_pass", "pass_to_pass", "hidden_acceptance"]
           }
         }
       }
@@ -199,10 +144,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": [
-          "type",
-          "status"
-        ],
+        "required": ["type", "status"],
         "additionalProperties": false,
         "properties": {
           "type": {
@@ -210,23 +152,13 @@
           },
           "status": {
             "type": "string",
-            "enum": [
-              "present",
-              "missing",
-              "inconclusive"
-            ]
+            "enum": ["present", "missing", "inconclusive"]
           },
           "artifact_ref": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           },
           "supporting_gate": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": ["string", "null"]
           }
         }
       }
@@ -308,18 +240,11 @@
     "verifier": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "policy",
-        "lanes",
-        "mismatch"
-      ],
+      "required": ["policy", "lanes", "mismatch"],
       "properties": {
         "policy": {
           "type": "string",
-          "enum": [
-            "local",
-            "strict"
-          ]
+          "enum": ["local", "strict"]
         },
         "mismatch": {
           "type": "boolean"
@@ -329,45 +254,25 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "lane",
-              "status",
-              "decision",
-              "required_gates"
-            ],
+            "required": ["lane", "status", "decision", "required_gates"],
             "properties": {
               "lane": {
                 "type": "string",
-                "enum": [
-                  "local",
-                  "ci",
-                  "external"
-                ]
+                "enum": ["local", "ci", "external"]
               },
               "status": {
                 "type": "string",
-                "enum": [
-                  "pass",
-                  "fail",
-                  "missing",
-                  "mismatch"
-                ]
+                "enum": ["pass", "fail", "missing", "mismatch"]
               },
               "decision": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "required_gates": {
                 "type": "array",
                 "items": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "name",
-                    "status"
-                  ],
+                  "required": ["name", "status"],
                   "properties": {
                     "name": {
                       "type": "string"
@@ -379,16 +284,10 @@
                 }
               },
               "artifact_ref": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               },
               "summary": {
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "type": ["string", "null"]
               }
             }
           }
@@ -406,6 +305,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "optional_gate_errors_count": {
+          "type": "integer",
+          "minimum": 0
+        },
         "provenance_verified": {
           "type": "boolean"
         },
@@ -416,10 +319,101 @@
           "type": "string"
         },
         "human_review_reason_code": {
-          "type": [
-            "string",
-            "null"
-          ]
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "rulepack_semantic": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["file", "status", "total", "passed", "results", "errors"],
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "lock_hash": {
+            "type": ["string", "null"]
+          },
+          "source_loop_id": {
+            "type": ["string", "null"]
+          },
+          "current_loop_id": {
+            "type": ["string", "null"]
+          },
+          "image": {
+            "type": "string"
+          },
+          "network": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail", "error"]
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "passed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "artifact_ref": {
+            "type": ["string", "null"]
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "rule_id",
+                "status",
+                "expected",
+                "actual",
+                "summary"
+              ],
+              "properties": {
+                "rule_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pass", "fail", "error"]
+                },
+                "expected": {
+                  "type": "string"
+                },
+                "actual": {
+                  "type": "string"
+                },
+                "summary": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["code", "message"],
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "rule_id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -432,14 +426,10 @@
             "const": "1.1"
           }
         },
-        "required": [
-          "schema_version"
-        ]
+        "required": ["schema_version"]
       },
       "then": {
-        "required": [
-          "provenance"
-        ]
+        "required": ["provenance"]
       }
     }
   ]

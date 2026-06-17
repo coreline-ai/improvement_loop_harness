@@ -18,6 +18,12 @@ import {
   buildCodexOAuthCommand,
   startCodexOAuthProxy
 } from '../../packages/agent-adapters/dist/index.js';
+import {
+  shouldPruneUatTmp,
+  writeUatEvidenceBundle,
+  writeUatEvidenceLedger
+} from './evidence-bundle.mjs';
+import { tokenBudgetCliArgs, tokenBudgetLedger } from './token-budget.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -28,7 +34,7 @@ const scenarioRoot = path.join(
 const targetTemplate = path.join(scenarioRoot, 'target-template');
 const model = process.env.VIBELOOP_UAT_MODEL || 'gpt-5.5';
 const reasoningEffort = process.env.VIBELOOP_UAT_REASONING_EFFORT || 'xhigh';
-const keepTmp = process.env.VIBELOOP_UAT_KEEP_TMP === '1';
+const pruneTmp = shouldPruneUatTmp();
 const hiddenSentinel = 'SECRET_HIDDEN_EXPECTATION';
 
 function run(command, args, options = {}) {
@@ -78,13 +84,16 @@ async function git(cwd, args) {
 }
 
 function blocked(reason, details = {}) {
-  console.log(JSON.stringify({ status: 'blocked', reason, ...details }, null, 2));
+  console.log(
+    JSON.stringify({ status: 'blocked', reason, ...details }, null, 2)
+  );
   process.exitCode = 20;
 }
 
 function parseCliJson(stdout) {
   const index = stdout.indexOf('{');
-  if (index < 0) throw new Error(`no JSON in CLI stdout: ${stdout.slice(0, 300)}`);
+  if (index < 0)
+    throw new Error(`no JSON in CLI stdout: ${stdout.slice(0, 300)}`);
   return JSON.parse(stdout.slice(index));
 }
 
@@ -114,8 +123,8 @@ async function writeVerboseAcceptedAgent(file) {
       "  ''",
       "].join('\\n'));",
       "fs.writeFileSync(path.join('tests', 'cart-quantity.test.cjs'), [",
-      "  \"const assert = require('node:assert/strict');\",",
-      "  \"const { calculateTotal } = require('../src/cart.cjs');\",",
+      '  "const assert = require(\'node:assert/strict\');",',
+      '  "const { calculateTotal } = require(\'../src/cart.cjs\');",',
       "  '',",
       "  'assert.equal(calculateTotal([{ price: 5, quantity: 2 }]), 10);',",
       "  ''",
@@ -132,7 +141,12 @@ async function main() {
   if ((await run('codex', ['--version'])).code !== 0) {
     return blocked('CODEX_CLI_NOT_AVAILABLE');
   }
-  const login = await run('codex', ['-c', 'service_tier=fast', 'login', 'status']);
+  const login = await run('codex', [
+    '-c',
+    'service_tier=fast',
+    'login',
+    'status'
+  ]);
   const loginText = `${login.stdout}${login.stderr}`;
   if (login.code !== 0 || !/Logged in/i.test(loginText)) {
     return blocked('CODEX_CHATGPT_LOGIN_NOT_AVAILABLE', {
@@ -142,7 +156,9 @@ async function main() {
   }
 
   const tag = `${process.pid}-${Date.now()}`;
-  const tmpRoot = await mkdtemp(path.join(os.homedir(), '.vibeloop-strict-best-'));
+  const tmpRoot = await mkdtemp(
+    path.join(os.homedir(), '.vibeloop-strict-best-')
+  );
   const dataDir = path.join(tmpRoot, 'data');
   const localRepo = path.join(tmpRoot, 'project');
   const verboseAgent = path.join(tmpRoot, 'verbose-accepted-agent.cjs');
@@ -155,8 +171,14 @@ async function main() {
     await git(localRepo, ['config', 'user.email', 'strict-best@example.test']);
     await git(localRepo, ['config', 'user.name', 'VibeLoop Strict Best UAT']);
     await git(localRepo, ['add', '-A']);
-    await git(localRepo, ['commit', '-m', 'seed: cart quantity strict-best fixture']);
-    const baseCommit = (await git(localRepo, ['rev-parse', 'HEAD'])).stdout.trim();
+    await git(localRepo, [
+      'commit',
+      '-m',
+      'seed: cart quantity strict-best fixture'
+    ]);
+    const baseCommit = (
+      await git(localRepo, ['rev-parse', 'HEAD'])
+    ).stdout.trim();
     await writeVerboseAcceptedAgent(verboseAgent);
 
     proxy = await startCodexOAuthProxy({
@@ -173,37 +195,63 @@ async function main() {
       reasoningEffort,
       requiresOpenaiAuth: true
     });
+    const tokenBudgetArgs = tokenBudgetCliArgs(proxy.baseUrl);
     const verboseAgentSpec = `command:node ${verboseAgent}`;
     const loopId = `strict-best-${tag}`;
     const cli = await run(process.execPath, [
       path.join(repoRoot, 'packages/cli/bin/vibeloop'),
-      '--data-dir', dataDir,
+      '--data-dir',
+      dataDir,
       'improve',
-      '--repo', localRepo,
-      '--task', path.join(scenarioRoot, 'task.yaml'),
-      '--eval', path.join(scenarioRoot, 'eval.yaml'),
-      '--agent', verboseAgentSpec,
-      '--challenger', codexAgent,
-      '--project-id', 'strict-best-live',
-      '--loop-id', loopId,
-      '--base-commit', baseCommit,
-      '--max-candidates', '2',
-      '--promote-branch', 'pr-candidate/strict-best-live',
-      '--promote-commit-message', 'vibeloop strict best selected patch',
+      '--repo',
+      localRepo,
+      '--task',
+      path.join(scenarioRoot, 'task.yaml'),
+      '--eval',
+      path.join(scenarioRoot, 'eval.yaml'),
+      '--agent',
+      verboseAgentSpec,
+      '--challenger',
+      codexAgent,
+      '--project-id',
+      'strict-best-live',
+      '--loop-id',
+      loopId,
+      '--base-commit',
+      baseCommit,
+      '--max-candidates',
+      '2',
+      ...tokenBudgetArgs,
+      '--promote-branch',
+      'pr-candidate/strict-best-live',
+      '--promote-commit-message',
+      'vibeloop strict best selected patch',
       '--skip-dependency-install'
     ]);
-    await writeFile(path.join(tmpRoot, 'improve.stdout.log'), redact(cli.stdout));
-    await writeFile(path.join(tmpRoot, 'improve.stderr.log'), redact(cli.stderr));
+    await writeFile(
+      path.join(tmpRoot, 'improve.stdout.log'),
+      redact(cli.stdout)
+    );
+    await writeFile(
+      path.join(tmpRoot, 'improve.stderr.log'),
+      redact(cli.stderr)
+    );
     const out = parseCliJson(cli.stdout);
-    const selection = out.selection_report && existsSync(out.selection_report)
-      ? await readJson(out.selection_report)
-      : null;
+    const selection =
+      out.selection_report && existsSync(out.selection_report)
+        ? await readJson(out.selection_report)
+        : null;
     const quality = selection?.selection_quality ?? null;
     const candidates = selection?.candidates ?? [];
     const selected = out.selected_candidate_id ?? null;
-    const selectedCandidate = candidates.find((candidate) => candidate.candidate_id === selected) ?? null;
-    const comparator = candidates.find((candidate) => candidate.candidate_id?.endsWith('-c0')) ?? null;
-    const selectedIsRealCodexChallenger = typeof selected === 'string' && selected.endsWith('-c1');
+    const selectedCandidate =
+      candidates.find((candidate) => candidate.candidate_id === selected) ??
+      null;
+    const comparator =
+      candidates.find((candidate) => candidate.candidate_id?.endsWith('-c0')) ??
+      null;
+    const selectedIsRealCodexChallenger =
+      typeof selected === 'string' && selected.endsWith('-c1');
     const strictBestFixPass =
       cli.code === 0 &&
       selectedIsRealCodexChallenger &&
@@ -216,8 +264,14 @@ async function main() {
 
     await git(localRepo, ['checkout', 'pr-candidate/strict-best-live']);
     const finalTest = await run('npm', ['test'], { cwd: localRepo });
-    await writeFile(path.join(tmpRoot, 'final-test.stdout.log'), redact(finalTest.stdout));
-    await writeFile(path.join(tmpRoot, 'final-test.stderr.log'), redact(finalTest.stderr));
+    await writeFile(
+      path.join(tmpRoot, 'final-test.stdout.log'),
+      redact(finalTest.stdout)
+    );
+    await writeFile(
+      path.join(tmpRoot, 'final-test.stderr.log'),
+      redact(finalTest.stderr)
+    );
 
     const ledger = {
       status:
@@ -228,6 +282,7 @@ async function main() {
       mode: 'verbose deterministic builder vs real Codex challenger',
       builder: { real_llm: false, role: 'accepted_verbose_comparator' },
       challenger: { real_llm: true, model, via: 'chatgpt-oauth-proxy' },
+      token_budget: tokenBudgetLedger(),
       selected_candidate_id: selected,
       selected_is_real_codex_challenger: selectedIsRealCodexChallenger,
       candidate_count: out.candidate_count ?? null,
@@ -239,7 +294,8 @@ async function main() {
       strict_score_improvement: quality?.strict_score_improvement === true,
       full_autonomous_improvement_eligible:
         quality?.full_autonomous_improvement_eligible === true,
-      controlled_strict_best_fix_pass: strictBestFixPass && finalTest.code === 0,
+      controlled_strict_best_fix_pass:
+        strictBestFixPass && finalTest.code === 0,
       // Reserved for broad multi-issue autonomous runs. This controlled one-issue
       // lane proves the strict best-fix selector, not the full product claim.
       full_autonomous_improvement_pass: false,
@@ -273,6 +329,45 @@ async function main() {
         'builder comparator is deterministic/verbose; the selected candidate must be real Codex challenger for PASS'
       ]
     };
+    const evidenceBundle = await writeUatEvidenceBundle({
+      scenario: ledger.scenario,
+      runId: loopId,
+      tmpRoot,
+      dataDir,
+      output: out,
+      proxyStats: proxy?.stats,
+      extraFiles: [
+        {
+          label: 'improve_stdout',
+          path: path.join(tmpRoot, 'improve.stdout.log')
+        },
+        {
+          label: 'improve_stderr',
+          path: path.join(tmpRoot, 'improve.stderr.log')
+        },
+        {
+          label: 'final_test_stdout',
+          path: path.join(tmpRoot, 'final-test.stdout.log')
+        },
+        {
+          label: 'final_test_stderr',
+          path: path.join(tmpRoot, 'final-test.stderr.log')
+        }
+      ],
+      extraJson: {
+        selection_quality: ledger.selection_quality,
+        score_comparison: ledger.score_comparison
+      }
+    });
+    ledger.evidence = {
+      ...ledger.evidence,
+      evidence_bundle: evidenceBundle.bundle_dir,
+      evidence_manifest: evidenceBundle.manifest_path,
+      evidence_ledger: path.join(evidenceBundle.bundle_dir, 'ledger.json'),
+      evidence_copied_count: evidenceBundle.copied_count,
+      evidence_missing_count: evidenceBundle.missing_count,
+      tmp_prune_requested: pruneTmp
+    };
     if (
       ledger.controlled_strict_best_fix_pass !==
       (ledger.status === 'REAL_USER_STRICT_BEST_FIX_PASS' &&
@@ -285,17 +380,24 @@ async function main() {
         'strict best-fix invariant violated: controlled lane must not claim full autonomous improvement PASS'
       );
     }
+    await writeUatEvidenceLedger(evidenceBundle, ledger);
     console.log(JSON.stringify(ledger, null, 2));
-    if (ledger.status !== 'REAL_USER_STRICT_BEST_FIX_PASS') process.exitCode = 1;
+    if (ledger.status !== 'REAL_USER_STRICT_BEST_FIX_PASS')
+      process.exitCode = 1;
   } finally {
     if (proxy) await proxy.close().catch(() => undefined);
-    if (!keepTmp) await rm(tmpRoot, { recursive: true, force: true }).catch(() => undefined);
+    if (pruneTmp)
+      await rm(tmpRoot, { recursive: true, force: true }).catch(
+        () => undefined
+      );
   }
 }
 
 main()
   .catch((error) => {
-    console.error(error instanceof Error ? error.stack || error.message : String(error));
+    console.error(
+      error instanceof Error ? error.stack || error.message : String(error)
+    );
     process.exitCode = 1;
   })
   .finally(() => {

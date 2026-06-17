@@ -270,6 +270,21 @@ function buildOrchestrateCommand(args) {
       '--eval-rulepack-lock',
       optionalString(args, 'eval_rulepack_lock')
     );
+    addOptional(
+      argv,
+      '--eval-rulepack-semantic',
+      optionalString(args, 'eval_rulepack_semantic')
+    );
+    addOptional(
+      argv,
+      '--eval-rulepack-semantic-image',
+      optionalString(args, 'eval_rulepack_semantic_image')
+    );
+    addOptional(
+      argv,
+      '--eval-rulepack-semantic-timeout-ms',
+      optionalString(args, 'eval_rulepack_semantic_timeout_ms')
+    );
     addRepeated(
       argv,
       '--eval-hidden-test',

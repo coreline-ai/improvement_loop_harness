@@ -69,7 +69,10 @@ model LoopRun {
   pullRequests    PullRequest[]
 
   @@unique([taskId, idempotencyKey])
+  @@unique([taskId, iteration])
 }
+
+운영 마이그레이션은 추가로 active 상태(`queued`, `workspace_preparing`, `workspace_ready`, `agent_running`, `patch_created`, `guards_running`, `eval_running`, `critic_running`, `decision_ready`, `needs_human_review`)에 대해 `LoopRun(taskId)` partial unique index를 둔다. Prisma schema가 partial index를 표현하지 못하므로 SQL migration으로 관리한다.
 
 model LoopEvent {
   id        String   @id @default(cuid())

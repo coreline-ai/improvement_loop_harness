@@ -36,6 +36,7 @@ export interface CaptureBaselineOptions {
   artifactRoot: string;
   dataDir: string;
   env?: NodeJS.ProcessEnv | undefined;
+  signal?: AbortSignal | undefined;
   taskFile?: string | undefined;
   loopId?: string | undefined;
 }
@@ -176,6 +177,7 @@ export async function captureBaseline(
           gate.name
         )
       },
+      signal: options.signal,
       ...(gate.timeout_seconds
         ? { timeoutMs: gate.timeout_seconds * 1000 }
         : {})

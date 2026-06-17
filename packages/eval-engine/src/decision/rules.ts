@@ -42,48 +42,48 @@ export const DECISION_RULES: readonly DecisionRuleDefinition[] = [
   },
   {
     rank: 3,
+    code: REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH,
+    decision: 'reject',
+    description: 'artifact provenance hash mismatch'
+  },
+  {
+    rank: 4,
     code: REASON_CODES.GUARD_PROTECTED_PATH,
     decision: 'reject',
     description:
       'protected path 변경, meta-eval 비활성 또는 task.risk_area != eval_system'
   },
   {
-    rank: 4,
+    rank: 5,
     code: REASON_CODES.META_EVAL_REQUIRED,
     decision: 'needs_human_review',
     description:
       'protected path 변경, meta-eval 활성 및 task.risk_area == eval_system'
   },
   {
-    rank: 5,
+    rank: 6,
     code: REASON_CODES.GUARD_SCOPE_VIOLATION,
     decision: 'reject',
     description: 'scope escape, forbidden, untracked/symlink 우회'
   },
   {
-    rank: 6,
+    rank: 7,
     code: REASON_CODES.GUARD_TEST_INTEGRITY,
     decision: 'reject',
     description: 'test integrity 실패'
   },
   {
-    rank: 7,
+    rank: 8,
     code: REASON_CODES.GUARD_ARTIFACT_LEAK,
     decision: 'reject',
     description:
       'agent stdout/stderr context·secret 누설 (forbidden literal 또는 opt-in token)'
   },
   {
-    rank: 8,
+    rank: 9,
     code: REASON_CODES.GUARD_LIMIT_EXCEEDED,
     decision: 'reject',
     description: 'limits 초과'
-  },
-  {
-    rank: 9,
-    code: REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH,
-    decision: 'reject',
-    description: 'artifact provenance hash mismatch'
   },
   {
     rank: 10,

@@ -50,7 +50,7 @@ POST /api/loops/:loopId/retry
 Idempotency-Key: <uuid>
 ```
 
-서버는 요청 본문의 정규화 hash(`requestHash`)를 loop와 함께 저장한다. 동일 key + 동일 hash는 기존 loop 반환(replay), 동일 key + 다른 hash는 `409 Conflict`다. key 유일성만으로는 둘을 구분할 수 없다 ([LOOP_STATE_MACHINE.md](./LOOP_STATE_MACHINE.md) §7). 선택적으로 `agent_spec`을 지정할 수 있으며, 이 값은 loop에 저장되고 `requestHash`에도 포함된다.
+서버는 요청 본문의 정규화 hash(`requestHash`)를 loop와 함께 저장한다. 동일 key + 동일 hash는 기존 loop 반환(replay), 동일 key + 다른 hash는 `409 Conflict`다. key 유일성만으로는 둘을 구분할 수 없다 ([LOOP_STATE_MACHINE.md](./LOOP_STATE_MACHINE.md) §7). 선택적으로 `agent_spec`을 지정할 수 있으며, 이 값은 loop에 저장되고 `requestHash`에도 포함된다. 단 `agent_spec`은 서버 정책 allowlist를 통과해야 하며, 기본 server API 경로는 `codex`와 `mock:*`만 허용하고 `command:`는 R1 격리형 command-agent adapter가 배선되기 전까지 `400 AGENT_SPEC_NOT_ALLOWED`로 거부한다.
 
 Loop create body 예시:
 

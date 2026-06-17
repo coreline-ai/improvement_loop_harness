@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile, chmod } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { safeGit } from '@vibeloop/workspace-runner';
@@ -8,6 +9,7 @@ export interface PrepareBranchOptions {
   baseRef: string;
   branchName: string;
   candidatePatchPath: string;
+  expectedPatchHash?: string | undefined;
   commitMessage: string;
   pushUrl: string;
   token?: string | undefined;
@@ -17,6 +19,7 @@ export interface PrepareBranchOptions {
 export interface PreparedBranch {
   branchName: string;
   headSha: string;
+  remotePreexisting: boolean;
 }
 
 export function sanitizeBranchSegment(value: string): string {
@@ -69,11 +72,30 @@ async function writeAskPassScript(): Promise<{
   };
 }
 
+async function assertPatchHash(
+  patchPath: string,
+  expectedPatchHash: string | undefined
+): Promise<void> {
+  if (!expectedPatchHash) return;
+  const actual = createHash('sha256')
+    .update(await readFile(patchPath))
+    .digest('hex');
+  if (actual !== expectedPatchHash) {
+    throw new Error(
+      `candidate patch hash mismatch before GitHub promotion: expected ${expectedPatchHash}, got ${actual}`
+    );
+  }
+}
+
 export async function prepareBranchAndPush(
   options: PrepareBranchOptions
 ): Promise<PreparedBranch> {
   const timeoutMs = options.timeoutMs ?? 30_000;
   const tokenHelper = options.token ? await writeAskPassScript() : null;
+  const worktreePath = await mkdtemp(
+    path.join(os.tmpdir(), 'vibeloop-pr-worktree-')
+  );
+  let worktreeAdded = false;
   const env = tokenHelper
     ? {
         ...process.env,
@@ -92,15 +114,25 @@ export async function prepareBranchAndPush(
     );
     await safeGit(
       options.repoPath,
-      ['checkout', '-B', options.branchName, 'FETCH_HEAD'],
+      ['worktree', 'add', '--detach', worktreePath, 'FETCH_HEAD'],
       { env, timeoutMs }
     );
+    worktreeAdded = true;
     await safeGit(
-      options.repoPath,
+      worktreePath,
+      ['checkout', '-B', options.branchName],
+      { env, timeoutMs }
+    );
+    await assertPatchHash(
+      options.candidatePatchPath,
+      options.expectedPatchHash
+    );
+    await safeGit(
+      worktreePath,
       ['apply', '--index', options.candidatePatchPath],
       { env, timeoutMs }
     );
-    await safeGit(options.repoPath, ['commit', '-m', options.commitMessage], {
+    await safeGit(worktreePath, ['commit', '-m', options.commitMessage], {
       env,
       timeoutMs
     });
@@ -119,11 +151,55 @@ export async function prepareBranchAndPush(
           `HEAD:refs/heads/${options.branchName}`
         ]
       : ['push', options.pushUrl, `HEAD:refs/heads/${options.branchName}`];
-    await safeGit(options.repoPath, pushArgs, { env, timeoutMs });
+    await safeGit(worktreePath, pushArgs, { env, timeoutMs });
     const headSha = (
-      await safeGit(options.repoPath, ['rev-parse', 'HEAD'], { env, timeoutMs })
+      await safeGit(worktreePath, ['rev-parse', 'HEAD'], { env, timeoutMs })
     ).stdout.trim();
-    return { branchName: options.branchName, headSha };
+    return {
+      branchName: options.branchName,
+      headSha,
+      remotePreexisting: Boolean(existingRemoteSha)
+    };
+  } finally {
+    if (worktreeAdded) {
+      await safeGit(
+        options.repoPath,
+        ['worktree', 'remove', '--force', worktreePath],
+        { env, timeoutMs }
+      ).catch(() => undefined);
+    } else {
+      await rm(worktreePath, { recursive: true, force: true }).catch(
+        () => undefined
+      );
+    }
+    await tokenHelper?.cleanup();
+  }
+}
+
+export async function deleteRemoteBranch(options: {
+  repoPath: string;
+  pushUrl: string;
+  branchName: string;
+  token?: string | undefined;
+  timeoutMs?: number | undefined;
+}): Promise<void> {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const tokenHelper = options.token ? await writeAskPassScript() : null;
+  const env = tokenHelper
+    ? {
+        ...process.env,
+        GIT_ASKPASS: tokenHelper.scriptPath,
+        GIT_USERNAME: 'x-access-token',
+        GIT_PASSWORD: options.token,
+        GIT_TERMINAL_PROMPT: '0'
+      }
+    : process.env;
+  try {
+    await safeGit(
+      options.repoPath,
+      ['push', options.pushUrl, `:refs/heads/${options.branchName}`],
+      { env, timeoutMs }
+    );
   } finally {
     await tokenHelper?.cleanup();
   }

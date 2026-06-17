@@ -230,6 +230,8 @@ export interface CreateLoopInput {
   requestHash?: string | null;
 }
 
+export type CreateActiveLoopInput = Omit<CreateLoopInput, 'iteration'>;
+
 export interface CreateApprovalInput {
   loopRunId: string;
   reason: string;
@@ -300,6 +302,7 @@ export interface Store {
   updateTask(id: string, patch: Partial<Omit<CreateTaskInput, 'projectId'>>): Promise<TaskRecord | null>;
 
   createLoop(input: CreateLoopInput): Promise<LoopRunRecord>;
+  createLoopIfNoActive(input: CreateActiveLoopInput): Promise<LoopRunRecord | null>;
   listLoops(taskId: string): Promise<LoopRunRecord[]>;
   getLoop(id: string): Promise<LoopRunRecord | null>;
   updateLoop(id: string, patch: Partial<LoopRunRecord>): Promise<LoopRunRecord | null>;

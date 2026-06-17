@@ -46,11 +46,15 @@ function gateFailed(gate: GateReportEntry): boolean {
   return gate.status === 'fail' || gate.status === 'error';
 }
 
-function gateMatches(gate: GateReportEntry, names: readonly string[]): boolean {
-  const haystack = `${gate.name} ${gate.command}`
-    .toLowerCase()
-    .replaceAll('_', '-');
-  return names.some((name) => haystack.includes(name));
+function gateMatchesBuiltin(
+  gate: GateReportEntry,
+  commands: readonly string[]
+): boolean {
+  const command = gate.command.toLowerCase().replaceAll('_', '-');
+  return (
+    gate.type === 'integrity' &&
+    commands.some((candidate) => command === candidate)
+  );
 }
 
 function protectedPathChanged(
@@ -67,15 +71,19 @@ function scopeViolation(input: DecideInput): GuardChangedFile | undefined {
 
 function failedSpecificGate(
   input: DecideInput,
-  names: readonly string[]
+  commands: readonly string[]
 ): GateReportEntry | undefined {
   return input.gateRuns.find(
-    (gate) => gateFailed(gate) && gateMatches(gate, names)
+    (gate) => gateFailed(gate) && gateMatchesBuiltin(gate, commands)
   );
 }
 
 function failedRequiredGate(input: DecideInput): GateReportEntry | undefined {
   return input.gateRuns.find((gate) => gate.required && gateFailed(gate));
+}
+
+function hasRequiredGate(input: DecideInput): boolean {
+  return input.gateRuns.some((gate) => gate.required);
 }
 
 function evidenceAllMissing(input: DecideInput): boolean {
@@ -121,8 +129,7 @@ export function decide(input: DecideInput): DecisionResult {
   }
 
   const gitMetaGate = failedSpecificGate(input, [
-    'git-meta-integrity',
-    'git-meta'
+    'builtin:git-meta-integrity'
   ]);
   if (gitMetaGate) {
     return {
@@ -132,6 +139,19 @@ export function decide(input: DecideInput): DecisionResult {
           REASON_CODES.GUARD_GIT_META_TAMPER,
           'Git metadata changed during the loop.',
           gitMetaGate.stdout_ref
+        )
+      ]
+    };
+  }
+
+  if (input.provenanceVerified === false) {
+    return {
+      decision: 'reject',
+      reasons: [
+        reason(
+          REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH,
+          'Eval report provenance hash verification failed.',
+          'reports/eval-report.json'
         )
       ]
     };
@@ -185,7 +205,9 @@ export function decide(input: DecideInput): DecisionResult {
     };
   }
 
-  const testIntegrityGate = failedSpecificGate(input, ['test-integrity']);
+  const testIntegrityGate = failedSpecificGate(input, [
+    'builtin:test-integrity'
+  ]);
   if (testIntegrityGate) {
     return {
       decision: 'reject',
@@ -200,8 +222,7 @@ export function decide(input: DecideInput): DecisionResult {
   }
 
   const artifactLeakGate = failedSpecificGate(input, [
-    'artifact-leak',
-    'artifact_leak'
+    'builtin:artifact-leak'
   ]);
   if (artifactLeakGate) {
     return {
@@ -216,7 +237,7 @@ export function decide(input: DecideInput): DecisionResult {
     };
   }
 
-  const limitsGate = failedSpecificGate(input, ['limits']);
+  const limitsGate = failedSpecificGate(input, ['builtin:limits']);
   if (limitsGate) {
     return {
       decision: 'reject',
@@ -225,19 +246,6 @@ export function decide(input: DecideInput): DecisionResult {
           REASON_CODES.GUARD_LIMIT_EXCEEDED,
           'Change limits were exceeded.',
           limitsGate.stdout_ref
-        )
-      ]
-    };
-  }
-
-  if (input.provenanceVerified === false) {
-    return {
-      decision: 'reject',
-      reasons: [
-        reason(
-          REASON_CODES.ARTIFACT_PROVENANCE_MISMATCH,
-          'Eval report provenance hash verification failed.',
-          'reports/eval-report.json'
         )
       ]
     };
@@ -252,6 +260,18 @@ export function decide(input: DecideInput): DecisionResult {
           REASON_CODES.GATE_REQUIRED_FAILED,
           `Required gate failed: ${requiredGate.name}`,
           requiredGate.stdout_ref
+        )
+      ]
+    };
+  }
+
+  if (!hasRequiredGate(input)) {
+    return {
+      decision: 'needs_more_tests',
+      reasons: [
+        reason(
+          REASON_CODES.EVIDENCE_INCONCLUSIVE,
+          'No required gates were configured; at least one required verification gate is needed before accept.'
         )
       ]
     };

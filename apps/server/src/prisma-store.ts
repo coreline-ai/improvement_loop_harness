@@ -2,6 +2,7 @@ import { Prisma, PrismaClient, type AgentRun, type Approval, type Artifact, type
 import { PrismaPg } from '@prisma/adapter-pg';
 import {
   ACTIVE_LOOP_STATUSES,
+  type CreateActiveLoopInput,
   type AgentRunRecord,
   type ApprovalRecord,
   type ArtifactRecord,
@@ -208,20 +209,32 @@ export class PrismaStore implements Store {
   }
 
   async createCandidate(input: CreateCandidateInput): Promise<ImprovementCandidateRecord> {
-    return improvementCandidate(
-      await this.prisma.improvementCandidate.create({
-        data: {
-          projectId: input.projectId,
-          source: input.source,
-          fingerprint: input.fingerprint,
-          title: input.title,
-          ...(input.evidenceRefs !== undefined ? { evidenceRefs: json(input.evidenceRefs) } : {}),
-          ...(input.riskAreaHint !== undefined ? { riskAreaHint: input.riskAreaHint } : {}),
-          priority: input.priority ?? 0,
-          status: input.status ?? 'proposed'
-        }
-      })
-    );
+    try {
+      return improvementCandidate(
+        await this.prisma.improvementCandidate.create({
+          data: {
+            projectId: input.projectId,
+            source: input.source,
+            fingerprint: input.fingerprint,
+            title: input.title,
+            ...(input.evidenceRefs !== undefined ? { evidenceRefs: json(input.evidenceRefs) } : {}),
+            ...(input.riskAreaHint !== undefined ? { riskAreaHint: input.riskAreaHint } : {}),
+            ...(input.trustLevel !== undefined ? { trustLevel: input.trustLevel } : {}),
+            ...(input.injectionIndicators !== undefined ? { injectionIndicators: json(input.injectionIndicators) } : {}),
+            ...(input.reproCommand !== undefined ? { reproCommand: input.reproCommand } : {}),
+            priority: input.priority ?? 0,
+            status: input.status ?? 'proposed'
+          }
+        })
+      );
+    } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        throw new Error(
+          `candidate fingerprint already exists for project ${input.projectId}: ${input.fingerprint}`
+        );
+      }
+      throw error;
+    }
   }
 
   async updateCandidate(id: string, patch: Partial<ImprovementCandidateRecord>): Promise<ImprovementCandidateRecord | null> {
@@ -311,6 +324,36 @@ export class PrismaStore implements Store {
         }
       })
     );
+  }
+
+  async createLoopIfNoActive(input: CreateActiveLoopInput): Promise<LoopRunRecord | null> {
+    const record = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Task" WHERE id = ${input.taskId} FOR UPDATE`;
+      const active = await tx.loopRun.findFirst({
+        where: { taskId: input.taskId, status: { in: [...ACTIVE_LOOP_STATUSES] } },
+        orderBy: { createdAt: 'asc' }
+      });
+      if (active) {
+        return null;
+      }
+      const aggregate = await tx.loopRun.aggregate({
+        where: { taskId: input.taskId },
+        _max: { iteration: true }
+      });
+      return tx.loopRun.create({
+        data: {
+          taskId: input.taskId,
+          iteration: (aggregate._max.iteration ?? 0) + 1,
+          status: input.status,
+          ...(input.baseCommit !== undefined ? { baseCommit: input.baseCommit } : {}),
+          ...(input.artifactRoot !== undefined ? { artifactRoot: input.artifactRoot } : {}),
+          ...(input.agentSpec !== undefined ? { agentSpec: input.agentSpec } : {}),
+          ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
+          ...(input.requestHash !== undefined ? { requestHash: input.requestHash } : {})
+        }
+      });
+    });
+    return record ? loop(record) : null;
   }
 
   async listLoops(taskId: string): Promise<LoopRunRecord[]> {

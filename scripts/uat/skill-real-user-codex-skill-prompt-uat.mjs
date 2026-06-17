@@ -36,6 +36,11 @@ import {
   buildCodexOAuthCommand,
   startCodexOAuthProxy
 } from '../../packages/agent-adapters/dist/index.js';
+import {
+  shouldPruneUatTmp,
+  writeUatEvidenceBundle,
+  writeUatEvidenceLedger
+} from './evidence-bundle.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -58,7 +63,7 @@ const builderReasoningEffort =
 const timeoutMs = Number(
   process.env.VIBELOOP_SKILL_PROMPT_UAT_TIMEOUT_MS ?? 10 * 60 * 1000
 );
-const keepTmp = process.env.VIBELOOP_UAT_KEEP_TMP === '1';
+const pruneTmp = shouldPruneUatTmp();
 const requestedMode =
   process.env.VIBELOOP_SKILL_PROMPT_UAT_MODE ?? 'user_issue';
 const hiddenSentinel = 'SECRET_HIDDEN_EXPECTATION';
@@ -596,14 +601,17 @@ Acceptance authority: deterministic VibeLoop reports only.
       },
       builder: {
         real_llm: builderMode === 'codex',
-        via: builderMode === 'codex' ? 'chatgpt-oauth-proxy' : 'command fixture',
+        via:
+          builderMode === 'codex' ? 'chatgpt-oauth-proxy' : 'command fixture',
         model: builderMode === 'codex' ? builderModel : null,
         reason:
           builderMode === 'codex'
             ? 'same run combines live Skill orchestrator with real Codex builder'
             : 'this lane isolates Skill/LLM routing; RU-1/RU-2 cover real builder Codex candidates',
         proxy_auth_header_seen:
-          builderMode === 'codex' ? (proxy?.stats?.auth_header_seen ?? null) : null
+          builderMode === 'codex'
+            ? (proxy?.stats?.auth_header_seen ?? null)
+            : null
       },
       helper: {
         invoked: !!helper,
@@ -669,16 +677,46 @@ Acceptance authority: deterministic VibeLoop reports only.
           parsed?.selection_report ?? firstIssue?.selection_report ?? null
       }
     };
+    const evidenceBundle = await writeUatEvidenceBundle({
+      scenario: ledger.scenario,
+      runId: `${scenario.loopPrefix}-${tag}`,
+      tmpRoot,
+      dataDir,
+      outputs: [parsed, firstIssue].filter(Boolean),
+      proxyStats: proxy?.stats,
+      extraFiles: [
+        { label: 'helper_result', path: helperResultPath, kind: 'report' },
+        { label: 'helper_stderr', path: helperStderrPath },
+        { label: 'codex_final', path: finalMessagePath, kind: 'report' },
+        { label: 'codex_stdout', path: codexStdoutPath },
+        { label: 'codex_stderr', path: codexStderrPath }
+      ],
+      extraJson: {
+        orchestrator: ledger.orchestrator,
+        helper: ledger.helper,
+        target_repo: ledger.target_repo
+      }
+    });
+    ledger.evidence = {
+      ...ledger.evidence,
+      evidence_bundle: evidenceBundle.bundle_dir,
+      evidence_manifest: evidenceBundle.manifest_path,
+      evidence_ledger: path.join(evidenceBundle.bundle_dir, 'ledger.json'),
+      evidence_copied_count: evidenceBundle.copied_count,
+      evidence_missing_count: evidenceBundle.missing_count,
+      tmp_prune_requested: pruneTmp
+    };
     if (ledger.leak !== 0) {
       ledger.status = 'SKILL_PROMPT_LIVE_UAT_FAIL';
       ledger.failure_reasons.push('hidden_sentinel_leak');
       pass = false;
     }
+    await writeUatEvidenceLedger(evidenceBundle, ledger);
     console.log(JSON.stringify(ledger, null, 2));
     if (!pass) process.exitCode = 1;
   } finally {
     if (proxy) await proxy.close().catch(() => undefined);
-    if (!keepTmp && pass) {
+    if (pruneTmp && pass) {
       await rm(tmpRoot, { recursive: true, force: true }).catch(
         () => undefined
       );

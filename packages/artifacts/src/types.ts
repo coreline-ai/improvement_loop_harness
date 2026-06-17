@@ -40,6 +40,12 @@ export interface ArtifactManifestEntry {
   size_bytes: number;
 }
 
+export interface ManifestIntegrity {
+  algorithm: 'hmac-sha256';
+  key_ref: 'data-dir';
+  signature: string;
+}
+
 export interface RunManifest {
   schema_version: '1.0';
   loop_id: string;
@@ -52,5 +58,7 @@ export interface RunManifest {
   finalized_at?: string;
   decision?: string;
   expires_at?: string;
+  audit_keep?: boolean;
   artifacts?: ArtifactManifestEntry[];
+  manifest_integrity?: ManifestIntegrity;
 }

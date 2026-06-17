@@ -15,6 +15,7 @@ export type CandidateSource =
 export interface StructuredLocation {
   filePath: string;
   testName?: string | undefined;
+  gateName?: string | undefined;
   errorCode: string;
 }
 
@@ -55,6 +56,32 @@ export interface DiscoverOptions {
   commands?: DiscoveryCommand[] | undefined;
   existingFingerprints?: Iterable<string> | undefined;
   maxProposed?: number | undefined;
+}
+
+export interface DiscoveryCandidateSummary {
+  fingerprint: string;
+  title: string;
+  source: CandidateSource;
+  priority: number;
+  location: StructuredLocation;
+}
+
+export interface DiscoveryCapReport {
+  schema_version: '1.0';
+  max_proposed: number;
+  raw_count: number;
+  deduped_count: number;
+  selected_count: number;
+  dropped_count: number;
+  cap_applied: boolean;
+  sort_order: 'priority_desc_title_asc';
+  selected: DiscoveryCandidateSummary[];
+  dropped: Array<DiscoveryCandidateSummary & { reason: 'max_proposed_cap' }>;
+}
+
+export interface DiscoverResult {
+  candidates: DiscoveryCandidate[];
+  report: DiscoveryCapReport;
 }
 
 export interface GenerateTaskOptions {

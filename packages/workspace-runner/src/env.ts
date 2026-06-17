@@ -5,7 +5,7 @@ import { EnvPolicyError } from './errors.js';
 
 export const EXACT_ENV_ALLOWLIST = new Set(['PATH', 'CI', 'NODE_ENV']);
 export const BLOCKED_ENV_KEY_PATTERN =
-  /(API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|COOKIE|AUTH)/i;
+  /(API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|COOKIE|AUTH|DSN|ENDPOINT|URL)/i;
 
 export interface ScrubEnvOptions {
   homeDir?: string;

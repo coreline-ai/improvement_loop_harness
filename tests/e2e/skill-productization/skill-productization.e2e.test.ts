@@ -454,6 +454,12 @@ describe.sequential('vibeloop-harness skill productization', () => {
       '4096',
       '--eval-rulepack-lock',
       'policy/frozen-rulepack.json',
+      '--eval-rulepack-semantic',
+      'policy/frozen-rulepack.json',
+      '--eval-rulepack-semantic-image',
+      'node:22-alpine',
+      '--eval-rulepack-semantic-timeout-ms',
+      '30000',
       '--eval-hidden-test',
       'cart=/hidden/cart.test.cjs:tests/hidden/cart.test.cjs:node tests/hidden/cart.test.cjs',
       '--promote-branch',
@@ -513,6 +519,13 @@ describe.sequential('vibeloop-harness skill productization', () => {
     expect(argv).toContain('--eval-token-like-reject');
     expectArgValue(argv, '--eval-max-scan-bytes', '4096');
     expectArgValue(argv, '--eval-rulepack-lock', 'policy/frozen-rulepack.json');
+    expectArgValue(
+      argv,
+      '--eval-rulepack-semantic',
+      'policy/frozen-rulepack.json'
+    );
+    expectArgValue(argv, '--eval-rulepack-semantic-image', 'node:22-alpine');
+    expectArgValue(argv, '--eval-rulepack-semantic-timeout-ms', '30000');
     expectArgValues(argv, '--eval-hidden-test', [
       'cart=/hidden/cart.test.cjs:tests/hidden/cart.test.cjs:node tests/hidden/cart.test.cjs'
     ]);
@@ -694,6 +707,26 @@ describe.sequential('vibeloop-harness skill productization', () => {
       expect(JSON.parse(accepted.stdout)).toMatchObject({
         decision: 'accept',
         reason: 'ALL_PASS',
+        qualified: false,
+        prCandidate: false,
+        nextAction: 'inspect_decision_reasons'
+      });
+
+      await writeReportFixture(outDir, 'quality-report.json', {
+        status: 'not_configured'
+      });
+      const acceptedWithQuality = await runNode([
+        SUMMARIZE_REPORT_SCRIPT,
+        '--report',
+        acceptedReport
+      ]);
+      expect(acceptedWithQuality.stderr).toBe('');
+      expect(acceptedWithQuality.code).toBe(0);
+      expect(JSON.parse(acceptedWithQuality.stdout)).toMatchObject({
+        decision: 'accept',
+        reason: 'ALL_PASS',
+        qualified: true,
+        prCandidate: true,
         changedFiles: ['src/cart.cjs', 'tests/cart-quantity.test.cjs'],
         failedGates: [],
         nextAction: 'prepare_pr_candidate'
@@ -705,6 +738,7 @@ describe.sequential('vibeloop-harness skill productization', () => {
         {
           selected_candidate_id: 'c0',
           pr_candidate: true,
+          final_verification: { passed: true },
           adversary_review: {
             ran: true,
             authority: 'advisory_only',
@@ -735,6 +769,29 @@ describe.sequential('vibeloop-harness skill productization', () => {
           decisionImpact: 'none',
           acceptedProposalCount: 1
         }
+      });
+
+      const failedSelectionReport = await writeReportFixture(
+        outDir,
+        'selection-report-failed.json',
+        {
+          selected_candidate_id: 'c0',
+          pr_candidate: false,
+          final_verification: { passed: false, reason: 'REVERIFY_REJECTED' }
+        }
+      );
+      const acceptedWithFailedReverify = await runNode([
+        SUMMARIZE_REPORT_SCRIPT,
+        '--report',
+        acceptedReport,
+        '--selection-report',
+        failedSelectionReport
+      ]);
+      expect(acceptedWithFailedReverify.stderr).toBe('');
+      expect(acceptedWithFailedReverify.code).toBe(0);
+      expect(JSON.parse(acceptedWithFailedReverify.stdout)).toMatchObject({
+        prCandidate: false,
+        nextAction: 'inspect_decision_reasons'
       });
 
       const needsMoreTestsReport = await writeReportFixture(

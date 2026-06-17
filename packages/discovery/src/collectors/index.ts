@@ -8,7 +8,10 @@ import { candidateFingerprint, dedupeCandidates } from '../fingerprint.js';
 import type {
   CandidateSource,
   DiscoverOptions,
+  DiscoverResult,
   DiscoveryCandidate,
+  DiscoveryCandidateSummary,
+  DiscoveryCapReport,
   DiscoveryCommand,
   StructuredLocation
 } from '../types.js';
@@ -285,6 +288,7 @@ async function collectCommand(
   const location: StructuredLocation = {
     filePath,
     errorCode,
+    gateName: command.gate.name,
     ...(testName ? { testName } : {})
   };
   return [
@@ -319,14 +323,54 @@ export function selectTopCandidates(
   candidates: DiscoveryCandidate[],
   maxProposed = 50
 ): DiscoveryCandidate[] {
-  return candidates
+  return [...candidates]
     .sort((a, b) => b.priority - a.priority || a.title.localeCompare(b.title))
     .slice(0, maxProposed);
 }
 
-export async function discoverCandidates(
+function summarizeCandidate(
+  candidate: DiscoveryCandidate
+): DiscoveryCandidateSummary {
+  return {
+    fingerprint: candidate.fingerprint,
+    title: candidate.title,
+    source: candidate.source,
+    priority: candidate.priority,
+    location: candidate.location
+  };
+}
+
+export function selectTopCandidatesWithReport(
+  candidates: DiscoveryCandidate[],
+  maxProposed = 50,
+  rawCount = candidates.length
+): DiscoverResult {
+  const ranked = [...candidates].sort(
+    (a, b) => b.priority - a.priority || a.title.localeCompare(b.title)
+  );
+  const selected = ranked.slice(0, maxProposed);
+  const dropped = ranked.slice(maxProposed);
+  const report: DiscoveryCapReport = {
+    schema_version: '1.0',
+    max_proposed: maxProposed,
+    raw_count: rawCount,
+    deduped_count: candidates.length,
+    selected_count: selected.length,
+    dropped_count: dropped.length,
+    cap_applied: dropped.length > 0,
+    sort_order: 'priority_desc_title_asc',
+    selected: selected.map(summarizeCandidate),
+    dropped: dropped.map((candidate) => ({
+      ...summarizeCandidate(candidate),
+      reason: 'max_proposed_cap'
+    }))
+  };
+  return { candidates: selected, report };
+}
+
+export async function discoverCandidatesWithReport(
   options: DiscoverOptions
-): Promise<DiscoveryCandidate[]> {
+): Promise<DiscoverResult> {
   const artifactRoot =
     options.artifactRoot ??
     (await mkdtemp(path.join(os.tmpdir(), 'vibeloop-discovery-')));
@@ -337,8 +381,15 @@ export async function discoverCandidates(
       commands.map((command) => collectCommand(options, command, artifactRoot))
     )
   ).flat();
-  return selectTopCandidates(
+  return selectTopCandidatesWithReport(
     dedupeCandidates(discovered, options.existingFingerprints),
-    options.maxProposed ?? 50
+    options.maxProposed ?? 50,
+    discovered.length
   );
+}
+
+export async function discoverCandidates(
+  options: DiscoverOptions
+): Promise<DiscoveryCandidate[]> {
+  return (await discoverCandidatesWithReport(options)).candidates;
 }
