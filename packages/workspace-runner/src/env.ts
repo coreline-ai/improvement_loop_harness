@@ -3,7 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { EnvPolicyError } from './errors.js';
 
-export const EXACT_ENV_ALLOWLIST = new Set(['PATH', 'CI', 'NODE_ENV']);
+export const EXACT_ENV_ALLOWLIST = new Set([
+  'PATH',
+  'CI',
+  'NODE_ENV',
+  'PNPM_HOME'
+]);
 export const BLOCKED_ENV_KEY_PATTERN =
   /(API[_-]?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|COOKIE|AUTH|DSN|ENDPOINT|URL)/i;
 

@@ -458,6 +458,7 @@ describe('environment scrub', () => {
         PATH: '/bin',
         CI: 'true',
         NODE_ENV: 'test',
+        PNPM_HOME: '/tmp/pnpm-home',
         VIBELOOP_DATA_DIR: dataDir,
         VIBELOOP_PROXY_BASE_URL: 'https://user:pass@example.test',
         VIBELOOP_DATABASE_DSN: 'postgres://user:pass@example.test/db',
@@ -474,6 +475,7 @@ describe('environment scrub', () => {
       PATH: '/bin',
       CI: 'true',
       NODE_ENV: 'test',
+      PNPM_HOME: '/tmp/pnpm-home',
       VIBELOOP_DATA_DIR: dataDir,
       HOME: homeDir
     });

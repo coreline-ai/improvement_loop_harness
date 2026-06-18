@@ -358,6 +358,6 @@ describe.skipIf(!dockerUp)(
 
       expect(good).toMatchObject({ allPass: true, status: 'pass' });
       expect(bad).toMatchObject({ allPass: false, status: 'fail' });
-    });
+    }, 60_000);
   }
 );
