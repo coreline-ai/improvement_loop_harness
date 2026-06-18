@@ -208,7 +208,12 @@ function installCommand(lockfile: DependencyLockfile): {
   if (lockfile.manager === 'pnpm') {
     return {
       command: 'pnpm',
-      args: ['install', '--frozen-lockfile', '--ignore-scripts']
+      args: [
+        'install',
+        '--frozen-lockfile',
+        '--ignore-scripts',
+        '--ignore-workspace'
+      ]
     };
   }
   if (lockfile.manager === 'yarn') {
@@ -227,7 +232,13 @@ function corepackInstallCommand(lockfile: DependencyLockfile): {
   if (lockfile.manager === 'pnpm') {
     return {
       command: 'corepack',
-      args: ['pnpm', 'install', '--frozen-lockfile', '--ignore-scripts']
+      args: [
+        'pnpm',
+        'install',
+        '--frozen-lockfile',
+        '--ignore-scripts',
+        '--ignore-workspace'
+      ]
     };
   }
   if (lockfile.manager === 'yarn') {

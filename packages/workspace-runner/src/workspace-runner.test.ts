@@ -289,7 +289,9 @@ describe('dependency provisioning', () => {
 
     await expect(
       readFile(path.join(workspace, 'install-args.txt'), 'utf8')
-    ).resolves.toBe('pnpm\ninstall\n--frozen-lockfile\n--ignore-scripts\n');
+    ).resolves.toBe(
+      'pnpm\ninstall\n--frozen-lockfile\n--ignore-scripts\n--ignore-workspace\n'
+    );
   }, 10_000);
 
   it('falls back to corepack for yarn lockfiles when yarn is not on PATH', async () => {
