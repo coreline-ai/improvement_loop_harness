@@ -42,6 +42,7 @@ async function writeFixtureTaskEval(options: {
   requiredTests?: string[] | undefined;
   gates?: string | undefined;
   evaluator?: string[] | undefined;
+  agentTimeoutSeconds?: number | undefined;
 }): Promise<{ taskFile: string; evalFile: string }> {
   const taskFile = path.join(options.dir, `${options.taskId}.task.yaml`);
   const evalFile = path.join(options.dir, `${options.taskId}.eval.yaml`);
@@ -66,6 +67,9 @@ async function writeFixtureTaskEval(options: {
       'limits:',
       '  max_changed_files: 10',
       '  max_changed_lines: 200',
+      ...(options.agentTimeoutSeconds
+        ? [`  agent_timeout_seconds: ${options.agentTimeoutSeconds}`]
+        : []),
       'acceptance:',
       '  required_tests:',
       ...requiredTests.map((entry) => `    - ${entry}`),
@@ -2410,8 +2414,9 @@ describe('runImprovementLoop', () => {
       dir: fixtureDir,
       taskId: 'tie'
     });
-    // Two builders with the IDENTICAL fix → identical diffs → identical score → tie.
-    const fix = await writeScenario(fixtureDir, 't-fix', [
+    // Two accepted fixes with equal fixed scores but different patch content →
+    // advisory may reorder them, but it cannot create full-improvement evidence.
+    const fixA = await writeScenario(fixtureDir, 't-fix-a', [
       {
         type: 'modify',
         path: 'src/value.cjs',
@@ -2424,6 +2429,19 @@ describe('runImprovementLoop', () => {
           "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
       }
     ]);
+    const fixB = await writeScenario(fixtureDir, 't-fix-b', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (Number(value) !== 2) process.exit(1);\n"
+      }
+    ]);
 
     let judgeCalls = 0;
     const result = await runImprovementLoop({
@@ -2433,7 +2451,7 @@ describe('runImprovementLoop', () => {
       dataDir,
       loopId: 'tie-1',
       skipDependencyInstall: true,
-      builders: [`mock:${fix}`, `mock:${fix}`],
+      builders: [`mock:${fixA}`, `mock:${fixB}`],
       // Deterministic pick would be c0 (lexicographic); the judge prefers the last.
       qualityJudge: async (input) => {
         judgeCalls += 1;
@@ -2479,6 +2497,68 @@ describe('runImprovementLoop', () => {
       status: 'fixed_tie_advisory_supported',
       full_autonomous_improvement_eligible: false
     });
+  });
+
+  it('treats identical accepted patch convergence as fixed full-improvement evidence', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-converge-data-');
+    const fixtureDir = await tempDir('vibeloop-converge-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'converge'
+    });
+    const fix = await writeScenario(fixtureDir, 'converged-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content:
+          "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+      }
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'converge-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${fix}`, `mock:${fix}`]
+    });
+
+    expect(result.selected?.candidateId).toBe('converge-1-c0');
+    expect(result.finalVerification?.passed).toBe(true);
+    expect(result.selectionQuality).toMatchObject({
+      status: 'fixed_equivalent_patch_convergence',
+      strict_score_improvement: true,
+      equivalent_patch_convergence: true,
+      advisory_supported: false,
+      best_choice_supported: true,
+      full_autonomous_improvement_eligible: true,
+      evidence: 'equivalent_patch_hash_convergence'
+    });
+
+    const report = JSON.parse(
+      await readFile(result.selectionReportPath!, 'utf8')
+    ) as {
+      selection_quality: {
+        status: string;
+        equivalent_patch_convergence: boolean;
+        full_autonomous_improvement_eligible: boolean;
+      };
+      candidates: Array<{ patch_hash?: string }>;
+    };
+    expect(report.selection_quality).toMatchObject({
+      status: 'fixed_equivalent_patch_convergence',
+      equivalent_patch_convergence: true,
+      full_autonomous_improvement_eligible: true
+    });
+    expect(new Set(report.candidates.map((candidate) => candidate.patch_hash)).size).toBe(1);
   });
 
   it('advisory judge cannot promote a non-tied (e.g. rejected) candidate (B1 safety)', async () => {
@@ -3552,6 +3632,40 @@ describe('runKernel', () => {
     expect(result.status).toBe('cancelled');
     await expect(fileExists(result.reportPath!)).resolves.toBe(true);
     expect(worktreeList).not.toContain('loop-cli-cancel');
+  });
+
+  it('fails a hanging agent at the task agent_timeout_seconds limit', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-cli-agent-timeout-data-');
+    const fixtureDir = await tempDir('vibeloop-cli-agent-timeout-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'cli-agent-timeout',
+      agentTimeoutSeconds: 1
+    });
+    const scenario = await writeScenario(fixtureDir, 'slow-agent', [
+      { type: 'sleep', ms: 5_000 }
+    ]);
+
+    const started = Date.now();
+    const result = await runKernel({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      agentSpec: `mock:${scenario}`,
+      loopId: 'loop-cli-agent-timeout',
+      skipDependencyInstall: true
+    });
+
+    expect(Date.now() - started).toBeLessThan(4_000);
+    expect(result.status).toBe('failed');
+    expect(result.exitCode).toBe(EXIT_CODES.failed);
+    const agentStderr = await readFile(
+      path.join(result.layout.root, 'logs/agent.stderr.log'),
+      'utf8'
+    );
+    expect(agentStderr).toContain('timed out');
   });
 });
 

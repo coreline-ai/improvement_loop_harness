@@ -6,6 +6,7 @@ import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import {
   EVIDENCE_SCENARIOS,
+  PRODUCT_100_EVIDENCE_SCENARIO,
   latestEvidenceBundle
 } from './release-gates-preflight.mjs';
 
@@ -20,6 +21,11 @@ const DEFAULT_AUDIT_SCENARIOS = new Set(DEFAULT_AUDIT_SCENARIO_NAMES);
 export const RELEASE_EVIDENCE_AUDIT_SCENARIOS = EVIDENCE_SCENARIOS.filter(
   (scenario) => DEFAULT_AUDIT_SCENARIOS.has(scenario.scenario)
 );
+
+export const SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS = [
+  ...EVIDENCE_SCENARIOS,
+  PRODUCT_100_EVIDENCE_SCENARIO
+];
 
 export const ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS = [...EVIDENCE_SCENARIOS];
 
@@ -37,12 +43,12 @@ export function selectReleaseEvidenceAuditScenarios(options = {}) {
   }
 
   const scenarioByName = new Map(
-    EVIDENCE_SCENARIOS.map((scenario) => [scenario.scenario, scenario])
+    SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((scenario) => [scenario.scenario, scenario])
   );
   return options.scenarioNames.map((scenarioName) => {
     const scenario = scenarioByName.get(scenarioName);
     if (!scenario) {
-      const known = EVIDENCE_SCENARIOS.map((item) => item.scenario).join(', ');
+      const known = SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario).join(', ');
       throw new Error(`unknown scenario: ${scenarioName}; known: ${known}`);
     }
     return scenario;
@@ -219,6 +225,9 @@ function parseArgs(argv) {
   let allReleaseEvidence = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
+    if (arg === '--') {
+      continue;
+    }
     if (arg === '--evidence-root') {
       const value = argv[index + 1];
       if (!value) throw new Error('--evidence-root requires a path');

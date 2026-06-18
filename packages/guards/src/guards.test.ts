@@ -8,6 +8,7 @@ import { annotateScope, checkDiffScope } from './diff-scope.js';
 import { applyPatch, extractDiff } from './diff.js';
 import { checkGitMetadataIntegrity } from './git-meta-integrity.js';
 import { checkLimits } from './limits.js';
+import { pathMatchesPattern } from './path-match.js';
 import { checkProtectedFiles } from './protected-files.js';
 import { checkTestIntegrity } from './test-integrity.js';
 import type { GuardChangedFile } from './types.js';
@@ -89,6 +90,79 @@ describe('extractDiff', () => {
 });
 
 describe('builtin guard checks', () => {
+  it('matches recursive globstar write scopes without leaking to sibling scopes', () => {
+    expect(
+      pathMatchesPattern(
+        'packages/cart/src/quantity.cjs',
+        'packages/cart/**'
+      )
+    ).toBe(true);
+    expect(
+      pathMatchesPattern(
+        'packages/cart/tests/quantity.test.cjs',
+        'packages/cart/**'
+      )
+    ).toBe(true);
+    expect(
+      pathMatchesPattern(
+        'packages/catalog/src/index.cjs',
+        'packages/cart/**'
+      )
+    ).toBe(false);
+    expect(pathMatchesPattern('src/quantity.cjs', 'src/**')).toBe(true);
+    expect(pathMatchesPattern('src/nested/file.ts', 'src/**/*.ts')).toBe(true);
+    expect(pathMatchesPattern('src/file.ts', 'src/**/*.ts')).toBe(true);
+    expect(pathMatchesPattern('src/nested/file.ts', 'src/*.ts')).toBe(false);
+  });
+
+  it('passes diff-scope and annotations for recursive globstar write scopes', () => {
+    const changedFiles: GuardChangedFile[] = [
+      {
+        path: 'packages/cart/src/quantity.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 3,
+        deletedLines: 1
+      },
+      {
+        path: 'packages/cart/tests/quantity.test.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 4,
+        deletedLines: 0
+      }
+    ];
+
+    const result = checkDiffScope(changedFiles, {
+      writeScope: { allowed: ['packages/cart/**'] }
+    });
+    const annotated = annotateScope(changedFiles, {
+      writeScope: { allowed: ['packages/cart/**'] }
+    });
+
+    expect(result.status).toBe('pass');
+    expect(
+      annotated.every((file) => file.allowedByWriteScope === true)
+    ).toBe(true);
+  });
+
+  it('blocks protected recursive globstar paths', () => {
+    const changedFiles: GuardChangedFile[] = [
+      {
+        path: 'hidden/cart-boundary.test.cjs',
+        status: 'added',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 0
+      }
+    ];
+
+    const result = checkProtectedFiles(changedFiles, ['hidden/**']);
+
+    expect(result.status).toBe('fail');
+    expect(result.code).toBe('GUARD_PROTECTED_PATH');
+  });
+
   it('fails git-meta-integrity when .git/hooks changes', async () => {
     const repo = await createTempGitRepo();
     const before = await snapshotGitMetadata(repo.repoPath);
@@ -213,6 +287,78 @@ describe('builtin guard checks', () => {
       expect.objectContaining({
         code: 'GUARD_TEST_INTEGRITY',
         message: expect.stringContaining('describe.skip')
+      })
+    );
+  });
+
+  it('allows preserving an existing assertion while adding an assertion message', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write(
+      'tests/import-boundary.test.cjs',
+      "const assert = require('node:assert/strict');\nconst fs = require('node:fs');\nconst source = fs.readFileSync('packages/cart/src/import-boundary.cjs', 'utf8');\nassert.equal(source.includes('private.cjs'), false);\n"
+    );
+    await repo.git(['add', 'tests/import-boundary.test.cjs']);
+    await repo.git(['commit', '-m', 'add import boundary test']);
+    const baseCommit = (await repo.git(['rev-parse', 'HEAD'])).trim();
+
+    await repo.write(
+      'tests/import-boundary.test.cjs',
+      "const assert = require('node:assert/strict');\nconst fs = require('node:fs');\nconst source = fs.readFileSync('packages/cart/src/import-boundary.cjs', 'utf8');\nassert.equal(source.includes('private.cjs'), false, 'cart must not import shared private modules');\nassert.match(source, /shared\\/src\\/index\\.cjs/);\n"
+    );
+
+    const result = await checkTestIntegrity(
+      repo.repoPath,
+      [
+        {
+          path: 'tests/import-boundary.test.cjs',
+          status: 'modified',
+          isSymlink: false,
+          addedLines: 2,
+          deletedLines: 1
+        }
+      ],
+      {},
+      { baseCommit }
+    );
+
+    expect(result.status).toBe('pass');
+  });
+
+  it('still rejects replacing a concrete assertion with a different assertion', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write(
+      'tests/import-boundary.test.cjs',
+      "const assert = require('node:assert/strict');\nconst fs = require('node:fs');\nconst source = fs.readFileSync('packages/cart/src/import-boundary.cjs', 'utf8');\nassert.equal(source.includes('private.cjs'), false);\n"
+    );
+    await repo.git(['add', 'tests/import-boundary.test.cjs']);
+    await repo.git(['commit', '-m', 'add import boundary test']);
+    const baseCommit = (await repo.git(['rev-parse', 'HEAD'])).trim();
+
+    await repo.write(
+      'tests/import-boundary.test.cjs',
+      "const assert = require('node:assert/strict');\nconst fs = require('node:fs');\nconst source = fs.readFileSync('packages/cart/src/import-boundary.cjs', 'utf8');\nassert.equal(new RegExp('private\\\\.cjs').test(source), false);\n"
+    );
+
+    const result = await checkTestIntegrity(
+      repo.repoPath,
+      [
+        {
+          path: 'tests/import-boundary.test.cjs',
+          status: 'modified',
+          isSymlink: false,
+          addedLines: 1,
+          deletedLines: 1
+        }
+      ],
+      {},
+      { baseCommit }
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.violations).toContainEqual(
+      expect.objectContaining({
+        code: 'GUARD_TEST_INTEGRITY',
+        message: "test assertion removed: assert.equal(source.includes('private.cjs'), false);"
       })
     );
   });

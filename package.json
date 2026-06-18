@@ -49,7 +49,17 @@
     "uat:skill-loop:codex-live:multi": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-codex-multi-issue-uat.mjs",
     "uat:skill-loop:codex-live:orchestrate": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-codex-orchestrate-ru3-uat.mjs",
     "uat:skill-loop:codex-live:strict-best": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-codex-strict-best-fix-uat.mjs",
-    "uat:skill-loop:codex-live:orchestrate-strict-best": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-codex-orchestrate-strict-best-uat.mjs"
+    "uat:skill-loop:codex-live:orchestrate-strict-best": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-codex-orchestrate-strict-best-uat.mjs",
+    "uat:product-100:preflight": "node scripts/uat/product-100-preflight.mjs",
+    "uat:product-100:preflight:release": "VIBELOOP_PRODUCT_100_REQUIRE_POSTGRES=1 node scripts/uat/product-100-preflight.mjs --require-postgres",
+    "uat:product-100:corpus": "node scripts/uat/product-100-corpus.mjs --summary",
+    "uat:product-100:evals": "node scripts/uat/product-100-eval-generator.mjs --summary",
+    "uat:product-100:codex-live": "node scripts/uat/product-100-codex-live-uat.mjs",
+    "uat:product-100:scaffold": "node scripts/uat/product-100-scaffold.mjs --validate-base",
+    "uat:product-100:adversary": "node scripts/uat/product-100-adversary.mjs --sample",
+    "uat:product-100:release": "node scripts/uat/product-100-release.mjs --sample",
+    "uat:product-100:reviewer-dry-run": "node scripts/uat/product-100-codex-reviewer.mjs --dry-run",
+    "uat:product-100:docs": "node scripts/uat/product-100-docs.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

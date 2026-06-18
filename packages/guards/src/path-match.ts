@@ -8,7 +8,26 @@ function escapeRegex(input: string): string {
 
 function globToRegex(pattern: string): RegExp {
   const normalized = normalizePath(pattern);
-  const regex = `^${normalized.split('*').map(escapeRegex).join('[^/]*')}$`;
+  let regex = '^';
+  for (let index = 0; index < normalized.length; index += 1) {
+    const char = normalized[index];
+    if (char === undefined) {
+      break;
+    }
+    if (char === '*') {
+      const isGlobstar = normalized[index + 1] === '*';
+      if (isGlobstar) {
+        const isFollowedBySlash = normalized[index + 2] === '/';
+        regex += isFollowedBySlash ? '(?:.*/)?' : '.*';
+        index += isFollowedBySlash ? 2 : 1;
+      } else {
+        regex += '[^/]*';
+      }
+    } else {
+      regex += escapeRegex(char);
+    }
+  }
+  regex += '$';
   return new RegExp(regex);
 }
 

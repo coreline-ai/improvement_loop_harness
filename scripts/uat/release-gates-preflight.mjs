@@ -7,6 +7,10 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import {
+  PRODUCT_100_PASS_STATUS,
+  PRODUCT_100_REQUIRED_REQUIREMENTS
+} from './product-100-contract.mjs';
+import {
   REQUIRED_ATTACK_SCENARIOS,
   buildAdversaryLiveAttackScenarios
 } from './adversary-live-safety.mjs';
@@ -148,6 +152,17 @@ export const EVIDENCE_SCENARIOS = [
     expected_status: 'MONOREPO_LIVE_REPRESENTATIVE_PASS'
   }
 ];
+
+export const PRODUCT_100_EVIDENCE_SCENARIO = {
+  gate: 'P6',
+  name: 'Product-100 Codex live evidence',
+  scenario: 'product-100-codex-live-uat',
+  require_manifest: true,
+  expected_status: PRODUCT_100_PASS_STATUS,
+  expected_ledger: {
+    required_product_100: true
+  }
+};
 
 export function defaultEvidenceRoot(env = process.env) {
   return (
@@ -548,6 +563,75 @@ function requiredAdversarySafetyFailures(adversarySafety, required = false) {
   return failures;
 }
 
+function summarizeProduct100Ledger(ledgerJson) {
+  const evaluation = ledgerJson.evaluation ?? {};
+  const requirements = evaluation.requirements ?? {};
+  const summary = ledgerJson.summary ?? {};
+  const normalizedRequirements = Object.fromEntries(
+    PRODUCT_100_REQUIRED_REQUIREMENTS.map((name) => [
+      name,
+      requirements[name] === true
+    ])
+  );
+  return {
+    contract_version: ledgerJson.product_100_contract_version ?? null,
+    evaluation_status: evaluation.status ?? null,
+    evaluation_pass: evaluation.pass === true,
+    missing_requirements: Array.isArray(evaluation.missing_requirements)
+      ? evaluation.missing_requirements
+      : [],
+    blocked_requirements: Array.isArray(evaluation.blocked_requirements)
+      ? evaluation.blocked_requirements
+      : [],
+    required_count: PRODUCT_100_REQUIRED_REQUIREMENTS.length,
+    satisfied_count: Array.isArray(evaluation.satisfied)
+      ? evaluation.satisfied.length
+      : null,
+    requirements: normalizedRequirements,
+    live_loop_started: summary.live_loop_started === true,
+    phase4_pass:
+      summary.phase4?.every_issue_product_100_phase4_pass === true,
+    phase5_pass: summary.phase5?.phase5_pass === true,
+    phase6_pass: summary.phase6?.phase6_pass === true,
+    phase7_pass:
+      summary.phase7?.phase7_pass === true ||
+      normalizedRequirements.docs_run_ledger_readme_truthful === true,
+    issue_count:
+      summary.phase4?.issue_count ??
+      (Array.isArray(ledgerJson.issue_results)
+        ? ledgerJson.issue_results.length
+        : null)
+  };
+}
+
+function requiredProduct100Failures(product100, required = false) {
+  if (!required) return [];
+  const failures = [];
+  if (product100?.evaluation_status !== PRODUCT_100_PASS_STATUS) {
+    failures.push('product_100.evaluation.status');
+  }
+  if (product100?.evaluation_pass !== true) {
+    failures.push('product_100.evaluation.pass');
+  }
+  if ((product100?.missing_requirements ?? []).length > 0) {
+    failures.push('product_100.missing_requirements');
+  }
+  for (const requirement of PRODUCT_100_REQUIRED_REQUIREMENTS) {
+    if (product100?.requirements?.[requirement] !== true) {
+      failures.push(`product_100.requirements.${requirement}`);
+    }
+  }
+  if (product100?.live_loop_started !== true) {
+    failures.push('product_100.live_loop_started');
+  }
+  for (const phase of ['phase4', 'phase5', 'phase6', 'phase7']) {
+    if (product100?.[`${phase}_pass`] !== true) {
+      failures.push(`product_100.${phase}`);
+    }
+  }
+  return failures;
+}
+
 function requiredCellFailures(cellSummaries, requiredCells = []) {
   if (!Array.isArray(requiredCells) || requiredCells.length === 0) return [];
   const byId = new Map(cellSummaries.map((cell) => [cell.id, cell]));
@@ -756,6 +840,9 @@ export async function latestEvidenceBundle(
         ...(options.expectedLedger?.required_adversary_reviewer_provenance
           ? { adversary_reviewer: summarizeAdversaryReviewer(ledgerJson) }
           : {}),
+        ...(options.expectedLedger?.required_product_100
+          ? { product_100: summarizeProduct100Ledger(ledgerJson) }
+          : {}),
         evidence_missing_count:
           ledgerJson.evidence_missing_count ??
           ledgerJson.evidence?.evidence_missing_count ??
@@ -861,6 +948,12 @@ export async function latestEvidenceBundle(
       ...requiredAdversaryReviewerFailures(
         ledgerSummary.adversary_reviewer,
         options.expectedLedger?.required_adversary_reviewer_provenance
+      )
+    );
+    ledgerFailures.push(
+      ...requiredProduct100Failures(
+        ledgerSummary.product_100,
+        options.expectedLedger?.required_product_100
       )
     );
     if (ledgerFailures.length > 0) {

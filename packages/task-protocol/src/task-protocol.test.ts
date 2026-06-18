@@ -258,4 +258,27 @@ describe('limits, interpolation, and risk helpers', () => {
       })
     ).toEqual({ areas: ['auth'], unknown: true });
   });
+
+  it('classifies recursive globstar risk scopes without unknown false positives', () => {
+    expect(
+      classifyRisk(
+        [
+          'packages/cart/src/quantity.cjs',
+          'packages/cart/tests/quantity.test.cjs'
+        ],
+        {
+          none: ['packages/cart/**']
+        }
+      )
+    ).toEqual({ areas: ['none'], unknown: false });
+
+    expect(
+      classifyRisk(
+        ['packages/cart/src/quantity.cjs', 'packages/catalog/src/index.cjs'],
+        {
+          none: ['packages/cart/**']
+        }
+      )
+    ).toEqual({ areas: ['none'], unknown: true });
+  });
 });

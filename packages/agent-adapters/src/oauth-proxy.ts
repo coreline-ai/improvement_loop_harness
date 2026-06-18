@@ -60,6 +60,9 @@ export interface BuildCodexOAuthCommandOptions {
   model: string;
   reasoningEffort: string;
   requiresOpenaiAuth: boolean;
+  ephemeral?: boolean | undefined;
+  ignoreUserConfig?: boolean | undefined;
+  ignoreRules?: boolean | undefined;
 }
 
 export interface OAuthProxyPreflightResult {
@@ -108,13 +111,75 @@ function jsonResponse(
 }
 
 function modelsResponse(model: string): unknown {
+  const baseInstructions = [
+    'You are Codex, a coding agent. Work directly in the provided repository.',
+    'Read the task, edit the relevant files, run the requested checks when useful, and finish with a concise summary.',
+    'Do not ask for human input during non-interactive exec runs.'
+  ].join('\n');
   const modelEntry = {
     id: model,
     slug: model,
     name: model,
+    display_name: model,
+    description:
+      'Frontier model for complex coding, research, and real-world work.',
+    default_reasoning_level: 'medium',
     object: 'model',
     created: 0,
-    owned_by: 'openai'
+    owned_by: 'openai',
+    supported_reasoning_levels: [
+      { effort: 'low', description: 'Fast responses with lighter reasoning' },
+      {
+        effort: 'medium',
+        description: 'Balances speed and reasoning depth for everyday tasks'
+      },
+      {
+        effort: 'high',
+        description: 'Greater reasoning depth for complex problems'
+      },
+      {
+        effort: 'xhigh',
+        description: 'Extra high reasoning depth for complex problems'
+      }
+    ],
+    shell_type: 'shell_command',
+    visibility: 'list',
+    supported_in_api: true,
+    priority: 9,
+    additional_speed_tiers: ['fast'],
+    service_tiers: [
+      {
+        id: 'priority',
+        name: 'Fast',
+        description: '1.5x speed, increased usage'
+      }
+    ],
+    availability_nux: { message: '' },
+    upgrade: null,
+    base_instructions: baseInstructions,
+    model_messages: {
+      instructions_template: baseInstructions,
+      instructions_variables: {}
+    },
+    supports_reasoning_summaries: true,
+    default_reasoning_summary: 'none',
+    support_verbosity: true,
+    default_verbosity: 'low',
+    apply_patch_tool_type: 'freeform',
+    web_search_tool_type: 'text_and_image',
+    truncation_policy: {
+      mode: 'tokens',
+      limit: 10000
+    },
+    supports_parallel_tool_calls: true,
+    supports_image_detail_original: true,
+    context_window: 272000,
+    max_context_window: 272000,
+    effective_context_window_percent: 95,
+    experimental_supported_tools: [],
+    input_modalities: ['text', 'image'],
+    supports_search_tool: true,
+    use_responses_lite: false
   };
   return {
     object: 'list',
@@ -239,6 +304,9 @@ export function buildCodexOAuthCommand(
     'CODEX_HOME=' + shellQuote(options.codeHome),
     'codex',
     'exec',
+    ...(options.ephemeral ?? true ? ['--ephemeral'] : []),
+    ...(options.ignoreUserConfig ?? true ? ['--ignore-user-config'] : []),
+    ...(options.ignoreRules ?? true ? ['--ignore-rules'] : []),
     '-c',
     shellQuote('service_tier=fast'),
     '-c',

@@ -62,14 +62,33 @@ export function isTestFile(filePath: string): boolean {
   return TEST_FILE_PATTERN.test(filePath.replaceAll('\\', '/'));
 }
 
-function removedAssertionLines(diff: string): string[] {
+function assertionLines(diff: string, prefix: '+' | '-'): string[] {
+  const fileHeader = prefix === '+' ? '+++' : '---';
   return diff
     .split('\n')
-    .filter((line) => line.startsWith('-') && !line.startsWith('---'))
+    .filter((line) => line.startsWith(prefix) && !line.startsWith(fileHeader))
     .map((line) => line.slice(1).trim())
+    .filter((line) => !line.startsWith('//') && !line.startsWith('#'))
     .filter((line) =>
       DEFAULT_ASSERTION_REMOVAL_PATTERNS.some((pattern) => pattern.test(line))
     );
+}
+
+function normalizeAssertionForPreservation(line: string): string {
+  return line
+    .trim()
+    .replace(/;$/, '')
+    .replace(/,\s*(?:"[^"]*"|'[^']*'|`[^`]*`)\s*\)$/, ')')
+    .replace(/\s+/g, ' ');
+}
+
+function removedAssertionLines(diff: string): string[] {
+  const addedAssertions = new Set(
+    assertionLines(diff, '+').map((line) => normalizeAssertionForPreservation(line))
+  );
+  return assertionLines(diff, '-').filter(
+    (line) => !addedAssertions.has(normalizeAssertionForPreservation(line))
+  );
 }
 
 async function detectAssertionDeletion(

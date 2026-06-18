@@ -3,6 +3,32 @@ import { TaskProtocolError } from './errors.js';
 
 const WINDOWS_DRIVE_PREFIX = /^[a-zA-Z]:/;
 
+function escapeRegex(input: string): string {
+  return input.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function globToRegex(pattern: string): RegExp {
+  let regex = '^';
+  for (let index = 0; index < pattern.length; index += 1) {
+    const char = pattern[index];
+    if (char === undefined) break;
+    if (char === '*') {
+      const isGlobstar = pattern[index + 1] === '*';
+      if (isGlobstar) {
+        const isFollowedBySlash = pattern[index + 2] === '/';
+        regex += isFollowedBySlash ? '(?:.*/)?' : '.*';
+        index += isFollowedBySlash ? 2 : 1;
+      } else {
+        regex += '[^/]*';
+      }
+    } else {
+      regex += escapeRegex(char);
+    }
+  }
+  regex += '$';
+  return new RegExp(regex);
+}
+
 export function normalizeRepoPath(rawPath: string, context = 'path'): string {
   const trimmed = rawPath.trim();
   if (trimmed.length === 0) {
@@ -46,6 +72,9 @@ export function normalizePathList(paths: string[] | undefined, context: string):
 export function pathMatchesPrefix(filePath: string, prefix: string): boolean {
   const normalizedFile = normalizeRepoPath(filePath, 'filePath');
   const normalizedPrefix = normalizeRepoPath(prefix, 'prefix');
+  if (normalizedPrefix.includes('*')) {
+    return globToRegex(normalizedPrefix).test(normalizedFile);
+  }
   const prefixWithoutSlash = normalizedPrefix.replace(/\/$/, '');
   return normalizedFile === prefixWithoutSlash || normalizedFile.startsWith(`${prefixWithoutSlash}/`);
 }

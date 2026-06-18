@@ -19,6 +19,7 @@ import {
 import {
   providerForAgentSpec,
   resolveAgentAdapter,
+  type AgentAdapter,
   type AgentRunResult
 } from '@vibeloop/agent-adapters';
 import {
@@ -251,6 +252,73 @@ async function cancellable<T>(
         .catch(() => undefined);
     })
   ]);
+}
+
+async function runAgentWithHardTimeout(options: {
+  adapter: AgentAdapter;
+  runOptions: Parameters<AgentAdapter['run']>[0];
+  timeoutMs?: number | undefined;
+  signal?: AbortSignal | undefined;
+}): Promise<AgentRunResult> {
+  const { adapter, timeoutMs, signal } = options;
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  let timeoutTimer: NodeJS.Timeout | undefined;
+  let outerAbortListener: (() => void) | undefined;
+
+  const cleanup = (): void => {
+    if (timeoutTimer) {
+      clearTimeout(timeoutTimer);
+      timeoutTimer = undefined;
+    }
+    if (outerAbortListener) {
+      signal?.removeEventListener('abort', outerAbortListener);
+      outerAbortListener = undefined;
+    }
+  };
+
+  if (signal) {
+    outerAbortListener = () => controller.abort(signal.reason);
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+    } else {
+      signal.addEventListener('abort', outerAbortListener, { once: true });
+    }
+  }
+
+  const runPromise = adapter.run({
+    ...options.runOptions,
+    signal: controller.signal,
+    ...(timeoutMs ? { timeoutMs } : {})
+  });
+
+  const timeoutPromise =
+    timeoutMs && timeoutMs > 0
+      ? new Promise<AgentRunResult>((resolve) => {
+          timeoutTimer = setTimeout(() => {
+            controller.abort(
+              new Error(`agent_timeout_seconds exceeded (${timeoutMs}ms)`)
+            );
+            resolve({
+              status: 'error',
+              exitCode: null,
+              timedOut: true,
+              durationMs: Date.now() - startedAt,
+              stdout: '',
+              stderr: `agent timed out after ${timeoutMs}ms`
+            });
+          }, timeoutMs);
+        })
+      : undefined;
+
+  try {
+    return await cancellable(
+      timeoutPromise ? Promise.race([runPromise, timeoutPromise]) : runPromise,
+      signal
+    );
+  } finally {
+    cleanup();
+  }
 }
 
 async function collectCandidateMetrics(
@@ -688,8 +756,15 @@ export async function runKernel(
         proxyBaseUrl: options.proxyBaseUrl
       });
       const agentTaskFile = path.join(layout.input, 'task.yaml');
-      agentResult = await cancellable(
-        adapter.run({
+      const mergedLimits = mergeLimits(task.limits, evalConfig.limits);
+      const agentTimeoutMs = mergedLimits.agent_timeout_seconds
+        ? mergedLimits.agent_timeout_seconds * 1000
+        : undefined;
+      agentResult = await runAgentWithHardTimeout({
+        adapter,
+        signal: options.signal,
+        timeoutMs: agentTimeoutMs,
+        runOptions: {
           worktree: worktree.path,
           taskFile: agentTaskFile,
           env: {
@@ -698,19 +773,12 @@ export async function runKernel(
             VIBELOOP_PROJECT_ID: projectId,
             VIBELOOP_TASK_FILE: agentTaskFile,
             VIBELOOP_WORKTREE: worktree.path
-          },
-          signal: options.signal,
-          timeoutMs: mergeLimits(task.limits, evalConfig.limits)
-            .agent_timeout_seconds
-            ? mergeLimits(task.limits, evalConfig.limits)
-                .agent_timeout_seconds! * 1000
-            : undefined
+          }
           // No stdoutFile/stderrFile: capture in memory (bounded by the exec
           // buffer) and scan/redact BEFORE persisting, so raw leaked content
           // never lands on disk.
-        }),
-        options.signal
-      );
+        }
+      });
       // artifact-leak scan: redact agent output before it is written anywhere,
       // and surface the verdict to the builtin artifact-leak gate.
       const leakScan = scanArtifactLeak({

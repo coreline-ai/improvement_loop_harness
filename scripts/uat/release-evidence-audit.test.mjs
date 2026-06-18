@@ -21,11 +21,16 @@ import {
 } from './adversary-live-contract.mjs';
 import {
   ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS,
+  SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS,
   buildReleaseEvidenceAuditReport,
   discoverEvidenceRoots,
   releaseEvidenceAuditExitCode,
   selectReleaseEvidenceAuditScenarios
 } from './release-evidence-audit.mjs';
+import {
+  PRODUCT_100_PASS_STATUS,
+  PRODUCT_100_REQUIRED_REQUIREMENTS
+} from './product-100-contract.mjs';
 
 const cleanup = [];
 
@@ -243,6 +248,37 @@ function matrixLedger() {
     },
     cells: matrixCells(),
     evidence_missing_count: 0
+  };
+}
+
+
+function product100PassLedger(overrides = {}) {
+  const requirements = Object.fromEntries(
+    PRODUCT_100_REQUIRED_REQUIREMENTS.map((name) => [name, true])
+  );
+  const evaluation = {
+    status: PRODUCT_100_PASS_STATUS,
+    pass: true,
+    satisfied: [...PRODUCT_100_REQUIRED_REQUIREMENTS],
+    missing_requirements: [],
+    blocked_requirements: [],
+    requirements,
+    ...(overrides.evaluation ?? {})
+  };
+  return {
+    status: PRODUCT_100_PASS_STATUS,
+    product_100_contract_version: 'product-100.codex-live.v1',
+    evidence_missing_count: 0,
+    summary: {
+      live_loop_started: true,
+      phase4: { every_issue_product_100_phase4_pass: true, issue_count: 10 },
+      phase5: { phase5_pass: true },
+      phase6: { phase6_pass: true },
+      phase7: { phase7_pass: true },
+      ...(overrides.summary ?? {})
+    },
+    evaluation,
+    ...(overrides.ledger ?? {})
   };
 }
 
@@ -511,6 +547,114 @@ describe('release evidence audit', () => {
         copied_integrity_checked_count: 1
       })
     );
+  });
+
+  it('keeps Product-100 audit explicit/selectable but out of default all-release evidence', () => {
+    const selected = selectReleaseEvidenceAuditScenarios({
+      scenarioNames: ['product-100-codex-live-uat']
+    });
+    expect(selected).toEqual([
+      expect.objectContaining({
+        gate: 'P6',
+        scenario: 'product-100-codex-live-uat',
+        expected_status: PRODUCT_100_PASS_STATUS,
+        expected_ledger: { required_product_100: true }
+      })
+    ]);
+    expect(SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)).toContain('product-100-codex-live-uat');
+    expect(ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)).not.toContain('product-100-codex-live-uat');
+  });
+
+  it('audits explicit Product-100 evidence with every fixed requirement and Phase7 proof', async () => {
+    const root = await tempRoot();
+    await writeLedger(
+      root,
+      'product-100-codex-live-uat',
+      'product-100-pass-run',
+      product100PassLedger()
+    );
+    await writeManifest(root, 'product-100-codex-live-uat', 'product-100-pass-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['product-100-codex-live-uat']
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.scope).toBe('custom');
+    expect(report.audit_summary).toEqual(
+      expect.objectContaining({
+        required_count: 1,
+        passed_count: 1,
+        failed_count: 0,
+        copied_integrity_checked_count: 1
+      })
+    );
+    expect(report.evidence).toEqual([
+      expect.objectContaining({
+        gate: 'P6',
+        ok: true,
+        scenario: 'product-100-codex-live-uat',
+        ledger_summary: expect.objectContaining({
+          status: PRODUCT_100_PASS_STATUS,
+          product_100: expect.objectContaining({
+            evaluation_pass: true,
+            phase4_pass: true,
+            phase5_pass: true,
+            phase6_pass: true,
+            phase7_pass: true,
+            live_loop_started: true
+          })
+        })
+      })
+    ]);
+  });
+
+  it('rejects explicit Product-100 evidence when a fixed requirement is missing', async () => {
+    const root = await tempRoot();
+    const requirements = Object.fromEntries(
+      PRODUCT_100_REQUIRED_REQUIREMENTS.map((name) => [name, true])
+    );
+    requirements.strict_score_improvement_every_issue = false;
+    await writeLedger(
+      root,
+      'product-100-codex-live-uat',
+      'product-100-fail-run',
+      product100PassLedger({
+        evaluation: {
+          status: 'PRODUCT_100_CODEX_LIVE_FAIL',
+          pass: false,
+          satisfied: PRODUCT_100_REQUIRED_REQUIREMENTS.filter(
+            (name) => requirements[name]
+          ),
+          missing_requirements: ['strict_score_improvement_every_issue'],
+          requirements
+        },
+        ledger: { status: 'PRODUCT_100_CODEX_LIVE_FAIL' }
+      })
+    );
+    await writeManifest(root, 'product-100-codex-live-uat', 'product-100-fail-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['product-100-codex-live-uat']
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.failed_gates).toEqual(['P6']);
+    expect(report.evidence).toEqual([
+      expect.objectContaining({
+        ok: false,
+        status: 'invalid_ledger',
+        ledger_failures: expect.arrayContaining([
+          'status',
+          'product_100.evaluation.status',
+          'product_100.evaluation.pass',
+          'product_100.missing_requirements',
+          'product_100.requirements.strict_score_improvement_every_issue'
+        ])
+      })
+    ]);
   });
 
   it('rejects unknown or conflicting audit scenario selection', () => {

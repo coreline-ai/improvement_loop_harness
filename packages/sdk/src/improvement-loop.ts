@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Decision } from '@vibeloop/shared';
@@ -151,6 +152,13 @@ export interface CandidateScore {
   evidence_present: number;
   changed_files: number;
   changed_lines: number;
+  /**
+   * Existing verifier/adversary tests are evidence, not the fix surface.
+   * Modifying them is not an automatic rejection because some legacy tasks
+   * still allow tests in scope, but it must lose to an implementation-only
+   * equivalent fix under the fixed Evaluator score.
+   */
+  test_file_modifications: number;
   /** Deterministic Q5 metric-delta contribution from reports/quality-report.json. */
   quality_metric_score: number;
   total: number;
@@ -226,15 +234,18 @@ export type SelectionQualityStatus =
   | 'no_verified_selection'
   | 'single_accepted_no_comparator'
   | 'strict_fixed_score_win'
+  | 'fixed_equivalent_patch_convergence'
   | 'fixed_tie_advisory_supported'
   | 'fixed_tie_no_distinction';
 
 /**
  * Fixed evidence for "is this the best-known fix?" separate from correctness.
  *
- * Full autonomous improvement may only rely on `strict_score_improvement=true`,
- * which is derived from fixed Evaluator scores. Advisory tie-breaks can support
- * a choice among score-equal candidates, but never make a full-improvement PASS.
+ * Full autonomous improvement may only rely on `strict_score_improvement=true`.
+ * That flag is derived from fixed Evaluator evidence only: either a strict fixed
+ * score spread or independent accepted candidates converging on the exact same
+ * patch hash. Advisory tie-breaks can support a choice among score-equal
+ * candidates, but never make a full-improvement PASS.
  */
 export interface SelectionQuality {
   authority: 'fixed_score_required_for_full_improvement';
@@ -245,11 +256,13 @@ export interface SelectionQuality {
   comparator_candidate_ids: string[];
   score_spread: number;
   strict_score_improvement: boolean;
+  equivalent_patch_convergence: boolean;
   advisory_supported: boolean;
   best_choice_supported: boolean;
   full_autonomous_improvement_eligible: boolean;
   evidence:
     | 'strict_fixed_score_spread'
+    | 'equivalent_patch_hash_convergence'
     | 'advisory_tie_break_changed_pick'
     | 'single_accepted_no_comparator'
     | 'fixed_tie_no_distinction'
@@ -268,6 +281,7 @@ export interface CandidateOutcome {
   artifactRoot: string;
   reportPath?: string | undefined;
   score?: CandidateScore | undefined;
+  patchHash?: string | undefined;
 }
 
 export interface SelectionReport {
@@ -293,6 +307,7 @@ export interface SelectionReport {
     decision?: string | undefined;
     qualified: boolean;
     score?: CandidateScore | undefined;
+    patch_hash?: string | undefined;
     artifact_root: string;
     report_path?: string | undefined;
     quality_report_ref: string;
@@ -432,16 +447,33 @@ export interface ImprovementLoopResult {
   limits?: LoopLimits | undefined;
 }
 
-interface ArtifactSignals {
+export interface ArtifactSignals {
   evidencePresent: number;
   changedFiles: number;
   changedLines: number;
+  testFileModifications: number;
   /**
    * Fixed quality metric score from Q5 rules. Positive means objectively better
    * than baseline according to configured metrics. This is deterministic and
    * comes from the Evaluator artifact, not an LLM opinion.
    */
   qualityMetricScore: number;
+}
+
+function isTestLikePath(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/').toLowerCase();
+  return (
+    normalized.includes('/test/') ||
+    normalized.includes('/tests/') ||
+    normalized.includes('/__tests__/') ||
+    normalized.includes('/spec/') ||
+    normalized.includes('/adversary/') ||
+    /\.test\.[cm]?[jt]sx?$/.test(normalized) ||
+    /\.spec\.[cm]?[jt]sx?$/.test(normalized) ||
+    normalized.endsWith('_test.py') ||
+    normalized.startsWith('test_') ||
+    normalized.includes('/test_')
+  );
 }
 
 async function readJson<T>(filePath: string): Promise<T | undefined> {
@@ -469,7 +501,12 @@ async function readCandidateSignals(
   artifactRoot: string
 ): Promise<ArtifactSignals> {
   const changed = await readJson<{
-    files?: Array<{ added_lines?: number; deleted_lines?: number }>;
+    files?: Array<{
+      path?: string;
+      status?: string;
+      added_lines?: number;
+      deleted_lines?: number;
+    }>;
   }>(path.join(artifactRoot, 'patches', 'changed-files.json'));
   const evidence = await readJson<{
     evidence?: Array<{ status?: string }>;
@@ -479,6 +516,13 @@ async function readCandidateSignals(
   );
 
   const files = changed?.files ?? [];
+  const testFileModifications = files.filter((file) => {
+    const filePath = file.path ?? '';
+    // New regression tests can be legitimate evidence. Mutating existing test
+    // files is the risky case because it can make a weak candidate appear to
+    // pass by moving the verifier surface. Keep it deterministic and penalized.
+    return file.status !== 'added' && isTestLikePath(filePath);
+  }).length;
   return {
     evidencePresent: (evidence?.evidence ?? []).filter(
       (item) => item.status === 'present'
@@ -488,26 +532,46 @@ async function readCandidateSignals(
       (sum, file) => sum + (file.added_lines ?? 0) + (file.deleted_lines ?? 0),
       0
     ),
+    testFileModifications,
     qualityMetricScore: q5MetricScore(quality)
   };
 }
 
-function scoreFor(signals: ArtifactSignals): CandidateScore {
+export function scoreArtifactSignalsForSelection(
+  signals: ArtifactSignals
+): CandidateScore {
   // Fixed weights: more evidence and better Q5 metric deltas are better; smaller
-  // diffs are better. If no Q5 rules exist, qualityMetricScore=0 and legacy
-  // evidence/diff ranking is unchanged.
+  // diffs are better. Existing test mutations are penalized so an
+  // implementation-only candidate beats a candidate that improves its score by
+  // editing verifier evidence. If no Q5 rules exist, qualityMetricScore=0.
   const total =
     signals.evidencePresent * 100 +
     signals.qualityMetricScore -
     signals.changedFiles * 5 -
-    signals.changedLines;
+    signals.changedLines -
+    signals.testFileModifications * 25;
   return {
     evidence_present: signals.evidencePresent,
     changed_files: signals.changedFiles,
     changed_lines: signals.changedLines,
+    test_file_modifications: signals.testFileModifications,
     quality_metric_score: signals.qualityMetricScore,
     total
   };
+}
+
+async function readCandidatePatchHash(
+  artifactRoot: string
+): Promise<string | undefined> {
+  try {
+    const patch = await readFile(
+      path.join(artifactRoot, CANDIDATE_PATCH_REF),
+      'utf8'
+    );
+    return createHash('sha256').update(patch).digest('hex');
+  } catch {
+    return undefined;
+  }
 }
 
 /** Deterministic best-known ranking among accepted candidates (highest first). */
@@ -516,6 +580,9 @@ function compareAccepted(a: CandidateOutcome, b: CandidateOutcome): number {
   const sb = b.score;
   if (!sa || !sb) return a.candidateId.localeCompare(b.candidateId);
   if (sb.total !== sa.total) return sb.total - sa.total;
+  if (sa.test_file_modifications !== sb.test_file_modifications) {
+    return sa.test_file_modifications - sb.test_file_modifications;
+  }
   if (sa.changed_files !== sb.changed_files)
     return sa.changed_files - sb.changed_files;
   if (sa.changed_lines !== sb.changed_lines)
@@ -596,6 +663,21 @@ function buildSelectionQuality(options: {
     accepted.length >= 2 &&
     selectedIsTopFixedScore &&
     scoreSpread > 0;
+  const topScore = scores.length > 0 ? Math.max(...scores) : null;
+  const topAccepted = topScore === null
+    ? []
+    : accepted.filter((candidate) => candidate.score?.total === topScore);
+  const selectedPatchHash = selected?.patchHash;
+  const equivalentPatchConvergence = Boolean(
+    selected &&
+      topAccepted.length >= 2 &&
+      selectedPatchHash &&
+      topAccepted.every(
+        (candidate) => candidate.patchHash === selectedPatchHash
+      )
+  );
+  const strictImprovementEvidence =
+    strictScoreImprovement || equivalentPatchConvergence;
   const advisorySupported = advisoryTieBreak?.changed_pick === true;
   let status: SelectionQualityStatus;
   let evidence: SelectionQuality['evidence'];
@@ -613,6 +695,10 @@ function buildSelectionQuality(options: {
     status = 'strict_fixed_score_win';
     evidence = 'strict_fixed_score_spread';
     reasons.push('selected_candidate_has_strictly_better_fixed_score');
+  } else if (equivalentPatchConvergence) {
+    status = 'fixed_equivalent_patch_convergence';
+    evidence = 'equivalent_patch_hash_convergence';
+    reasons.push('accepted_top_candidates_converged_on_identical_patch_hash');
   } else if (advisorySupported) {
     status = 'fixed_tie_advisory_supported';
     evidence = 'advisory_tie_break_changed_pick';
@@ -631,10 +717,11 @@ function buildSelectionQuality(options: {
     accepted_candidate_ids: acceptedIds,
     comparator_candidate_ids: comparatorIds,
     score_spread: scoreSpread,
-    strict_score_improvement: strictScoreImprovement,
+    strict_score_improvement: strictImprovementEvidence,
+    equivalent_patch_convergence: equivalentPatchConvergence,
     advisory_supported: advisorySupported,
-    best_choice_supported: strictScoreImprovement || advisorySupported,
-    full_autonomous_improvement_eligible: strictScoreImprovement,
+    best_choice_supported: strictImprovementEvidence || advisorySupported,
+    full_autonomous_improvement_eligible: strictImprovementEvidence,
     evidence,
     reasons
   };
@@ -753,9 +840,10 @@ export async function runImprovementLoop(
         reportPath: result.reportPath
       };
       if (accepted) {
-        outcome.score = scoreFor(
+        outcome.score = scoreArtifactSignalsForSelection(
           await readCandidateSignals(result.layout.root)
         );
+        outcome.patchHash = await readCandidatePatchHash(result.layout.root);
       }
       outcomes.push(outcome);
       await refreshTokenUsage();
@@ -994,6 +1082,7 @@ export async function runImprovementLoop(
       decision: outcome.decision,
       qualified: outcome.qualified,
       score: outcome.score,
+      patch_hash: outcome.patchHash,
       artifact_root: outcome.artifactRoot,
       report_path: outcome.reportPath,
       quality_report_ref: path.join(outcome.artifactRoot, QUALITY_REPORT_REF)

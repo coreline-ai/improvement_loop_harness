@@ -15,6 +15,7 @@ import {
   runOnce,
   verifyPatch
 } from './index.js';
+import { scoreArtifactSignalsForSelection } from './improvement-loop.js';
 import type {
   ReplayCase,
   RunOnceOptions,
@@ -77,6 +78,29 @@ describe('sdk public surface', () => {
     expect(verifyResult.decision).toBe('accept');
     expect(runOptions).toBeDefined();
     expect(verifyOptions).toBeDefined();
+  });
+
+  it('penalizes existing test-file mutations in fixed selection scoring', () => {
+    const implementationOnly = scoreArtifactSignalsForSelection({
+      evidencePresent: 1,
+      changedFiles: 1,
+      changedLines: 9,
+      testFileModifications: 0,
+      qualityMetricScore: 0
+    });
+    const sourcePlusVerifierMutation = scoreArtifactSignalsForSelection({
+      evidencePresent: 1,
+      changedFiles: 2,
+      changedLines: 4,
+      testFileModifications: 1,
+      qualityMetricScore: 0
+    });
+
+    expect(implementationOnly.test_file_modifications).toBe(0);
+    expect(sourcePlusVerifierMutation.test_file_modifications).toBe(1);
+    expect(implementationOnly.total).toBeGreaterThan(
+      sourcePlusVerifierMutation.total
+    );
   });
 
   it('executes an M4 replay corpus through an injectable deterministic runner', async () => {

@@ -22,12 +22,26 @@
 | **P1** | ✅ 구현·검증 완료 | 090746 Phase 1~6 전부 [x]. 잔여는 커밋 규율(`fix(ops-gate-phase-N)`) 마무리뿐 |
 | **P2** | 🟡 코드·로컬검증 완료 · **환경 차단** | 090058 Phase 1/6/7 종료. Phase 2~5는 **구현+로컬테스트 [x]**이나 완료조건 보류 — 원인은 Phase 2 **PrismaStore Postgres leg**(`uat:postgres-contract`, `TEST_DATABASE_URL` 또는 docker postgres 필요) 미실행. 이게 닫히면 Phase 3·4·5 완료조건이 연쇄 종료(진행 규칙상 P2 선행) |
 | **P3** | ✅ 완료 | 091537 Phase 1 — R14 live rerun + CI artifact + retention GC 회귀 |
-| **P4** | 🟡 core 완료 · **R1 런타임 차단** | 064636 Phase 1~5 [x](단 N→N+1 reject **e2e** 1건 미실행), 091537 Phase 3 **live adversary lane**: 계약·preflight·CI 배선 done이나 **Docker-compatible R1 런타임 부재**로 live ledger·semantic-gate-live-e2e blocked + CI artifact PASS 미확인 (조용한 skip/PASS 금지) |
+| **P4** | 🟡 core 완료 · **Product-100 full live 미완** | 064636 Phase 1~5 [x](단 N→N+1 reject **e2e** 1건 미실행). 로컬 Colima `product100` R1 smoke는 통과했고 Product-100 1-issue smoke는 strict-best까지 통과. 그러나 live adversary reviewer→M2/M4/freeze→N+1 semantic gate와 CI artifact PASS는 아직 미확인 |
 | **P5** | ✅ 완료 | 091537 Phase 2·4 — controlled 매트릭스 + R15/R16 대표 live evidence |
+| **P6/Product-100 overlay** | 🚧 계약 구현 · **partial live smoke 통과 / full 미완** | `implement_20260617_211537.md` — 20개 fixed requirement 계약, 10이슈 corpus, hidden/adversary eval generator, strict-best, Phase6 explicit audit 구현. R1/reviewer preflight와 1개 issue real Codex strict-best smoke는 통과했지만 10개 전체 issue, Phase5, Phase6 live proof가 없어 `PRODUCT_100_CODEX_LIVE_PASS` 금지. default release gate에는 포함하지 않고 명시 `--scenario product-100-codex-live-uat`에서만 감사 |
 
 남은 작업 = (1) **P2**: Postgres-capable 환경에서 `uat:postgres-contract` 실행 → `POSTGRES_CONTRACT_PASS` evidence로 Phase 2 종료 → 3·4·5 연쇄 종료. (2) **P4**: Docker/R1 런타임 환경에서 live adversary ledger + semantic-gate N→N+1 reject e2e 실행 + CI `*-evidence-*` artifact PASS 확인. (3) CI 전체 그린 + 게이트별 커밋 규율 마무리.
 
 현 계획 **Non-goal(별도 backlog)**: A-6 학습/메모리 자산 계층(Prisma `Learning`/`SkillVersion` dead schema 연결), A-9 제품 모듈 분리.
+
+
+## Product-100 overlay — 제품 전체 100% PASS 금지선
+
+Product-100은 기존 P0~P5를 대체하지 않고 그 위에 얹는 **명시 UAT overlay**다. 기본 release gate나 `--all-release-evidence`에는 자동 포함하지 않는다. 실제 Product-100 증거를 감사할 때만 아래처럼 명시 실행한다.
+
+```bash
+corepack pnpm uat:product-100:preflight
+corepack pnpm uat:product-100:codex-live
+corepack pnpm uat:release-evidence-audit -- --scenario product-100-codex-live-uat
+```
+
+현재 상태: 계약/테스트/감사 경로는 구현됐고, 이 머신에서 R1/reviewer preflight 및 1개 issue real Codex strict-best smoke는 통과했다. 그러나 `PRODUCT_100_CODEX_LIVE_PASS`는 10개 전체 issue와 Phase4~7 proof가 모두 true일 때만 인정한다.
 
 ## Release Gate 순서 (단일 소스)
 

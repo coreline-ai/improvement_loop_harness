@@ -48,14 +48,53 @@ describe('codex oauth proxy helpers', () => {
     try {
       const response = await fetch(`${proxy.baseUrl}/v1/models`);
       const body = (await response.json()) as {
-        data: Array<{ id: string; slug: string }>;
-        models: Array<{ id: string; slug: string }>;
+        data: Array<{
+          id: string;
+          slug: string;
+          display_name: string;
+          default_reasoning_level: string;
+          supported_reasoning_levels: Array<{ effort: string }>;
+          shell_type: string;
+          visibility: string;
+          supported_in_api: boolean;
+          truncation_policy: { mode: string; limit: number };
+          apply_patch_tool_type: string;
+          base_instructions: string;
+          model_messages: { instructions_template: string };
+        }>;
+        models: Array<{
+          id: string;
+          slug: string;
+          display_name: string;
+          supported_reasoning_levels: Array<{ effort: string }>;
+        }>;
       };
       expect(response.status).toBe(200);
       expect(body.data[0]?.id).toBe('gpt-test');
       expect(body.data[0]?.slug).toBe('gpt-test');
+      expect(body.data[0]?.display_name).toBe('gpt-test');
+      expect(body.data[0]?.default_reasoning_level).toBe('medium');
+      expect(body.data[0]?.supported_reasoning_levels).toContainEqual(
+        expect.objectContaining({ effort: 'xhigh' })
+      );
+      expect(body.data[0]?.shell_type).toBe('shell_command');
+      expect(body.data[0]?.visibility).toBe('list');
+      expect(body.data[0]?.supported_in_api).toBe(true);
+      expect(body.data[0]?.truncation_policy).toEqual({
+        mode: 'tokens',
+        limit: 10000
+      });
+      expect(body.data[0]?.apply_patch_tool_type).toBe('freeform');
+      expect(body.data[0]?.base_instructions).toContain('You are Codex');
+      expect(body.data[0]?.model_messages.instructions_template).toContain(
+        'non-interactive exec runs'
+      );
       expect(body.models[0]?.id).toBe('gpt-test');
       expect(body.models[0]?.slug).toBe('gpt-test');
+      expect(body.models[0]?.display_name).toBe('gpt-test');
+      expect(body.models[0]?.supported_reasoning_levels).toContainEqual(
+        expect.objectContaining({ effort: 'xhigh' })
+      );
       expect(proxy.stats.model_requests).toBe(1);
     } finally {
       await proxy.close();
@@ -166,6 +205,9 @@ describe('codex oauth proxy helpers', () => {
     });
     expect(command).toContain('requires_openai_auth=true');
     expect(command).toContain('base_url');
+    expect(command).toContain('--ephemeral');
+    expect(command).toContain('--ignore-user-config');
+    expect(command).toContain('--ignore-rules');
     expect(command).not.toMatch(/Bearer\s+/i);
     expect(command).not.toMatch(/access_token|refresh_token/i);
   });
