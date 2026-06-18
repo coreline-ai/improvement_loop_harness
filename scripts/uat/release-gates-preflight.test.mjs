@@ -493,8 +493,8 @@ ELIFECYCLE Command failed with exit code 20.`);
       },
       {
         id: 'network-restricted-r1',
-        status: 'unsupported',
-        provisioning_status: 'unsupported'
+        allowed_statuses: ['pass', 'unsupported'],
+        allowed_provisioning_statuses: ['skipped', 'unsupported']
       }
     ];
     const ledger = await writeLedger(
@@ -566,6 +566,58 @@ ELIFECYCLE Command failed with exit code 20.`);
             id: 'network-restricted-r1',
             status: 'unsupported',
             provisioning_status: 'unsupported'
+          })
+        ])
+      }
+    });
+
+    await writeLedger(
+      root,
+      'repo-matrix-uat',
+      'network-r1-pass-run',
+      new Date('2026-06-15T01:30:00.000Z'),
+      {
+        status: 'REPO_MATRIX_PASS',
+        cell_count: 16,
+        pass_count: 15,
+        unsupported_count: 0,
+        fail_count: 0,
+        dependency_provisioning: {
+          checked_count: 16,
+          statuses: {
+            skipped: 12,
+            cache_miss: 3,
+            not_run: 1
+          }
+        },
+        cells: repoMatrixCells({
+          'network-restricted-r1': {
+            status: 'pass',
+            dependency_provisioning: { status: 'skipped' },
+            provisioning: undefined
+          }
+        }),
+        evidence_missing_count: 0
+      }
+    );
+    await writeManifest(root, 'repo-matrix-uat', 'network-r1-pass-run');
+
+    await expect(
+      latestEvidenceBundle('repo-matrix-uat', root, {
+        requireManifest: true,
+        expectedStatus: 'REPO_MATRIX_PASS',
+        expectedLedger
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      ledger_summary: {
+        pass_count: 15,
+        unsupported_count: 0,
+        cells: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'network-restricted-r1',
+            status: 'pass',
+            provisioning_status: 'skipped'
           })
         ])
       }

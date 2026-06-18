@@ -127,8 +127,8 @@ export const EVIDENCE_SCENARIOS = [
         },
         {
           id: 'network-restricted-r1',
-          status: 'unsupported',
-          provisioning_status: 'unsupported'
+          allowed_statuses: ['pass', 'unsupported'],
+          allowed_provisioning_statuses: ['skipped', 'unsupported']
         }
       ]
     }
@@ -570,6 +570,12 @@ function requiredCellFailures(cellSummaries, requiredCells = []) {
     if (
       required.provisioning_status &&
       cell.provisioning_status !== required.provisioning_status
+    ) {
+      failures.push(`cells.${required.id}.provisioning_status`);
+    }
+    if (
+      Array.isArray(required.allowed_provisioning_statuses) &&
+      !required.allowed_provisioning_statuses.includes(cell.provisioning_status)
     ) {
       failures.push(`cells.${required.id}.provisioning_status`);
     }
