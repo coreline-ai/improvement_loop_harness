@@ -384,8 +384,16 @@ describe('Product-100 adversary reviewer Phase5 contract', () => {
     const taskFile = path.join(tmp, 'repair.task.json');
     const evalFile = path.join(tmp, 'repair.eval.json');
     const testsFile = path.join(tmp, 'repair.tests.json');
-    const scenario = await writeMockScenario(tmp, 'repair-agent', [
+    const builderScenario = await writeMockScenario(tmp, 'repair-agent', [
       { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' }
+    ]);
+    const challengerScenario = await writeMockScenario(tmp, 'repair-challenger', [
+      { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
+      {
+        type: 'create',
+        path: 'src/extra.cjs',
+        content: 'module.exports = { extra: true };\n'
+      }
     ]);
     await writeFile(
       taskFile,
@@ -446,14 +454,15 @@ describe('Product-100 adversary reviewer Phase5 contract', () => {
       repairTaskFile: taskFile,
       repairEvalFile: evalFile,
       repairTestsFile: testsFile,
-      agents: [`mock:${scenario}`],
-      challengers: [`mock:${scenario}`],
+      agents: [`mock:${builderScenario}`],
+      challengers: [`mock:${challengerScenario}`],
       outputDir: tmp,
       loopId: 'repair-loop-1'
     });
 
     expect(report.executed).toBe(true);
     expect(report.repair_pass).toBe(true);
+    expect(report.selection_quality?.status).toBe('strict_fixed_score_win');
     expect(report.committed_to_integration_branch).toBe(true);
     const { stdout } = await execFile(process.execPath, [
       'tests/adversary/value-edge.test.cjs'
