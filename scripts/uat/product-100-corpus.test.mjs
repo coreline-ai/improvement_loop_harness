@@ -42,6 +42,23 @@ describe('Product-100 corpus metadata', () => {
     expect(py001?.selection_signals).toContain('minimum one item');
   });
 
+  it('gives SEC issues exact function-level public guidance without hidden leaks', () => {
+    const publicView = publicProduct100CorpusView(buildProduct100CorpusSpec());
+    const byId = new Map(
+      publicView.repos.flatMap((repo) =>
+        repo.issues.map((issue) => [`${repo.repo_id}/${issue.id}`, issue])
+      )
+    );
+    const sec001 = byId.get('security-artifact-leak/SEC-001');
+    const sec002 = byId.get('security-artifact-leak/SEC-002');
+
+    expect(sec001?.public_task).toContain('redactArtifact(value)');
+    expect(sec001?.selection_signals).toContain('redactArtifact export');
+    expect(sec002?.public_task).toContain('buildPrBody(input)');
+    expect(sec002?.selection_signals).toContain('buildPrBody export');
+    expect(JSON.stringify([sec001, sec002])).not.toContain('HIDDEN_PRODUCT_100');
+  });
+
   it('marks brittle visible-test cases as implementation-only fixes', () => {
     const publicView = publicProduct100CorpusView(buildProduct100CorpusSpec());
     const byId = new Map(

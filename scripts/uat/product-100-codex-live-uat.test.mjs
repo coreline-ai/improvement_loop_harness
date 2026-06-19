@@ -4,7 +4,9 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   buildProduct100CodexLiveUatReport,
+  classifyProduct100CandidateAttempt,
   product100AgentTimeoutSeconds,
+  product100CandidateHeartbeatFields,
   product100CandidatesPerIssue,
   product100CodexLiveReportPath,
   product100IssueFilter,
@@ -15,6 +17,7 @@ import {
   product100TmpParent,
   product100CodexLiveUatExitCode,
   shouldRetryProduct100StrictBest,
+  summarizeProduct100CandidateIssueDiagnostic,
   writeProduct100CodexLiveReport
 } from './product-100-codex-live-uat.mjs';
 
@@ -192,6 +195,97 @@ describe('Product-100 Codex live UAT driver contract', () => {
       })
     ).toBe(false);
     expect(shouldRetryProduct100StrictBest({ pr_candidate: false })).toBe(false);
+  });
+
+  it('classifies timeout-like candidate attempts and exposes heartbeat evidence', () => {
+    const stderrDiagnostic = classifyProduct100CandidateAttempt({
+      cli: {
+        ok: false,
+        code: 124,
+        stderr: 'candidate execution timed out after 240 seconds'
+      },
+      out: null,
+      parseError: 'no JSON in CLI stdout'
+    });
+    const statusDiagnostic = classifyProduct100CandidateAttempt({
+      cli: { ok: true, code: 0, stderr: '' },
+      out: {
+        status: 'deadline exceeded',
+        pr_candidate: false
+      }
+    });
+
+    expect(stderrDiagnostic).toMatchObject({
+      status: 'blocked',
+      reason: 'candidate_timeout',
+      fail_reason: 'candidate_timeout',
+      timeout: true
+    });
+    expect(statusDiagnostic).toMatchObject({
+      status: 'blocked',
+      fail_reason: 'candidate_timeout',
+      timeout: true
+    });
+
+    expect(
+      product100CandidateHeartbeatFields({
+        artifact: { repo_id: 'node-monorepo-scope', issue_id: 'NM-001' },
+        attempt: 2,
+        attemptLoopId: 'test-run-node-monorepo-scope-NM-001-strict-retry2',
+        diagnostic: stderrDiagnostic,
+        evidence: {
+          stdout: '/tmp/product-100/NM-001.stdout.log',
+          stderr: '/tmp/product-100/NM-001.stderr.log'
+        }
+      })
+    ).toMatchObject({
+      repo_id: 'node-monorepo-scope',
+      issue_id: 'NM-001',
+      attempt: 2,
+      current_attempt: 2,
+      attempt_loop_id: 'test-run-node-monorepo-scope-NM-001-strict-retry2',
+      candidate_id: 'test-run-node-monorepo-scope-NM-001-strict-retry2',
+      timeout: true,
+      fail_reason: 'candidate_timeout',
+      evidence: {
+        stdout: '/tmp/product-100/NM-001.stdout.log',
+        stderr: '/tmp/product-100/NM-001.stderr.log'
+      }
+    });
+  });
+
+  it('summarizes timeout-only retries as an explicit blocked issue reason', () => {
+    const attempts = [0, 1].map((attempt) => ({
+      attempt,
+      loop_id: `loop-timeout-${attempt}`,
+      cli: {
+        ok: false,
+        code: 124,
+        stderr: 'timeout waiting for Product-100 candidate'
+      },
+      out: null,
+      parse_error: 'no JSON in CLI stdout',
+      pr_candidate: false,
+      strict: false,
+      diagnostic: classifyProduct100CandidateAttempt({
+        cli: {
+          ok: false,
+          code: 124,
+          stderr: 'timeout waiting for Product-100 candidate'
+        },
+        out: null,
+        parseError: 'no JSON in CLI stdout'
+      })
+    }));
+
+    expect(summarizeProduct100CandidateIssueDiagnostic(attempts)).toMatchObject({
+      status: 'blocked',
+      reason: 'candidate_timeout_retries_exhausted',
+      fail_reason: 'candidate_timeout_retries_exhausted',
+      timeout: true,
+      timeout_attempt_count: 2,
+      attempt_count: 2
+    });
   });
 
   it('supports explicit issue filters for targeted live reruns without redefining full coverage', () => {
@@ -434,5 +528,99 @@ describe('Product-100 Codex live UAT driver contract', () => {
     expect(report.status).toBe('PRODUCT_100_CODEX_LIVE_FAIL');
     expect(report.fail_reason).toBe('PRODUCT_100_PHASE4_FAIL');
     expect(report.evaluation.requirements.strict_score_improvement_every_issue).toBe(false);
+  });
+
+  it('preserves candidate timeout diagnostics in the Product-100 issue ledger', async () => {
+    const attemptDiagnostics = [0, 1].map(() =>
+      classifyProduct100CandidateAttempt({
+        cli: {
+          ok: false,
+          code: 124,
+          stderr: 'Product-100 candidate timeout'
+        },
+        out: null,
+        parseError: 'no JSON in CLI stdout'
+      })
+    );
+    const issueDiagnostic = summarizeProduct100CandidateIssueDiagnostic(
+      attemptDiagnostics.map((diagnostic, attempt) => ({
+        attempt,
+        loop_id: `test-loop-timeout-${attempt}`,
+        diagnostic,
+        pr_candidate: false,
+        strict: false
+      }))
+    );
+    const phase4Timeout = {
+      ...phase4Pass,
+      hidden_eval_generated_and_passed_every_issue: false,
+      strict_score_improvement_every_issue: false,
+      every_issue_pr_candidate: false,
+      rediscovery_after_each_fix: false,
+      every_issue_product_100_phase4_pass: false,
+      issues: [
+        {
+          repo_id: 'node-monorepo-scope',
+          issue_id: 'NM-001',
+          loop_id: 'test-loop-timeout-1',
+          candidate_status: issueDiagnostic.status,
+          reason: issueDiagnostic.reason,
+          fail_reason: issueDiagnostic.fail_reason,
+          candidate_timeout: issueDiagnostic.timeout,
+          timeout_attempt_count: issueDiagnostic.timeout_attempt_count,
+          strict_score_improvement: false,
+          pr_candidate: false,
+          hidden_eval_passed: false,
+          rediscovery_after_fix: false,
+          strict_best_attempts: attemptDiagnostics.map((diagnostic, attempt) => ({
+            attempt,
+            loop_id: `test-loop-timeout-${attempt}`,
+            candidate_id: `test-loop-timeout-${attempt}`,
+            status: diagnostic.status,
+            reason: diagnostic.reason,
+            fail_reason: diagnostic.fail_reason,
+            timeout: diagnostic.timeout,
+            command_exit_code: 124,
+            output_parse_error: 'no JSON in CLI stdout',
+            pr_candidate: false,
+            strict_score_improvement: false,
+            evidence: {
+              stdout: `/tmp/product-100/timeout-${attempt}.stdout.log`,
+              stderr: `/tmp/product-100/timeout-${attempt}.stderr.log`
+            }
+          })),
+          evidence: {
+            stdout: '/tmp/product-100/timeout-1.stdout.log',
+            stderr: '/tmp/product-100/timeout-1.stderr.log'
+          }
+        }
+      ]
+    };
+
+    const report = await buildProduct100CodexLiveUatReport({
+      preflightReport: passPreflight,
+      phase4Report: phase4Timeout,
+      baseValidationReport: baseValidationPass,
+      runId: 'test-run'
+    });
+
+    expect(report.status).toBe('PRODUCT_100_CODEX_LIVE_FAIL');
+    expect(report.fail_reason).toBe('PRODUCT_100_PHASE4_FAIL');
+    expect(report.issue_results[0]).toMatchObject({
+      candidate_status: 'blocked',
+      fail_reason: 'candidate_timeout_retries_exhausted',
+      candidate_timeout: true,
+      timeout_attempt_count: 2
+    });
+    expect(report.issue_results[0].strict_best_attempts[0]).toMatchObject({
+      status: 'blocked',
+      fail_reason: 'candidate_timeout',
+      timeout: true,
+      command_exit_code: 124,
+      evidence: {
+        stdout: '/tmp/product-100/timeout-0.stdout.log',
+        stderr: '/tmp/product-100/timeout-0.stderr.log'
+      }
+    });
   });
 });

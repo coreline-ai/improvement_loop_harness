@@ -211,8 +211,8 @@ function securityArtifactLeakCell() {
         user_visible_problem:
           'A failed gate writes hidden context literals into artifact logs.',
         public_task:
-          'Redact hidden context from agent/gate artifacts before writing evidence. Treat visible tests as fixed verifier evidence; do not edit tests.',
-        selection_signals: ['artifact leak guard', 'hidden literal scanner', 'implementation-only fix'],
+          'Update src/redact.cjs so redactArtifact(value) returns artifact-safe text by removing secret-like context/token strings without echoing raw sensitive input. Treat visible tests as fixed verifier evidence; do not edit tests.',
+        selection_signals: ['redactArtifact export', 'artifact leak guard', 'hidden literal scanner', 'implementation-only fix'],
         write_scope: ['src/redact.cjs'],
         expected_files: ['src/redact.cjs'],
         visible_tests: [{ command: 'node src/redact.test.cjs', must_fail_on_base: true }],
@@ -224,8 +224,8 @@ function securityArtifactLeakCell() {
         user_visible_problem:
           'Draft PR body can include raw adversary reviewer prompt text.',
         public_task:
-          'Summarize reviewer evidence without copying raw prompts or hidden fixture text into PR body. Treat visible tests as fixed verifier evidence; do not edit tests.',
-        selection_signals: ['PR evidence audit', 'prompt leak prevention', 'implementation-only fix'],
+          'Update src/pr-body.cjs so buildPrBody(input) summarizes reviewer evidence without copying input.reviewerPrompt or raw prompt/fixture text into the PR body. Treat visible tests as fixed verifier evidence; do not edit tests.',
+        selection_signals: ['buildPrBody export', 'PR evidence audit', 'prompt leak prevention', 'implementation-only fix'],
         write_scope: ['src/pr-body.cjs'],
         expected_files: ['src/pr-body.cjs'],
         visible_tests: [{ command: 'node tests/pr-body-redaction.test.cjs', must_fail_on_base: true }],

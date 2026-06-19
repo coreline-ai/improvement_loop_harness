@@ -102,9 +102,9 @@ async function writeCliArgs(root) {
 
 async function writeSecurityArtifactLeak(root) {
   await write(root, 'src/redact.cjs', `function redactArtifact(value) {\n  return String(value);\n}\nmodule.exports = { redactArtifact };\n`);
-  await write(root, 'src/redact.test.cjs', `const assert = require('node:assert/strict');\nconst { redactArtifact } = require('./redact.cjs');\nassert.equal(redactArtifact('token SECRET_VISIBLE').includes('SECRET_VISIBLE'), false);\n`);
+  await write(root, 'src/redact.test.cjs', `const assert = require('node:assert/strict');\nconst { redactArtifact } = require('./redact.cjs');\nassert.equal(redactArtifact('token SECRET_VISIBLE').includes('SECRET_VISIBLE'), false);\nassert.equal(redactArtifact('gate log TOKEN_VISIBLE leaked').includes('TOKEN_VISIBLE'), false);\nassert.match(redactArtifact('normal build log'), /normal build log/);\n`);
   await write(root, 'src/pr-body.cjs', `function buildPrBody(input) {\n  return 'Reviewer prompt: ' + input.reviewerPrompt;\n}\nmodule.exports = { buildPrBody };\n`);
-  await write(root, 'tests/pr-body-redaction.test.cjs', `const assert = require('node:assert/strict');\nconst { buildPrBody } = require('../src/pr-body.cjs');\nassert.equal(buildPrBody({ reviewerPrompt: 'raw prompt text' }).includes('raw prompt text'), false);\n`);
+  await write(root, 'tests/pr-body-redaction.test.cjs', `const assert = require('node:assert/strict');\nconst { buildPrBody } = require('../src/pr-body.cjs');\nassert.equal(buildPrBody({ reviewerPrompt: 'raw prompt text' }).includes('raw prompt text'), false);\nassert.equal(buildPrBody({ reviewerPrompt: 'DO_NOT_COPY_PROMPT' }).includes('DO_NOT_COPY_PROMPT'), false);\nassert.match(buildPrBody({ reviewerPrompt: 'raw prompt text' }), /reviewer/i);\n`);
 }
 
 function splitCommand(command) {

@@ -102,6 +102,193 @@ export function shouldRetryProduct100StrictBest(out) {
   );
 }
 
+const PRODUCT_100_TIMEOUT_PATTERN =
+  /\b(?:timed?\s*out|timeout|time\s+limit|deadline\s+exceeded|etimedout|esockettimedout)\b/i;
+
+function hasProduct100TimeoutText(value) {
+  if (value === null || value === undefined) return false;
+  return PRODUCT_100_TIMEOUT_PATTERN.test(String(value));
+}
+
+function product100CandidateTimeoutDetected({ cli = {}, out = null } = {}) {
+  if (
+    cli.timeout === true ||
+    cli.timedOut === true ||
+    out?.timeout === true ||
+    cli.code === 124
+  ) {
+    return true;
+  }
+
+  const statusValues = [
+    cli.status,
+    cli.reason,
+    cli.error?.code,
+    cli.error?.name,
+    cli.error?.message,
+    out?.status,
+    out?.reason,
+    out?.fail_reason,
+    out?.failure_reason,
+    out?.error?.status,
+    out?.error?.code,
+    out?.error?.reason,
+    out?.error?.message
+  ];
+
+  if (statusValues.some((value) => hasProduct100TimeoutText(value))) {
+    return true;
+  }
+
+  return cli.ok !== true && hasProduct100TimeoutText(cli.stderr);
+}
+
+export function classifyProduct100CandidateAttempt({
+  cli = {},
+  out = null,
+  parseError = null
+} = {}) {
+  const timeout = product100CandidateTimeoutDetected({ cli, out });
+  if (timeout) {
+    return {
+      status: 'blocked',
+      reason: 'candidate_timeout',
+      fail_reason: 'candidate_timeout',
+      timeout: true
+    };
+  }
+
+  const strict = out?.selection_quality?.strict_score_improvement === true;
+  const prCandidate = out?.pr_candidate === true;
+  if (strict && prCandidate) {
+    return {
+      status: 'pass',
+      reason: null,
+      fail_reason: null,
+      timeout: false
+    };
+  }
+
+  let reason = 'candidate_failed';
+  if (parseError) {
+    reason = 'candidate_output_parse_error';
+  } else if (cli.ok === false || (cli.code !== undefined && cli.code !== 0)) {
+    reason = 'candidate_command_failed';
+  } else if (!out) {
+    reason = 'candidate_output_missing';
+  } else if (!prCandidate) {
+    reason = 'candidate_not_pr_candidate';
+  } else if (!strict) {
+    reason = 'strict_score_improvement_missing';
+  }
+
+  return {
+    status: 'fail',
+    reason,
+    fail_reason: reason,
+    timeout: false
+  };
+}
+
+export function summarizeProduct100CandidateIssueDiagnostic(attempts = []) {
+  if (!Array.isArray(attempts) || attempts.length === 0) {
+    return {
+      status: 'fail',
+      reason: 'missing_attempt',
+      fail_reason: 'missing_attempt',
+      timeout: false,
+      timeout_attempt_count: 0,
+      attempt_count: 0
+    };
+  }
+
+  const diagnostics = attempts.map(
+    (attempt) =>
+      attempt.diagnostic ??
+      classifyProduct100CandidateAttempt({
+        cli: attempt.cli,
+        out: attempt.out,
+        parseError: attempt.parse_error
+      })
+  );
+  const timeoutAttemptCount = diagnostics.filter(
+    (diagnostic) => diagnostic.timeout === true
+  ).length;
+
+  if (timeoutAttemptCount === attempts.length) {
+    const reason =
+      attempts.length > 1
+        ? 'candidate_timeout_retries_exhausted'
+        : 'candidate_timeout';
+    return {
+      status: 'blocked',
+      reason,
+      fail_reason: reason,
+      timeout: true,
+      timeout_attempt_count: timeoutAttemptCount,
+      attempt_count: attempts.length
+    };
+  }
+
+  const passingDiagnostic = diagnostics.find(
+    (diagnostic) => diagnostic.status === 'pass'
+  );
+  if (passingDiagnostic) {
+    return {
+      status: 'pass',
+      reason: null,
+      fail_reason: null,
+      timeout: timeoutAttemptCount > 0,
+      timeout_attempt_count: timeoutAttemptCount,
+      attempt_count: attempts.length
+    };
+  }
+
+  const prCandidateIndex = attempts.findIndex(
+    (attempt) => attempt.pr_candidate === true
+  );
+  const selectedIndex =
+    prCandidateIndex >= 0 ? prCandidateIndex : diagnostics.length - 1;
+  const selectedDiagnostic = diagnostics[selectedIndex] ?? diagnostics.at(-1);
+  const reason =
+    selectedDiagnostic?.fail_reason ??
+    selectedDiagnostic?.reason ??
+    'strict_score_improvement_missing';
+
+  return {
+    status: selectedDiagnostic?.status === 'blocked' ? 'blocked' : 'fail',
+    reason,
+    fail_reason: reason,
+    timeout: timeoutAttemptCount > 0,
+    timeout_attempt_count: timeoutAttemptCount,
+    attempt_count: attempts.length
+  };
+}
+
+export function product100CandidateHeartbeatFields({
+  artifact = {},
+  attempt = 0,
+  attemptLoopId = null,
+  out = null,
+  diagnostic = null,
+  evidence = null
+} = {}) {
+  const selectedCandidateId = out?.selected_candidate_id ?? null;
+  return {
+    repo_id: artifact.repo_id ?? null,
+    issue_id: artifact.issue_id ?? null,
+    attempt,
+    current_attempt: attempt,
+    attempt_loop_id: attemptLoopId,
+    candidate_id: selectedCandidateId ?? attemptLoopId ?? `attempt-${attempt}`,
+    selected_candidate_id: selectedCandidateId,
+    timeout: diagnostic?.timeout === true,
+    fail_reason: diagnostic?.fail_reason ?? null,
+    reason: diagnostic?.reason ?? diagnostic?.fail_reason ?? null,
+    evidence
+  };
+}
+
 export function product100IssueFilter(env = process.env, options = {}) {
   const raw =
     options.issueIds ??
@@ -572,8 +759,12 @@ export async function runProduct100RealCodexLoop(options = {}) {
         issues: issues.map((issue) => ({
           repo_id: issue.repo_id,
           issue_id: issue.issue_id,
+          candidate_status: issue.candidate_status,
+          fail_reason: issue.fail_reason,
+          candidate_timeout: issue.candidate_timeout,
           strict_score_improvement: issue.strict_score_improvement,
-          pr_candidate: issue.pr_candidate
+          pr_candidate: issue.pr_candidate,
+          evidence: issue.evidence
         })),
         ...extra
       });
@@ -583,15 +774,26 @@ export async function runProduct100RealCodexLoop(options = {}) {
         const attemptLoopId = attempt === 0 ? loopId : `${loopId}-strict-retry${attempt}`;
         const stdoutPath = path.join(tmpRoot, `${attemptLoopId}.stdout.log`);
         const stderrPath = path.join(tmpRoot, `${attemptLoopId}.stderr.log`);
-        await writeIssueHeartbeat('phase4_candidate_attempt_running', {
-          current_attempt: attempt,
-          attempt_loop_id: attemptLoopId
-        });
+        const attemptEvidence = { stdout: stdoutPath, stderr: stderrPath };
+        await writeIssueHeartbeat(
+          'phase4_candidate_attempt_running',
+          product100CandidateHeartbeatFields({
+            artifact,
+            attempt,
+            attemptLoopId,
+            evidence: attemptEvidence
+          })
+        );
         const heartbeat = setInterval(() => {
-          writeIssueHeartbeat('phase4_candidate_attempt_running', {
-            current_attempt: attempt,
-            attempt_loop_id: attemptLoopId
-          }).catch(() => undefined);
+          writeIssueHeartbeat(
+            'phase4_candidate_attempt_running',
+            product100CandidateHeartbeatFields({
+              artifact,
+              attempt,
+              attemptLoopId,
+              evidence: attemptEvidence
+            })
+          ).catch(() => undefined);
         }, 30_000);
         const cli = await run(process.execPath, [
           path.join(repoRoot, 'packages/cli/bin/vibeloop'),
@@ -617,10 +819,6 @@ export async function runProduct100RealCodexLoop(options = {}) {
           '--skip-dependency-install'
         ], { cwd: repoRoot });
         clearInterval(heartbeat);
-        await writeIssueHeartbeat('phase4_candidate_attempt_completed', {
-          current_attempt: attempt,
-          attempt_loop_id: attemptLoopId
-        });
         await writeFile(stdoutPath, cli.stdout);
         await writeFile(stderrPath, cli.stderr);
         let out = null;
@@ -631,35 +829,65 @@ export async function runProduct100RealCodexLoop(options = {}) {
           parseError = error instanceof Error ? error.message : String(error);
         }
         const strict = out?.selection_quality?.strict_score_improvement === true;
+        const diagnostic = classifyProduct100CandidateAttempt({
+          cli,
+          out,
+          parseError
+        });
+        const selectedCandidateId = out?.selected_candidate_id ?? null;
+        const retryReason =
+          !diagnostic.timeout && shouldRetryProduct100StrictBest(out)
+            ? 'strict_best_single_accepted_no_comparator'
+            : null;
         attempts.push({
           attempt,
           loop_id: attemptLoopId,
           cli,
           out,
           parse_error: parseError,
+          diagnostic,
+          candidate_id: selectedCandidateId ?? attemptLoopId,
+          selected_candidate_id: selectedCandidateId,
+          status: diagnostic.status,
+          reason: diagnostic.reason,
+          fail_reason: diagnostic.fail_reason,
+          timeout: diagnostic.timeout,
           strict,
           pr_candidate: out?.pr_candidate === true,
-          retry_reason: shouldRetryProduct100StrictBest(out)
-            ? 'strict_best_single_accepted_no_comparator'
-            : null,
-          evidence: { stdout: stdoutPath, stderr: stderrPath }
+          retry_reason: retryReason,
+          evidence: attemptEvidence
         });
-        if (strict || !shouldRetryProduct100StrictBest(out)) break;
+        await writeIssueHeartbeat(
+          'phase4_candidate_attempt_completed',
+          product100CandidateHeartbeatFields({
+            artifact,
+            attempt,
+            attemptLoopId,
+            out,
+            diagnostic,
+            evidence: attemptEvidence
+          })
+        );
+        if (strict || diagnostic.timeout || !shouldRetryProduct100StrictBest(out)) break;
       }
       const selectedAttempt =
         attempts.find((attempt) => attempt.strict && attempt.pr_candidate) ??
         attempts.find((attempt) => attempt.pr_candidate) ??
         attempts.at(-1);
+      const issueDiagnostic = summarizeProduct100CandidateIssueDiagnostic(attempts);
       const out = selectedAttempt?.out ?? null;
       const cli = selectedAttempt?.cli ?? { code: null };
       const parseError = selectedAttempt ? selectedAttempt.parse_error : 'missing_attempt';
-      const strict = out?.selection_quality?.strict_score_improvement === true;
+      const selectedAttemptTimedOut = selectedAttempt?.diagnostic?.timeout === true;
+      const strict =
+        !selectedAttemptTimedOut &&
+        out?.selection_quality?.strict_score_improvement === true;
       const stdoutPath = selectedAttempt?.evidence.stdout ?? path.join(tmpRoot, `${loopId}.stdout.log`);
       const stderrPath = selectedAttempt?.evidence.stderr ?? path.join(tmpRoot, `${loopId}.stderr.log`);
       let committed = false;
       let visibleAfter = { ok: false, results: [] };
       const headBranch = product100HeadBranch(runId, artifact);
-      if (out?.selected_patch && out?.pr_candidate === true && strict) {
+      if (!selectedAttemptTimedOut && out?.selected_patch && out?.pr_candidate === true && strict) {
         await applySelectedPatch(repoPath, out.selected_patch, `product-100: ${artifact.issue_id}`);
         await git(repoPath, ['branch', '-f', headBranch, 'HEAD']);
         committed = true;
@@ -672,9 +900,20 @@ export async function runProduct100RealCodexLoop(options = {}) {
         base_loop_id: loopId,
         strict_best_attempt_count: attempts.length,
         strict_best_retried: attempts.length > 1,
+        candidate_status: issueDiagnostic.status,
+        reason: issueDiagnostic.reason,
+        fail_reason: issueDiagnostic.fail_reason,
+        candidate_timeout: issueDiagnostic.timeout,
+        timeout_attempt_count: issueDiagnostic.timeout_attempt_count,
         strict_best_attempts: attempts.map((attempt) => ({
           attempt: attempt.attempt,
           loop_id: attempt.loop_id,
+          candidate_id: attempt.candidate_id,
+          selected_candidate_id: attempt.selected_candidate_id,
+          status: attempt.status,
+          reason: attempt.reason,
+          fail_reason: attempt.fail_reason,
+          timeout: attempt.timeout,
           command_exit_code: attempt.cli.code,
           output_parse_error: attempt.parse_error,
           pr_candidate: attempt.pr_candidate,
@@ -694,9 +933,11 @@ export async function runProduct100RealCodexLoop(options = {}) {
         output_parse_error: parseError,
         real_codex_builder_used: true,
         real_codex_challenger_used: true,
-        hidden_eval_passed: Boolean(out?.pr_candidate && out?.final_verification),
+        hidden_eval_passed:
+          !selectedAttemptTimedOut &&
+          Boolean(out?.pr_candidate && out?.final_verification),
         strict_score_improvement: strict,
-        pr_candidate: out?.pr_candidate === true,
+        pr_candidate: !selectedAttemptTimedOut && out?.pr_candidate === true,
         selected_candidate_id: out?.selected_candidate_id ?? null,
         selected_patch: out?.selected_patch ?? null,
         selected_report: out?.selected_report ?? null,
@@ -717,10 +958,14 @@ export async function runProduct100RealCodexLoop(options = {}) {
         issues: issues.map((issue) => ({
           repo_id: issue.repo_id,
           issue_id: issue.issue_id,
+          candidate_status: issue.candidate_status,
+          fail_reason: issue.fail_reason,
+          candidate_timeout: issue.candidate_timeout,
           strict_score_improvement: issue.strict_score_improvement,
           pr_candidate: issue.pr_candidate,
           hidden_eval_passed: issue.hidden_eval_passed,
-          rediscovery_after_fix: issue.rediscovery_after_fix
+          rediscovery_after_fix: issue.rediscovery_after_fix,
+          evidence: issue.evidence
         }))
       });
     }
