@@ -737,6 +737,52 @@ function buildClickStripAnsiVerifier(cases) {
   ].join('\n');
 }
 
+function buildRequestsCaseInsensitiveDictVerifier(cases) {
+  return [
+    'import importlib.util',
+    'import json',
+    'import pathlib',
+    'import sys',
+    'import types',
+    'from collections.abc import MutableMapping',
+    '',
+    'root = pathlib.Path.cwd()',
+    'package = types.ModuleType("requests")',
+    'package.__path__ = [str(root / "src" / "requests")]',
+    'sys.modules["requests"] = package',
+    'compat = types.ModuleType("requests.compat")',
+    'compat.MutableMapping = MutableMapping',
+    'sys.modules["requests.compat"] = compat',
+    'source_path = root / "src" / "requests" / "structures.py"',
+    'spec = importlib.util.spec_from_file_location("requests.structures", source_path)',
+    'module = importlib.util.module_from_spec(spec)',
+    'sys.modules["requests.structures"] = module',
+    'spec.loader.exec_module(module)',
+    'CaseInsensitiveDict = module.CaseInsensitiveDict',
+    '',
+    `cases = json.loads(${JSON.stringify(JSON.stringify(cases))})`,
+    'for item in cases:',
+    '    cid = CaseInsensitiveDict(item["initial"])',
+    '    if "set" in item:',
+    '        for key, value in item["set"]:',
+    '            cid[key] = value',
+    '    for key, expected in item["lookups"]:',
+    '        actual = cid[key]',
+    '        if actual != expected:',
+    '            raise AssertionError(f"{item}: {key!r} expected {expected!r}, got {actual!r}")',
+    '    if "contains" in item:',
+    '        for key, expected in item["contains"]:',
+    '            actual = key in cid',
+    '            if actual != expected:',
+    '                raise AssertionError(f"{item}: contains {key!r} expected {expected!r}, got {actual!r}")',
+    '    if "lower_items" in item:',
+    '        actual = dict(cid.lower_items())',
+    '        if actual != item["lower_items"]:',
+    '            raise AssertionError(f"{item}: lower_items expected {item[\'lower_items\']!r}, got {actual!r}")',
+    ''
+  ].join('\n');
+}
+
 function buildProduct100CorpusVerifier(expectedSummary) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1014,6 +1060,53 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
           value: '\u001b[1;32mgreen\u001b[39m!',
           expected: 'green!',
           expected_len: 6
+        }
+      ])
+  },
+  {
+    id: 'requests-case-insensitive-dict',
+    semantic_domain: 'http_header_case_insensitive_lookup',
+    relativePath: 'src/requests/structures.py',
+    language: 'python',
+    originalNeedle: '        return self._store[key.lower()][1]',
+    regressionText: '        return self._store[key][1]',
+    visibleCommand: (filePath) => ({ command: 'python3', args: [filePath] }),
+    buildVisibleVerifier: () =>
+      buildRequestsCaseInsensitiveDictVerifier([
+        {
+          initial: [['Content-Type', 'application/json']],
+          lookups: [
+            ['content-type', 'application/json'],
+            ['CONTENT-TYPE', 'application/json']
+          ],
+          contains: [['Content-Type', true]]
+        },
+        {
+          initial: [['Accept', 'text/plain']],
+          set: [['ACCEPT', 'application/json']],
+          lookups: [['accept', 'application/json']],
+          lower_items: { accept: 'application/json' }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildRequestsCaseInsensitiveDictVerifier([
+        {
+          initial: [
+            ['X-Trace-Id', 'abc'],
+            ['User-Agent', 'vibeloop']
+          ],
+          lookups: [
+            ['x-trace-id', 'abc'],
+            ['USER-AGENT', 'vibeloop']
+          ],
+          contains: [
+            ['X-TRACE-ID', true],
+            ['missing', false]
+          ],
+          lower_items: {
+            'x-trace-id': 'abc',
+            'user-agent': 'vibeloop'
+          }
         }
       ])
   },
