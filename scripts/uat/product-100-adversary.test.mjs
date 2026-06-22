@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import os from 'node:os';
@@ -9,6 +9,7 @@ import {
   buildProduct100AdversaryReviewReport,
   buildProduct100FrozenRulepack,
   buildProduct100M2Handoff,
+  buildProduct100ReviewerContext,
   buildProduct100ReviewerInput,
   defaultProduct100ReviewerCommand,
   evaluateProduct100Phase5,
@@ -91,6 +92,9 @@ describe('Product-100 adversary reviewer Phase5 contract', () => {
   it('ships a built-in live Codex reviewer command for Product-100 Phase5', () => {
     expect(defaultProduct100ReviewerCommand()).toContain(
       'scripts/uat/product-100-codex-reviewer.mjs --live'
+    );
+    expect(buildProduct100ReviewerContext().prompt).toContain(
+      'passes on the base repo is invalid'
     );
   });
 
@@ -242,6 +246,140 @@ describe('Product-100 adversary reviewer Phase5 contract', () => {
     );
     expect(artifacts.task.limits.agent_timeout_seconds).toBe(360);
     expect(artifacts.eval.limits.agent_timeout_seconds).toBe(360);
+  });
+
+  it('converts candidate-only adversary failures into repair artifacts', async () => {
+    const reviewReport = buildProduct100AdversaryReviewReport({
+      reviewerOutput: { findings: [], proposals: [goodProposal] },
+      provider: 'openai',
+      realLlm: true,
+      reviewerCommand: 'reviewer',
+      builderCommand: 'builder',
+      separateContext: true
+    });
+    const m2Report = {
+      confirmations: [
+        {
+          proposalId: 'edge-case',
+          confirmed: false,
+          reason:
+            'expected fail-on-base/pass-on-candidate, got base=pass candidate=fail',
+          base: 'pass',
+          candidate: 'fail'
+        }
+      ]
+    };
+    const outputDir = await mkdtemp(
+      path.join(os.tmpdir(), 'p100-candidate-regression-repair-')
+    );
+
+    const artifacts = await writeProduct100CounterexampleRepairArtifacts({
+      publicTask: { id: 'cli-001', objective: 'Fix candidate regression' },
+      evalConfig: { gates: [] },
+      reviewReport,
+      m2Report,
+      outputDir
+    });
+
+    expect(product100RepairableCounterexamples(reviewReport, m2Report)).toHaveLength(1);
+    expect(artifacts.counterexamples[0]).toMatchObject({
+      id: 'edge-case',
+      base: 'pass',
+      candidate: 'fail'
+    });
+    expect(artifacts.eval.gates[0].command).toBe(
+      'node tests/adversary/edge-case.test.cjs'
+    );
+  });
+
+  it('normalizes Python counterexample proposals to Python repair commands', async () => {
+    const pythonProposal = {
+      id: 'py-decimal-edge',
+      targetPath: 'tests/adversary/decimal_edge.test.cjs',
+      body:
+        "import os, sys\nsys.path.insert(0, os.getcwd())\nfrom service.cart import reserve_quantity\n\nassert reserve_quantity('0.01') == 1\n",
+      expectation: 'fail_to_pass'
+    };
+    const reviewReport = buildProduct100AdversaryReviewReport({
+      reviewerOutput: { findings: [], proposals: [pythonProposal] },
+      provider: 'openai',
+      realLlm: true,
+      reviewerCommand: 'reviewer',
+      builderCommand: 'builder',
+      separateContext: true
+    });
+    const accepted = reviewReport.accepted_proposals[0];
+    expect(accepted).toMatchObject({
+      id: 'py-decimal-edge',
+      targetPath: 'tests/adversary/decimal_edge.test.py',
+      originalTargetPath: 'tests/adversary/decimal_edge.test.cjs',
+      language: 'python',
+      command: 'python3 tests/adversary/decimal_edge.test.py'
+    });
+
+    const artifacts = await writeProduct100CounterexampleRepairArtifacts({
+      publicTask: { id: 'py-001', objective: 'Fix quantity' },
+      evalConfig: { gates: [] },
+      reviewReport,
+      m2Report: {
+        confirmations: [
+          {
+            proposalId: 'py-decimal-edge',
+            confirmed: false,
+            base: 'fail',
+            candidate: 'fail'
+          }
+        ]
+      },
+      outputDir: await mkdtemp(path.join(os.tmpdir(), 'p100-python-repair-'))
+    });
+
+    expect(artifacts.task.acceptance.required_tests).toContain(
+      'python3 tests/adversary/decimal_edge.test.py'
+    );
+    expect(artifacts.eval.gates[0].command).toBe(
+      'python3 tests/adversary/decimal_edge.test.py'
+    );
+    expect(artifacts.counterexamples[0]).toMatchObject({
+      targetPath: 'tests/adversary/decimal_edge.test.py',
+      language: 'python'
+    });
+  });
+
+  it('makes Python pytest-style proposal functions executable with plain python3', () => {
+    const reviewReport = buildProduct100AdversaryReviewReport({
+      reviewerOutput: {
+        findings: [],
+        proposals: [
+          {
+            id: 'py-function-style',
+            targetPath: 'tests/adversary/function_style.test.py',
+            body:
+              "from service.cart import reserve_quantity\n\n\ndef test_fractional_quantity_floors():\n    assert reserve_quantity('3.9') == 3\n",
+            expectation: 'fail_to_pass'
+          }
+        ]
+      },
+      provider: 'openai',
+      realLlm: true,
+      reviewerCommand: 'reviewer',
+      builderCommand: 'builder',
+      separateContext: true
+    });
+
+    expect(reviewReport.accepted_proposals[0]).toMatchObject({
+      language: 'python',
+      command: 'python3 tests/adversary/function_style.test.py'
+    });
+    expect(reviewReport.accepted_proposals[0].body).toContain(
+      'sys.path.insert(0, os.getcwd())'
+    );
+    expect(reviewReport.accepted_proposals[0].body).toContain(
+      'if __name__ == "__main__":'
+    );
+    expect(reviewReport.accepted_proposals[0].body).toContain(
+      '    test_fractional_quantity_floors()'
+    );
   });
 
   it('rebases hidden acceptance source paths when writing repair eval beside Phase5 artifacts', async () => {
@@ -703,6 +841,503 @@ describe('Product-100 adversary reviewer Phase5 contract', () => {
     );
   });
 
+  it('tries the next accepted proposal when a repaired regression proposal cannot become fail-to-pass proof', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'p100-phase5-proposal-retry-'));
+    const repo = await createRepairRepo();
+    const runRoot = path.join(tmp, 'runs', 'candidate');
+    const secondProposal = {
+      ...goodProposal,
+      id: 'second-edge',
+      targetPath: 'tests/adversary/second-edge.test.cjs'
+    };
+    await mkdir(path.join(runRoot, 'input'), { recursive: true });
+    await mkdir(path.join(runRoot, 'workspace'), { recursive: true });
+    await mkdir(path.join(runRoot, 'patches'), { recursive: true });
+    await writeFile(
+      path.join(runRoot, 'input', 'task.yaml'),
+      JSON.stringify({ id: 'cli-001', objective: 'Fix CLI regression' })
+    );
+    await writeFile(
+      path.join(runRoot, 'workspace', 'workspace-ref.json'),
+      JSON.stringify({
+        repo_path: repo,
+        worktree_path: repo,
+        base_commit: 'base-sha'
+      })
+    );
+    await writeFile(path.join(runRoot, 'patches', 'candidate.patch'), 'diff');
+    await writeFile(path.join(runRoot, 'patches', 'changed-files.json'), '[]');
+
+    const seenProposalIds = [];
+    const evaluation = await runProduct100Phase5Live({
+      phase4: {
+        tmp_root: tmp,
+        issues: [
+          {
+            repo_id: 'cli-args',
+            issue_id: 'CLI-001',
+            loop_id: 'loop-cli',
+            pr_candidate: true,
+            selected_candidate_id: 'candidate-1',
+            selected_patch: path.join(runRoot, 'patches', 'candidate.patch')
+          }
+        ]
+      },
+      reviewerOutput: { findings: [], proposals: [goodProposal, secondProposal] },
+      provider: 'openai',
+      realLlm: true,
+      reviewerCommand: 'separate-reviewer',
+      builderCommand: 'builder',
+      separateContext: true,
+      candidateWorktree: repo,
+      baseWorktree: path.join(tmp, 'base'),
+      repairRepoPath: repo,
+      enableCounterexampleRepair: true,
+      repairAgents: ['mock:repair-agent'],
+      repairChallengers: ['mock:repair-challenger'],
+      confirmHandoff: async ({ handoffFile, outputFile }) => {
+        const handoff = JSON.parse(await readFile(handoffFile, 'utf8'));
+        const proposalId = handoff.proposals[0].proposal.id;
+        seenProposalIds.push(proposalId);
+        let report;
+        if (proposalId === 'second-edge') {
+          report = {
+            authority: 'deterministic_isolated_execution',
+            executed: true,
+            all_confirmed: true,
+            execution: { network: 'none' },
+            confirmations: [
+              {
+                proposalId,
+                executed: true,
+                confirmed: true,
+                reason: 'fail-on-base, pass-on-candidate confirmed under isolation',
+                base: 'fail',
+                candidate: 'pass'
+              }
+            ]
+          };
+        } else {
+          report = {
+            authority: 'deterministic_isolated_execution',
+            executed: true,
+            all_confirmed: false,
+            execution: { network: 'none' },
+            confirmations: [
+              {
+                proposalId,
+                executed: true,
+                confirmed: false,
+                reason:
+                  seenProposalIds.length === 1
+                    ? 'expected fail-on-base/pass-on-candidate, got base=pass candidate=fail'
+                    : 'expected fail-on-base/pass-on-candidate, got base=pass candidate=pass',
+                base: 'pass',
+                candidate: seenProposalIds.length === 1 ? 'fail' : 'pass'
+              }
+            ]
+          };
+        }
+        await writeFile(outputFile, `${JSON.stringify(report, null, 2)}\n`);
+        return report;
+      },
+      buildRulepackCandidate: async ({ confirmationFile }) => {
+        const confirmation = JSON.parse(await readFile(confirmationFile, 'utf8'));
+        return confirmation.all_confirmed === true
+          ? { candidate_created: true, frozen_rulepack: null }
+          : { candidate_created: false };
+      },
+      buildReplayCorpus: async () => ({ case_count: 1 }),
+      replayRulepack: async (options) => ({
+        authority: 'deterministic_m4_replay',
+        executed: true,
+        replaySafe: true,
+        network: options.network,
+        total: 1,
+        matched: 1,
+        mismatches: []
+      }),
+      freezeRulepack: async () => ({
+        frozen: true,
+        frozen_rulepack: {
+          schema_version: '1.0',
+          kind: 'frozen_rulepack',
+          authority: 'fixed_next_loop_gate',
+          decision_impact: 'next_loop_only',
+          applied_to_current_loop: false,
+          rules: [secondProposal],
+          added_rules: [secondProposal],
+          diff: { appendOnly: true, added: ['second-edge'], removed: [], changed: [] },
+          replay: { replaySafe: true }
+        }
+      }),
+      runSemanticRulepack: async () => ({ status: 'pass', allPass: true }),
+      runCounterexampleRepairImprove: async () => {
+        const patchFile = path.join(tmp, 'repair.patch');
+        await writeFile(
+          patchFile,
+          [
+            'diff --git a/src/value.cjs b/src/value.cjs',
+            '--- a/src/value.cjs',
+            '+++ b/src/value.cjs',
+            '@@ -1 +1 @@',
+            '-module.exports = 1;',
+            '+module.exports = 2;',
+            ''
+          ].join('\n')
+        );
+        return {
+          ok: true,
+          code: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            selected_candidate_id: 'repair-c1',
+            selected_patch: patchFile,
+            selected_report: path.join(tmp, 'repair-report.json'),
+            pr_candidate: true,
+            final_verification: { passed: true },
+            selection_quality: {
+              strict_score_improvement: true,
+              status: 'strict_fixed_score_win'
+            }
+          })
+        };
+      }
+    });
+
+    expect(evaluation.phase5_pass).toBe(true);
+    expect(evaluation.proposal_attempt_index).toBe(1);
+    expect(evaluation.proposal_retry_from.reason).toBe(
+      'post_repair_m2_m4_freeze_not_confirmed'
+    );
+    expect(seenProposalIds).toEqual(['edge-case', 'edge-case', 'second-edge']);
+    expect(evaluation.handoff_file).toContain('proposal-attempt-2');
+  });
+
+  it('keeps recursive proposal retry artifacts as siblings under the issue root', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'p100-phase5-proposal-root-'));
+    const repo = await createRepairRepo();
+    const runRoot = path.join(tmp, 'runs', 'candidate');
+    const issueOutputDir = path.join(tmp, 'phase5', 'cli-args-CLI-001');
+    const secondProposal = {
+      ...goodProposal,
+      id: 'second-edge',
+      targetPath: 'tests/adversary/second-edge.test.cjs'
+    };
+    const thirdProposal = {
+      ...goodProposal,
+      id: 'third-edge',
+      targetPath: 'tests/adversary/third-edge.test.cjs'
+    };
+    await mkdir(path.join(runRoot, 'input'), { recursive: true });
+    await mkdir(path.join(runRoot, 'workspace'), { recursive: true });
+    await mkdir(path.join(runRoot, 'patches'), { recursive: true });
+    await writeFile(
+      path.join(runRoot, 'input', 'task.yaml'),
+      JSON.stringify({ id: 'cli-001', objective: 'Fix CLI regression' })
+    );
+    await writeFile(
+      path.join(runRoot, 'workspace', 'workspace-ref.json'),
+      JSON.stringify({
+        repo_path: repo,
+        worktree_path: repo,
+        base_commit: 'base-sha'
+      })
+    );
+    await writeFile(path.join(runRoot, 'patches', 'candidate.patch'), 'diff');
+    await writeFile(path.join(runRoot, 'patches', 'changed-files.json'), '[]');
+
+    const seenProposalIds = [];
+    const evaluation = await runProduct100Phase5Live({
+      phase4: {
+        tmp_root: tmp,
+        issues: [
+          {
+            repo_id: 'cli-args',
+            issue_id: 'CLI-001',
+            loop_id: 'loop-cli',
+            pr_candidate: true,
+            selected_candidate_id: 'candidate-1',
+            selected_patch: path.join(runRoot, 'patches', 'candidate.patch')
+          }
+        ]
+      },
+      outputDir: issueOutputDir,
+      reviewerOutput: {
+        findings: [],
+        proposals: [goodProposal, secondProposal, thirdProposal]
+      },
+      provider: 'openai',
+      realLlm: true,
+      reviewerCommand: 'separate-reviewer',
+      builderCommand: 'builder',
+      separateContext: true,
+      candidateWorktree: repo,
+      baseWorktree: path.join(tmp, 'base'),
+      confirmHandoff: async ({ handoffFile, outputFile }) => {
+        const handoff = JSON.parse(await readFile(handoffFile, 'utf8'));
+        const proposalId = handoff.proposals[0].proposal.id;
+        seenProposalIds.push(proposalId);
+        const confirmed = proposalId === 'third-edge';
+        const report = {
+          authority: 'deterministic_isolated_execution',
+          executed: true,
+          all_confirmed: confirmed,
+          execution: { network: 'none' },
+          confirmations: [
+            {
+              proposalId,
+              executed: true,
+              confirmed,
+              reason: confirmed
+                ? 'fail-on-base, pass-on-candidate confirmed under isolation'
+                : 'expected fail-on-base/pass-on-candidate, got base=pass candidate=pass',
+              base: confirmed ? 'fail' : 'pass',
+              candidate: confirmed ? 'pass' : 'pass'
+            }
+          ]
+        };
+        await writeFile(outputFile, `${JSON.stringify(report, null, 2)}\n`);
+        return report;
+      },
+      buildRulepackCandidate: async ({ confirmationFile }) => {
+        const confirmation = JSON.parse(await readFile(confirmationFile, 'utf8'));
+        return confirmation.all_confirmed === true
+          ? { candidate_created: true, frozen_rulepack: null }
+          : { candidate_created: false };
+      },
+      buildReplayCorpus: async () => ({ case_count: 1 }),
+      replayRulepack: async (options) => ({
+        authority: 'deterministic_m4_replay',
+        executed: true,
+        replaySafe: true,
+        network: options.network,
+        total: 1,
+        matched: 1,
+        mismatches: []
+      }),
+      freezeRulepack: async () => ({
+        frozen: true,
+        frozen_rulepack: {
+          schema_version: '1.0',
+          kind: 'frozen_rulepack',
+          authority: 'fixed_next_loop_gate',
+          decision_impact: 'next_loop_only',
+          applied_to_current_loop: false,
+          rules: [thirdProposal],
+          added_rules: [thirdProposal],
+          diff: { appendOnly: true, added: ['third-edge'], removed: [], changed: [] },
+          replay: { replaySafe: true }
+        }
+      }),
+      runSemanticRulepack: async () => ({ status: 'pass', allPass: true })
+    });
+
+    expect(evaluation.phase5_pass).toBe(true);
+    expect(evaluation.proposal_attempt_index).toBe(2);
+    expect(seenProposalIds).toEqual(['edge-case', 'second-edge', 'third-edge']);
+    await expect(
+      access(path.join(issueOutputDir, 'proposal-attempt-3', 'm2-handoff.json'))
+    ).resolves.toBeUndefined();
+    await expect(
+      access(
+        path.join(
+          issueOutputDir,
+          'proposal-attempt-2',
+          'proposal-attempt-3',
+          'm2-handoff.json'
+        )
+      )
+    ).rejects.toThrow();
+  });
+
+  it('regenerates reviewer proposals with M2 feedback after unfreezable reviewer output is exhausted', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'p100-phase5-reviewer-retry-'));
+    const repo = await createRepairRepo();
+    const runRoot = path.join(tmp, 'runs', 'candidate');
+    const regeneratedProposal = {
+      ...goodProposal,
+      id: 'regenerated-edge',
+      targetPath: 'tests/adversary/regenerated-edge.test.cjs'
+    };
+    await mkdir(path.join(runRoot, 'input'), { recursive: true });
+    await mkdir(path.join(runRoot, 'workspace'), { recursive: true });
+    await mkdir(path.join(runRoot, 'patches'), { recursive: true });
+    await writeFile(
+      path.join(runRoot, 'input', 'task.yaml'),
+      JSON.stringify({ id: 'cli-001', objective: 'Fix CLI regression' })
+    );
+    await writeFile(
+      path.join(runRoot, 'workspace', 'workspace-ref.json'),
+      JSON.stringify({
+        repo_path: repo,
+        worktree_path: repo,
+        base_commit: 'base-sha'
+      })
+    );
+    await writeFile(path.join(runRoot, 'patches', 'candidate.patch'), 'diff');
+    await writeFile(path.join(runRoot, 'patches', 'changed-files.json'), '[]');
+
+    const reviewerInputs = [];
+    const seenProposalIds = [];
+    const evaluation = await runProduct100Phase5Live({
+      phase4: {
+        tmp_root: tmp,
+        issues: [
+          {
+            repo_id: 'cli-args',
+            issue_id: 'CLI-001',
+            loop_id: 'loop-cli',
+            pr_candidate: true,
+            selected_candidate_id: 'candidate-1',
+            selected_patch: path.join(runRoot, 'patches', 'candidate.patch')
+          }
+        ]
+      },
+      provider: 'openai',
+      realLlm: true,
+      reviewerCommand: 'mock-reviewer',
+      builderCommand: 'builder',
+      separateContext: true,
+      candidateWorktree: repo,
+      baseWorktree: path.join(tmp, 'base'),
+      repairRepoPath: repo,
+      enableCounterexampleRepair: true,
+      repairAgents: ['mock:repair-agent'],
+      repairChallengers: ['mock:repair-challenger'],
+      runReviewerCommand: async (_command, input) => {
+        reviewerInputs.push(input);
+        const proposals =
+          input.adversary_retry_feedback.length > 0
+            ? [regeneratedProposal]
+            : [goodProposal];
+        return {
+          ok: true,
+          code: 0,
+          stderr: '',
+          stdout: JSON.stringify({ findings: [], proposals })
+        };
+      },
+      confirmHandoff: async ({ handoffFile, outputFile }) => {
+        const handoff = JSON.parse(await readFile(handoffFile, 'utf8'));
+        const proposalId = handoff.proposals[0].proposal.id;
+        seenProposalIds.push(proposalId);
+        const report =
+          proposalId === 'regenerated-edge'
+            ? {
+                authority: 'deterministic_isolated_execution',
+                executed: true,
+                all_confirmed: true,
+                execution: { network: 'none' },
+                confirmations: [
+                  {
+                    proposalId,
+                    executed: true,
+                    confirmed: true,
+                    reason: 'fail-on-base, pass-on-candidate confirmed under isolation',
+                    base: 'fail',
+                    candidate: 'pass'
+                  }
+                ]
+              }
+            : {
+                authority: 'deterministic_isolated_execution',
+                executed: true,
+                all_confirmed: false,
+                execution: { network: 'none' },
+                confirmations: [
+                  {
+                    proposalId,
+                    executed: true,
+                    confirmed: false,
+                    reason:
+                      seenProposalIds.length === 1
+                        ? 'expected fail-on-base/pass-on-candidate, got base=pass candidate=fail'
+                        : 'expected fail-on-base/pass-on-candidate, got base=pass candidate=pass',
+                    base: 'pass',
+                    candidate: seenProposalIds.length === 1 ? 'fail' : 'pass'
+                  }
+                ]
+              };
+        await writeFile(outputFile, `${JSON.stringify(report, null, 2)}\n`);
+        return report;
+      },
+      buildRulepackCandidate: async ({ confirmationFile }) => {
+        const confirmation = JSON.parse(await readFile(confirmationFile, 'utf8'));
+        return confirmation.all_confirmed === true
+          ? { candidate_created: true, frozen_rulepack: null }
+          : { candidate_created: false };
+      },
+      buildReplayCorpus: async () => ({ case_count: 1 }),
+      replayRulepack: async (options) => ({
+        authority: 'deterministic_m4_replay',
+        executed: true,
+        replaySafe: true,
+        network: options.network,
+        total: 1,
+        matched: 1,
+        mismatches: []
+      }),
+      freezeRulepack: async () => ({
+        frozen: true,
+        frozen_rulepack: {
+          schema_version: '1.0',
+          kind: 'frozen_rulepack',
+          authority: 'fixed_next_loop_gate',
+          decision_impact: 'next_loop_only',
+          applied_to_current_loop: false,
+          rules: [regeneratedProposal],
+          added_rules: [regeneratedProposal],
+          diff: { appendOnly: true, added: ['regenerated-edge'], removed: [], changed: [] },
+          replay: { replaySafe: true }
+        }
+      }),
+      runSemanticRulepack: async () => ({ status: 'pass', allPass: true }),
+      runCounterexampleRepairImprove: async () => {
+        const patchFile = path.join(tmp, 'repair.patch');
+        await writeFile(
+          patchFile,
+          [
+            'diff --git a/src/value.cjs b/src/value.cjs',
+            '--- a/src/value.cjs',
+            '+++ b/src/value.cjs',
+            '@@ -1 +1 @@',
+            '-module.exports = 1;',
+            '+module.exports = 2;',
+            ''
+          ].join('\n')
+        );
+        return {
+          ok: true,
+          code: 0,
+          stderr: '',
+          stdout: JSON.stringify({
+            selected_candidate_id: 'repair-c1',
+            selected_patch: patchFile,
+            selected_report: path.join(tmp, 'repair-report.json'),
+            pr_candidate: true,
+            final_verification: { passed: true },
+            selection_quality: {
+              strict_score_improvement: true,
+              status: 'strict_fixed_score_win'
+            }
+          })
+        };
+      }
+    });
+
+    expect(evaluation.phase5_pass).toBe(true);
+    expect(evaluation.reviewer_retry_from.reason).toBe(
+      'all_review_proposals_exhausted_after_repair'
+    );
+    expect(reviewerInputs).toHaveLength(2);
+    expect(reviewerInputs[1].adversary_retry_feedback[0].rejected_proposal_ids).toContain(
+      'edge-case'
+    );
+    expect(seenProposalIds).toEqual(['edge-case', 'edge-case', 'regenerated-edge']);
+    expect(evaluation.handoff_file).toContain('reviewer-retry-1');
+  });
+
   it('aggregates Phase5 over every Product-100 Phase4 PR candidate issue', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'p100-phase5-aggregate-'));
     const calls = [];
@@ -730,8 +1365,8 @@ describe('Product-100 adversary reviewer Phase5 contract', () => {
           }
         ]
       },
-      issueRunner: async ({ issue, outputDir }) => {
-        calls.push({ issue, outputDir });
+      issueRunner: async ({ issue, outputDir, enableCounterexampleRepair }) => {
+        calls.push({ issue, outputDir, enableCounterexampleRepair });
         return {
           phase5_pass: true,
           real_codex_adversary_reviewer_used: true,
@@ -747,6 +1382,7 @@ describe('Product-100 adversary reviewer Phase5 contract', () => {
     });
 
     expect(calls).toHaveLength(2);
+    expect(calls.every((call) => call.enableCounterexampleRepair === true)).toBe(true);
     expect(aggregate.phase5_pass).toBe(true);
     expect(aggregate.issue_count).toBe(2);
     expect(aggregate.all_issues_covered).toBe(true);
@@ -756,6 +1392,7 @@ describe('Product-100 adversary reviewer Phase5 contract', () => {
     expect(aggregate.next_step).toBe(
       'continue_product_100_phase6_draft_pr_evidence_audit'
     );
+    expect(aggregate.issues[0].phase5_report_file).toContain('phase5-report.json');
   });
 
   it('keeps aggregate Phase5 failing when any Product-100 issue is missing Phase5 proof', async () => {

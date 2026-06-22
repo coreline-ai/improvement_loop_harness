@@ -54,7 +54,7 @@
     "uat:product-100:preflight:release": "VIBELOOP_PRODUCT_100_REQUIRE_POSTGRES=1 node scripts/uat/product-100-preflight.mjs --require-postgres",
     "uat:product-100:corpus": "node scripts/uat/product-100-corpus.mjs --summary",
     "uat:product-100:evals": "node scripts/uat/product-100-eval-generator.mjs --summary",
-    "uat:product-100:codex-live": "node scripts/uat/product-100-codex-live-uat.mjs",
+    "uat:product-100:codex-live": "corepack pnpm build && node scripts/uat/product-100-codex-live-uat.mjs",
     "uat:product-100:scaffold": "node scripts/uat/product-100-scaffold.mjs --validate-base",
     "uat:product-100:adversary": "node scripts/uat/product-100-adversary.mjs --sample",
     "uat:product-100:release": "node scripts/uat/product-100-release.mjs --sample",

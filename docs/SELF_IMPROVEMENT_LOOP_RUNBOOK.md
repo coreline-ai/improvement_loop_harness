@@ -432,7 +432,7 @@ vibeloop improve \
 
 ## Product-100 Codex Live UAT 실행/감사 절차
 
-Product-100은 fixture PASS나 representative PASS를 제품 전체 PASS로 부르는 것을 막기 위한 최상위 UAT 계약이다. 현재 구현 상태는 **계약/하네스 구현 + 2개 issue partial live smoke PASS + Phase5 real reviewer/M2 반례 확인 + 반례 repair artifact/loop 구현 + NM-001 real repair/M2/M4/freeze/N+1 smoke PASS + full Product-100 PASS 미완**이며, PASS 선언 금지다.
+Product-100은 fixture PASS나 representative PASS를 제품 전체 PASS로 부르는 것을 막기 위한 최상위 UAT 계약이다. 현재 구현 상태는 **2026-06-22 local finalization 기준 controlled Product-100 corpus `PRODUCT_100_CODEX_LIVE_PASS`**다. 이 PASS는 5개 controlled repo/10개 seeded issue, real Codex Builder/Challenger/Reviewer, Phase4 strict-best, Phase5 M2/M4/freeze/N+1 aggregate, Phase6 GitHub draft PR/evidence/audit, Phase7 docs truth checker 범위에 한정된다. 임의의 모든 사용자 repo에 대한 제품 전체 100% PASS가 아니다.
 
 ### real Codex adversary reviewer 기본 wrapper
 
@@ -444,7 +444,7 @@ export VIBELOOP_ADVERSARY_REVIEWER_PROVIDER=codex
 export VIBELOOP_ADVERSARY_REVIEWER_REAL_LLM=1
 ```
 
-`product-100-codex-reviewer.mjs --dry-run`은 schema/배선 확인용이며 `real_llm=false`라 Product-100 PASS 증거가 아니다. `--live`는 Codex CLI를 별도 non-interactive reviewer로 호출한다. 현재 reviewer preflight와 R1 Colima smoke는 통과 가능하다. 실제 smoke에서는 reviewer proposal→M2 R1까지 도달했고, M2가 `base=fail candidate=fail` 반례를 확인했다. 이 반례를 repair task/eval/test로 고정하고 Builder/Challenger repair loop로 재수정·commit되는 경로는 구현됐다. repair agent env가 없을 때도 Phase5 repair loop는 기본 Codex OAuth proxy 기반 Builder/Challenger agent set을 생성해 재수정 후보를 만들 수 있다. `NM-001` fresh one-shot smoke에서는 current-code Phase5 driver가 real Codex repair loop와 post-repair M2/M4/freeze/N+1 semantic gate를 한 번에 자동 연쇄 통과했다. 다만 10개 전체 issue와 모든 issue의 repair/freeze evidence 실측은 아직 아니다. 코드상 Phase5는 이제 모든 issue aggregate runner를 통과해야 하며, Phase6도 expected issue 전체 draft PR/evidence guard를 통과해야 한다. Phase7도 final PASS ledger가 README/Run Ledger/Runbook에 반영됐는지 결정론 checker로 확인한다.
+`product-100-codex-reviewer.mjs --dry-run`은 schema/배선 확인용이며 `real_llm=false`라 Product-100 PASS 증거가 아니다. `--live`는 Codex CLI를 별도 non-interactive reviewer로 호출한다. 현재 reviewer preflight와 R1 Colima smoke는 통과 가능하다. 2026-06-22 finalization run에서는 Phase5 aggregate가 10/10 issue에서 real Codex reviewer proposal, M2 R1 confirmation, M4 replay, frozen rulepack, N+1 semantic gate를 통과했다. Phase6도 GitHub private corpus repo 5개와 draft PR 10개를 만들고 evidence bundle + release audit을 통과해야 하며, Phase7도 final PASS ledger가 README/Run Ledger/Runbook에 반영됐는지 결정론 checker로 확인한다.
 
 ### 실행 순서
 
@@ -493,4 +493,4 @@ cat ~/.vibeloop/product-100-real-loop-*/product-100-progress.json
 
 ### 현재 로컬 기준 기대 결과
 
-현재 이 머신에서는 R1/reviewer preflight가 통과하고 `VIBELOOP_PRODUCT_100_MAX_ISSUES=2` smoke에서 2개 issue가 real Codex 후보 2개씩→hidden/reverify→strict-best→rediscovery까지 통과했다. Phase5 smoke는 real reviewer가 추가 edge test를 제안했고 M2 R1에서 현재 candidate도 실패하는 반례를 확인했다. 단 10개 전체 issue, 모든 issue의 real Codex adversary 반례 자동 재개선, 전체 M4/freeze/N+1, Phase6/7 evidence가 없으므로 `uat:product-100:codex-live` 전체 status는 `PRODUCT_100_CODEX_LIVE_FAIL`이 정상이다. 2026-06-18 추가 실측에서는 full run 중 RX-001의 `only_one_accepted_candidate` strict-best comparator 부족을 확인해 PASS 불가능 run을 중지했고, agent timeout/strict-best retry를 보강했다. 이후 RX-001 targeted live rerun은 hidden/reverify/strict-best/rediscovery까지 통과했지만 filtered 1/10 run이므로 제품 PASS가 아니다. 이 결과는 **partial live smoke 증거**이지 제품 전체 PASS가 아니다.
+현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-22 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 Phase4 full report `/Users/iriver/.vibeloop/product-100-phase4-full-20260619165620.json`, Phase5 aggregate report `/Users/iriver/.vibeloop/product-100-phase5-full-rerun-20260621231906.json`, Phase6 draft PR report `/Users/iriver/.vibeloop/product-100-phase6-20260622-001250/phase6-draft-pr-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-phase6-20260622-001250`다. 이 결과는 Product-100 controlled corpus PASS이며, broad project corpus나 임의 사용자 repo 전체에 대한 제품 전체 100% PASS가 아니다.

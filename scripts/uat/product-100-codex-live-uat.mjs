@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
@@ -97,9 +97,23 @@ export function shouldRetryProduct100StrictBest(out) {
   const reasons = out.selection_quality?.reasons ?? [];
   return (
     out.selection_quality?.status === 'single_accepted_no_comparator' ||
+    out.selection_quality?.status === 'fixed_tie_no_distinction' ||
     reasons.includes('only_one_accepted_candidate') ||
+    reasons.includes('fixed_scores_do_not_prove_better_choice') ||
     Number(out.accepted_count ?? 0) < 2
   );
+}
+
+function product100StrictBestRetryReason(out) {
+  if (!shouldRetryProduct100StrictBest(out)) return null;
+  const reasons = out.selection_quality?.reasons ?? [];
+  if (
+    out.selection_quality?.status === 'fixed_tie_no_distinction' ||
+    reasons.includes('fixed_scores_do_not_prove_better_choice')
+  ) {
+    return 'strict_best_fixed_tie_no_distinction';
+  }
+  return 'strict_best_single_accepted_no_comparator';
 }
 
 const PRODUCT_100_TIMEOUT_PATTERN =
@@ -141,6 +155,76 @@ function product100CandidateTimeoutDetected({ cli = {}, out = null } = {}) {
   }
 
   return cli.ok !== true && hasProduct100TimeoutText(cli.stderr);
+}
+
+async function product100SelectionTimeoutEvidence(out) {
+  const selectionReport = out?.selection_report;
+  const loopId = out?.loop_id;
+  if (!selectionReport || !loopId) return { timeout: false, evidence: null };
+
+  const evidence = {
+    selection_report: selectionReport,
+    eval_reports: [],
+    timed_out_candidate_ids: []
+  };
+  let selection = null;
+  try {
+    const text = await readFile(selectionReport, 'utf8');
+    if (hasProduct100TimeoutText(text)) {
+      return { timeout: true, evidence };
+    }
+    selection = JSON.parse(text);
+  } catch {
+    return { timeout: false, evidence };
+  }
+
+  const candidateIds = Array.isArray(selection?.candidates)
+    ? selection.candidates
+        .map((candidate) => candidate?.candidate_id)
+        .filter((candidateId) => typeof candidateId === 'string')
+    : [];
+  const fallbackCount = Number(out?.candidate_count ?? 0);
+  const ids =
+    candidateIds.length > 0
+      ? candidateIds
+      : Array.from({ length: fallbackCount }, (_, index) => `${loopId}-c${index}`);
+  const runsRoot = path.join(path.dirname(path.dirname(selectionReport)), 'runs');
+  let timeout = false;
+  for (const candidateId of ids) {
+    const evalReport = path.join(runsRoot, candidateId, 'reports/eval-report.json');
+    try {
+      const text = await readFile(evalReport, 'utf8');
+      if (hasProduct100TimeoutText(text)) {
+        timeout = true;
+        evidence.timed_out_candidate_ids.push(candidateId);
+        evidence.eval_reports.push(evalReport);
+      }
+    } catch {
+      // Missing candidate eval reports are handled by the normal candidate failure path.
+    }
+  }
+  return { timeout, evidence: timeout ? evidence : null };
+}
+
+export async function classifyProduct100CandidateAttemptWithEvidence(input = {}) {
+  const diagnostic = classifyProduct100CandidateAttempt(input);
+  if (diagnostic.timeout) return diagnostic;
+  const selectionTimeout = await product100SelectionTimeoutEvidence(input.out);
+  if (!selectionTimeout.timeout) return diagnostic;
+  if (input.out?.pr_candidate === true) {
+    return {
+      ...diagnostic,
+      partial_timeout: true,
+      partial_timeout_evidence: selectionTimeout.evidence
+    };
+  }
+  return {
+    status: 'blocked',
+    reason: 'candidate_timeout',
+    fail_reason: 'candidate_timeout',
+    timeout: true,
+    timeout_evidence: selectionTimeout.evidence
+  };
 }
 
 export function classifyProduct100CandidateAttempt({
@@ -283,6 +367,7 @@ export function product100CandidateHeartbeatFields({
     candidate_id: selectedCandidateId ?? attemptLoopId ?? `attempt-${attempt}`,
     selected_candidate_id: selectedCandidateId,
     timeout: diagnostic?.timeout === true,
+    partial_timeout: diagnostic?.partial_timeout === true,
     fail_reason: diagnostic?.fail_reason ?? null,
     reason: diagnostic?.reason ?? diagnostic?.fail_reason ?? null,
     evidence
@@ -762,6 +847,7 @@ export async function runProduct100RealCodexLoop(options = {}) {
           candidate_status: issue.candidate_status,
           fail_reason: issue.fail_reason,
           candidate_timeout: issue.candidate_timeout,
+          partial_timeout: issue.partial_timeout,
           strict_score_improvement: issue.strict_score_improvement,
           pr_candidate: issue.pr_candidate,
           evidence: issue.evidence
@@ -829,16 +915,15 @@ export async function runProduct100RealCodexLoop(options = {}) {
           parseError = error instanceof Error ? error.message : String(error);
         }
         const strict = out?.selection_quality?.strict_score_improvement === true;
-        const diagnostic = classifyProduct100CandidateAttempt({
+        const diagnostic = await classifyProduct100CandidateAttemptWithEvidence({
           cli,
           out,
           parseError
         });
         const selectedCandidateId = out?.selected_candidate_id ?? null;
-        const retryReason =
-          !diagnostic.timeout && shouldRetryProduct100StrictBest(out)
-            ? 'strict_best_single_accepted_no_comparator'
-            : null;
+        const retryReason = !diagnostic.timeout
+          ? product100StrictBestRetryReason(out)
+          : null;
         attempts.push({
           attempt,
           loop_id: attemptLoopId,
@@ -852,6 +937,9 @@ export async function runProduct100RealCodexLoop(options = {}) {
           reason: diagnostic.reason,
           fail_reason: diagnostic.fail_reason,
           timeout: diagnostic.timeout,
+          partial_timeout: diagnostic.partial_timeout,
+          timeout_evidence: diagnostic.timeout_evidence,
+          partial_timeout_evidence: diagnostic.partial_timeout_evidence,
           strict,
           pr_candidate: out?.pr_candidate === true,
           retry_reason: retryReason,
@@ -905,6 +993,12 @@ export async function runProduct100RealCodexLoop(options = {}) {
         fail_reason: issueDiagnostic.fail_reason,
         candidate_timeout: issueDiagnostic.timeout,
         timeout_attempt_count: issueDiagnostic.timeout_attempt_count,
+        timeout_evidence: attempts.find((attempt) => attempt.timeout_evidence)
+          ?.timeout_evidence,
+        partial_timeout: attempts.some((attempt) => attempt.partial_timeout === true),
+        partial_timeout_evidence: attempts.find(
+          (attempt) => attempt.partial_timeout_evidence
+        )?.partial_timeout_evidence,
         strict_best_attempts: attempts.map((attempt) => ({
           attempt: attempt.attempt,
           loop_id: attempt.loop_id,
@@ -914,6 +1008,9 @@ export async function runProduct100RealCodexLoop(options = {}) {
           reason: attempt.reason,
           fail_reason: attempt.fail_reason,
           timeout: attempt.timeout,
+          partial_timeout: attempt.partial_timeout,
+          timeout_evidence: attempt.timeout_evidence,
+          partial_timeout_evidence: attempt.partial_timeout_evidence,
           command_exit_code: attempt.cli.code,
           output_parse_error: attempt.parse_error,
           pr_candidate: attempt.pr_candidate,
@@ -961,6 +1058,7 @@ export async function runProduct100RealCodexLoop(options = {}) {
           candidate_status: issue.candidate_status,
           fail_reason: issue.fail_reason,
           candidate_timeout: issue.candidate_timeout,
+          partial_timeout: issue.partial_timeout,
           strict_score_improvement: issue.strict_score_improvement,
           pr_candidate: issue.pr_candidate,
           hidden_eval_passed: issue.hidden_eval_passed,

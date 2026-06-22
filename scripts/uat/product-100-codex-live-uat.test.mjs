@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
   buildProduct100CodexLiveUatReport,
   classifyProduct100CandidateAttempt,
+  classifyProduct100CandidateAttemptWithEvidence,
   product100AgentTimeoutSeconds,
   product100CandidateHeartbeatFields,
   product100CandidatesPerIssue,
@@ -175,7 +176,7 @@ describe('Product-100 Codex live UAT driver contract', () => {
     ).toBe(0);
   });
 
-  it('retries Product-100 strict-best only for accepted single-comparator shortages', () => {
+  it('retries Product-100 strict-best for comparator shortages and fixed-score ties', () => {
     expect(
       shouldRetryProduct100StrictBest({
         pr_candidate: true,
@@ -191,10 +192,215 @@ describe('Product-100 Codex live UAT driver contract', () => {
       shouldRetryProduct100StrictBest({
         pr_candidate: true,
         accepted_count: 2,
+        selection_quality: {
+          status: 'fixed_tie_no_distinction',
+          strict_score_improvement: false,
+          reasons: ['fixed_scores_do_not_prove_better_choice']
+        }
+      })
+    ).toBe(true);
+    expect(
+      shouldRetryProduct100StrictBest({
+        pr_candidate: true,
+        accepted_count: 2,
         selection_quality: { strict_score_improvement: true }
       })
     ).toBe(false);
     expect(shouldRetryProduct100StrictBest({ pr_candidate: false })).toBe(false);
+  });
+
+  it('promotes agent timeout evidence from candidate eval reports', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'product-100-timeout-evidence-'));
+    const selectionReport = path.join(root, 'selections', 'loop-1.json');
+    const evalReport = path.join(root, 'runs', 'loop-1-c0', 'reports', 'eval-report.json');
+    await mkdir(path.dirname(selectionReport), { recursive: true });
+    await mkdir(path.dirname(evalReport), { recursive: true });
+    await writeFile(
+      selectionReport,
+      JSON.stringify({
+        candidates: [{ candidate_id: 'loop-1-c0', accepted: false }]
+      })
+    );
+    await writeFile(
+      evalReport,
+      JSON.stringify({
+        decision: 'reject',
+        decision_reasons: [
+          {
+            code: 'AGENT_FAILED',
+            message: 'agent failed: agent timed out after 240000ms'
+          }
+        ]
+      })
+    );
+
+    const diagnostic = await classifyProduct100CandidateAttemptWithEvidence({
+      cli: { ok: false, code: 10, stderr: '' },
+      out: {
+        loop_id: 'loop-1',
+        pr_candidate: false,
+        candidate_count: 1,
+        selection_report: selectionReport
+      },
+      parseError: null
+    });
+
+    expect(diagnostic).toMatchObject({
+      status: 'blocked',
+      reason: 'candidate_timeout',
+      fail_reason: 'candidate_timeout',
+      timeout: true,
+      timeout_evidence: {
+        selection_report: selectionReport,
+        eval_reports: [evalReport]
+      }
+    });
+  });
+
+  it('keeps a valid selected candidate pass while recording non-selected timeout evidence', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'product-100-partial-timeout-'));
+    const selectionReport = path.join(root, 'selections', 'loop-2.json');
+    const passedEvalReport = path.join(
+      root,
+      'runs',
+      'loop-2-c0',
+      'reports',
+      'eval-report.json'
+    );
+    const timedOutEvalReport = path.join(
+      root,
+      'runs',
+      'loop-2-c1',
+      'reports',
+      'eval-report.json'
+    );
+    await mkdir(path.dirname(selectionReport), { recursive: true });
+    await mkdir(path.dirname(passedEvalReport), { recursive: true });
+    await mkdir(path.dirname(timedOutEvalReport), { recursive: true });
+    await writeFile(
+      selectionReport,
+      JSON.stringify({
+        candidates: [
+          { candidate_id: 'loop-2-c0', accepted: true },
+          { candidate_id: 'loop-2-c1', accepted: false }
+        ]
+      })
+    );
+    await writeFile(passedEvalReport, JSON.stringify({ decision: 'accept' }));
+    await writeFile(
+      timedOutEvalReport,
+      JSON.stringify({
+        decision: 'reject',
+        decision_reasons: [
+          {
+            code: 'AGENT_FAILED',
+            message: 'agent timed out after 360000ms'
+          }
+        ]
+      })
+    );
+
+    const diagnostic = await classifyProduct100CandidateAttemptWithEvidence({
+      cli: { ok: true, code: 0, stderr: '' },
+      out: {
+        loop_id: 'loop-2',
+        selected_candidate_id: 'loop-2-c0',
+        pr_candidate: true,
+        candidate_count: 2,
+        selection_report: selectionReport,
+        selection_quality: {
+          strict_score_improvement: true
+        }
+      },
+      parseError: null
+    });
+
+    expect(diagnostic).toMatchObject({
+      status: 'pass',
+      reason: null,
+      fail_reason: null,
+      timeout: false,
+      partial_timeout: true,
+      partial_timeout_evidence: {
+        selection_report: selectionReport,
+        timed_out_candidate_ids: ['loop-2-c1'],
+        eval_reports: [timedOutEvalReport]
+      }
+    });
+  });
+
+  it('keeps strict-best shortfalls retryable when a PR candidate has non-selected timeouts', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'product-100-retry-timeout-'));
+    const selectionReport = path.join(root, 'selections', 'loop-3.json');
+    const selectedEvalReport = path.join(
+      root,
+      'runs',
+      'loop-3-c1',
+      'reports',
+      'eval-report.json'
+    );
+    const timedOutEvalReport = path.join(
+      root,
+      'runs',
+      'loop-3-c0',
+      'reports',
+      'eval-report.json'
+    );
+    await mkdir(path.dirname(selectionReport), { recursive: true });
+    await mkdir(path.dirname(selectedEvalReport), { recursive: true });
+    await mkdir(path.dirname(timedOutEvalReport), { recursive: true });
+    await writeFile(
+      selectionReport,
+      JSON.stringify({
+        candidates: [
+          { candidate_id: 'loop-3-c0', accepted: false },
+          { candidate_id: 'loop-3-c1', accepted: true }
+        ]
+      })
+    );
+    await writeFile(selectedEvalReport, JSON.stringify({ decision: 'accept' }));
+    await writeFile(
+      timedOutEvalReport,
+      JSON.stringify({
+        decision: 'reject',
+        decision_reasons: [
+          {
+            code: 'AGENT_FAILED',
+            message: 'agent timed out after 360000ms'
+          }
+        ]
+      })
+    );
+
+    const diagnostic = await classifyProduct100CandidateAttemptWithEvidence({
+      cli: { ok: true, code: 0, stderr: '' },
+      out: {
+        loop_id: 'loop-3',
+        selected_candidate_id: 'loop-3-c1',
+        pr_candidate: true,
+        candidate_count: 2,
+        selection_report: selectionReport,
+        selection_quality: {
+          status: 'single_accepted_no_comparator',
+          strict_score_improvement: false,
+          reasons: ['only_one_accepted_candidate']
+        }
+      },
+      parseError: null
+    });
+
+    expect(diagnostic).toMatchObject({
+      status: 'fail',
+      reason: 'strict_score_improvement_missing',
+      fail_reason: 'strict_score_improvement_missing',
+      timeout: false,
+      partial_timeout: true,
+      partial_timeout_evidence: {
+        selection_report: selectionReport,
+        timed_out_candidate_ids: ['loop-3-c0'],
+        eval_reports: [timedOutEvalReport]
+      }
+    });
   });
 
   it('classifies timeout-like candidate attempts and exposes heartbeat evidence', () => {

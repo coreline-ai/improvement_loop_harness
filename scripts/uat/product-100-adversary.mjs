@@ -163,6 +163,11 @@ export function buildProduct100ReviewerContext() {
     'You are the Product-100 adversary reviewer.',
     'Break the selected patch by proposing focused tests only.',
     'Return JSON only: {findings:[], proposals:[{id,targetPath,body,expectation}]}',
+    'Proposals with expectation=fail_to_pass must be intended to fail on base and pass on the selected candidate.',
+    'A proposal that passes on the base repo is invalid for fail_to_pass; propose a different edge that exposes the original buggy base behavior.',
+    'Match each proposal body to the project test runtime. Use Python test bodies for Python projects and Node.js test bodies for JavaScript projects.',
+    'Do not mix a Python body with a Node.js-only test command or a Node.js body with a Python-only command.',
+    'If adversary_retry_feedback is present, do not repeat rejected proposal ids or base-passing regression checks.',
     'Do not request current-loop accept/reject authority.',
     'Do not include hidden tests, hidden sentinels, builder transcripts, OAuth tokens, API keys, or secrets.',
     'Every accepted proposal is advisory-only until M2/M4/freeze and can affect only a later loop.'
@@ -192,7 +197,8 @@ export function buildProduct100ReviewerInput({
   selectedPatch,
   selectedCandidateId,
   evalSummary,
-  diffSummary
+  diffSummary,
+  adversaryRetryFeedback
 } = {}) {
   const input = {
     reviewer_context: buildProduct100ReviewerContext(),
@@ -203,6 +209,9 @@ export function buildProduct100ReviewerInput({
       patch: selectedPatch ?? '',
       diff_summary: diffSummary ?? null
     },
+    adversary_retry_feedback: Array.isArray(adversaryRetryFeedback)
+      ? adversaryRetryFeedback
+      : [],
     hidden_source_included: false,
     builder_transcript_included: false
   };
@@ -248,6 +257,78 @@ function safeCounterexampleTargetPath(targetPath) {
   return normalized;
 }
 
+function inferProduct100ProposalLanguage(proposal) {
+  const targetPath = normalizeTargetPath(proposal?.targetPath);
+  const body = String(proposal?.body ?? '');
+  const pythonBody =
+    /^\s*from\s+[\w.]+\s+import\s+/m.test(body) ||
+    /^\s*import\s+(os|sys|pytest|unittest|decimal|json|math)\b/m.test(body) ||
+    /\bsys\.path\.insert\s*\(/.test(body) ||
+    /^\s*def\s+test_[\w_]+\s*\(/m.test(body) ||
+    /\bpytest\b/.test(body);
+  const nodeBody =
+    /\brequire\s*\(/.test(body) ||
+    /^\s*(const|let|var)\s+/m.test(body) ||
+    /^\s*import\s+.+\s+from\s+['"][^'"]+['"]/m.test(body) ||
+    /\bmodule\.exports\b/.test(body);
+  if (pythonBody && !nodeBody) return 'python';
+  if (nodeBody && !pythonBody) return 'node';
+  if (targetPath.endsWith('.py')) return 'python';
+  if (/\.(cjs|mjs|js)$/.test(targetPath)) return 'node';
+  return 'unknown';
+}
+
+function normalizeProduct100ProposalTargetPath(targetPath, language) {
+  const normalized = normalizeTargetPath(targetPath);
+  if (language === 'python' && /\.(cjs|mjs|js)$/.test(normalized)) {
+    return normalized.replace(/\.(cjs|mjs|js)$/, '.py');
+  }
+  if (language === 'node' && normalized.endsWith('.py')) {
+    return normalized.replace(/\.py$/, '.test.cjs');
+  }
+  return normalized;
+}
+
+function normalizeProduct100ProposalBody(body, language) {
+  let text = String(body ?? '');
+  if (language !== 'python') return text;
+  if (!/sys\.path\.insert\s*\(/.test(text)) {
+    text = [
+      'import os',
+      'import sys',
+      '',
+      'sys.path.insert(0, os.getcwd())',
+      '',
+      text.trimStart()
+    ].join('\n');
+  }
+  const testFunctions = [
+    ...text.matchAll(/^\s*def\s+(test_[A-Za-z0-9_]+)\s*\(\s*\)\s*:/gm)
+  ].map((match) => match[1]);
+  if (testFunctions.length === 0 || /__name__\s*==\s*["']__main__["']/.test(text)) {
+    return text;
+  }
+  return [
+    text.trimEnd(),
+    '',
+    'if __name__ == "__main__":',
+    ...testFunctions.map((name) => `    ${name}()`)
+  ].join('\n') + '\n';
+}
+
+function product100ProposalTestCommand(proposal) {
+  const targetPath = normalizeTargetPath(proposal?.targetPath);
+  const language = proposal?.language ?? inferProduct100ProposalLanguage(proposal);
+  if (language === 'python') return `python3 ${targetPath}`;
+  return `node ${targetPath}`;
+}
+
+function defaultProduct100ProposalImage(proposal, evalConfig) {
+  if (evalConfig?.execution?.image) return evalConfig.execution.image;
+  const language = proposal?.language ?? inferProduct100ProposalLanguage(proposal);
+  return language === 'python' ? 'python:3.12-alpine' : 'node:22-alpine';
+}
+
 function toPosixPath(value) {
   return String(value).replace(/\\/g, '/');
 }
@@ -274,23 +355,27 @@ export function filterProduct100ReviewerProposal(proposal, options = {}) {
   const allowedPrefixes = options.allowedPrefixes ?? ['tests/adversary/'];
   const maxBodyBytes = options.maxBodyBytes ?? 8000;
   const failedFilters = [];
-  const targetPath = normalizeTargetPath(proposal?.targetPath);
+  const rawTargetPath = normalizeTargetPath(proposal?.targetPath);
   const body = String(proposal?.body ?? '');
+  const language = inferProduct100ProposalLanguage({ ...proposal, targetPath: rawTargetPath, body });
+  const targetPath = normalizeProduct100ProposalTargetPath(rawTargetPath, language);
+  const normalizedBody = normalizeProduct100ProposalBody(body, language);
 
   if (!proposal || typeof proposal !== 'object') failedFilters.push('shape');
   if (!proposal?.id || typeof proposal.id !== 'string') failedFilters.push('id');
+  if (language === 'unknown') failedFilters.push('test_language_supported');
   if (!targetPath || targetPath.startsWith('/') || targetPath.includes('../')) {
     failedFilters.push('target_path_safe');
   }
   if (!allowedPrefixes.some((prefix) => targetPath.startsWith(prefix))) {
     failedFilters.push('target_path_allowed');
   }
-  if (!body.trim()) failedFilters.push('body');
-  if (Buffer.byteLength(body, 'utf8') > maxBodyBytes) failedFilters.push('body_size');
-  if (hiddenMarkers.some((marker) => body.includes(marker))) {
+  if (!normalizedBody.trim()) failedFilters.push('body');
+  if (Buffer.byteLength(normalizedBody, 'utf8') > maxBodyBytes) failedFilters.push('body_size');
+  if (hiddenMarkers.some((marker) => normalizedBody.includes(marker))) {
     failedFilters.push('no_hidden_leak');
   }
-  if (WEAKENING_PATTERNS.some((pattern) => pattern.test(body))) {
+  if (WEAKENING_PATTERNS.some((pattern) => pattern.test(normalizedBody))) {
     failedFilters.push('no_test_weakening');
   }
   if (proposal?.authority && proposal.authority !== 'advisory_only') {
@@ -303,7 +388,18 @@ export function filterProduct100ReviewerProposal(proposal, options = {}) {
   return {
     accepted: failedFilters.length === 0,
     failed_filters: failedFilters,
-    proposal: failedFilters.length === 0 ? { ...proposal, targetPath } : null
+    proposal:
+      failedFilters.length === 0
+        ? {
+            ...proposal,
+            targetPath,
+            originalTargetPath:
+              rawTargetPath && rawTargetPath !== targetPath ? rawTargetPath : undefined,
+            body: normalizedBody,
+            language,
+            command: product100ProposalTestCommand({ ...proposal, targetPath, language })
+          }
+        : null
   };
 }
 
@@ -404,7 +500,9 @@ export function buildProduct100FrozenRulepack({
       kind: 'command_test',
       target_path: entry.proposal.targetPath,
       body: entry.proposal.body,
-      command: `node ${entry.proposal.targetPath}`,
+      command:
+        entry.proposal.command ??
+        product100ProposalTestCommand(entry.proposal),
       expect: entry.proposal.expectation ?? 'fail_to_pass',
       network: 'none'
     },
@@ -533,7 +631,16 @@ function product100OriginalEvalFile(phase4, issue) {
   );
 }
 
-function sdkM2Handoff({ reviewReport, loopId, baseCommit, selectedCandidateId, selectedPatch }) {
+function sdkM2Handoff({
+  reviewReport,
+  loopId,
+  baseCommit,
+  selectedCandidateId,
+  selectedPatch,
+  proposalIndex = 0
+}) {
+  const acceptedProposals = reviewReport?.accepted_proposals ?? [];
+  const selectedProposal = acceptedProposals[proposalIndex];
   return {
     schema_version: '1.0',
     kind: 'adversary_m2_handoff',
@@ -543,11 +650,17 @@ function sdkM2Handoff({ reviewReport, loopId, baseCommit, selectedCandidateId, s
     base_commit: baseCommit,
     selected_candidate_id: selectedCandidateId,
     selected_patch: selectedPatch,
+    proposal_attempt_index: proposalIndex,
+    proposal_attempt_count: acceptedProposals.length,
     next_step: 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop',
-    proposals: (reviewReport.accepted_proposals ?? []).slice(0, 1).map((proposal) => ({
-      proposal,
-      next_step: 'm2_execution_required'
-    }))
+    proposals: selectedProposal
+      ? [
+          {
+            proposal: selectedProposal,
+            next_step: 'm2_execution_required'
+          }
+        ]
+      : []
   };
 }
 
@@ -562,6 +675,13 @@ function repairAgentTimeoutSeconds() {
   return Number.isFinite(configured) && configured > 0
     ? configured
     : PRODUCT_100_REPAIR_AGENT_TIMEOUT_SECONDS;
+}
+
+function reviewerRetryLimit() {
+  const configured = Number(
+    process.env.VIBELOOP_PRODUCT_100_REVIEWER_RETRY_ATTEMPTS
+  );
+  return Number.isFinite(configured) && configured >= 0 ? configured : 3;
 }
 
 function repeatSpecs(specs, count) {
@@ -580,7 +700,7 @@ export function product100RepairableCounterexamples(reviewReport, m2Report) {
     .filter(
       (confirmation) =>
         confirmation.confirmed !== true &&
-        confirmation.base === 'fail' &&
+        (confirmation.base === 'fail' || confirmation.base === 'pass') &&
         confirmation.candidate === 'fail' &&
         proposals.has(confirmation.proposalId)
     )
@@ -620,7 +740,8 @@ export async function writeProduct100CounterexampleRepairArtifacts({
       ...new Set([
         ...((task.acceptance ?? {}).required_tests ?? []),
         ...counterexamples.map(
-          ({ proposal }) => `node ${proposal.targetPath}`
+          ({ proposal }) =>
+            proposal.command ?? product100ProposalTestCommand(proposal)
         )
       ])
     ],
@@ -681,7 +802,7 @@ export async function writeProduct100CounterexampleRepairArtifacts({
       name: `adversary_counterexample_${index + 1}`,
       type: 'task_acceptance',
       group: 'fail_to_pass',
-      command: `node ${proposal.targetPath}`,
+      command: proposal.command ?? product100ProposalTestCommand(proposal),
       required: true
     }))
   ];
@@ -692,7 +813,10 @@ export async function writeProduct100CounterexampleRepairArtifacts({
     counterexamples: counterexamples.map(({ confirmation, proposal }) => ({
       id: proposal.id,
       targetPath: proposal.targetPath,
+      originalTargetPath: proposal.originalTargetPath,
       body: proposal.body,
+      language: proposal.language ?? inferProduct100ProposalLanguage(proposal),
+      command: proposal.command ?? product100ProposalTestCommand(proposal),
       expectation: proposal.expectation ?? 'fail_to_pass',
       m2_reason: confirmation.reason,
       base: confirmation.base,
@@ -1153,7 +1277,8 @@ export async function runProduct100Phase5Live(options = {}) {
           }))
         }
       : null,
-    diffSummary: changedFiles
+    diffSummary: changedFiles,
+    adversaryRetryFeedback: options.reviewerFeedback
   });
   await writeJson(path.join(outputDir, 'reviewer-input.json'), reviewerInput);
   if (!safety.ok) {
@@ -1177,6 +1302,7 @@ export async function runProduct100Phase5Live(options = {}) {
     options.reviewerCommand ??
     process.env.VIBELOOP_ADVERSARY_REVIEWER_COMMAND ??
     defaultProduct100ReviewerCommand();
+  const reviewerRunner = options.runReviewerCommand ?? runReviewerCommand;
   const reviewerResult = options.reviewerOutput
     ? {
         ok: true,
@@ -1185,7 +1311,7 @@ export async function runProduct100Phase5Live(options = {}) {
         stderr: ''
       }
     : reviewerCommand
-      ? await runReviewerCommand(reviewerCommand, reviewerInput, {
+      ? await reviewerRunner(reviewerCommand, reviewerInput, {
           timeoutMs: options.reviewerTimeoutMs,
           env: options.codexHome
             ? {
@@ -1239,12 +1365,19 @@ export async function runProduct100Phase5Live(options = {}) {
     };
   }
 
+  const proposalAttemptIndex = Math.max(
+    0,
+    Number.isInteger(Number(options.proposalAttemptIndex))
+      ? Number(options.proposalAttemptIndex)
+      : 0
+  );
   const handoff = sdkM2Handoff({
     reviewReport,
     loopId: issue.loop_id,
     baseCommit: workspaceRef.base_commit ?? 'unknown-base',
     selectedCandidateId: issue.selected_candidate_id,
-    selectedPatch: issue.selected_patch
+    selectedPatch: issue.selected_patch,
+    proposalIndex: proposalAttemptIndex
   });
   const handoffFile = path.join(outputDir, 'm2-handoff.json');
   const confirmationFile = path.join(outputDir, 'm2-confirmation.json');
@@ -1257,10 +1390,31 @@ export async function runProduct100Phase5Live(options = {}) {
   await writeJson(handoffFile, handoff);
 
   const firstProposal = handoff.proposals[0]?.proposal;
-  const testCommand = `node ${firstProposal.targetPath}`;
-  const image = options.image ?? 'node:22-alpine';
+  if (!firstProposal) {
+    return {
+      ...evaluateProduct100Phase5({
+        reviewReport,
+        m2Report: null,
+        m4Report: null,
+        frozenRulepack: null,
+        semanticGateReport: {
+          status: 'fail',
+          allPass: false,
+          reason: 'no_proposal_for_attempt'
+        }
+      }),
+      phase5_artifact_dir: outputDir,
+      proposal_attempt_index: proposalAttemptIndex,
+      proposal_attempt_count: reviewReport.accepted_proposal_count
+    };
+  }
+  const testCommand =
+    firstProposal.command ?? product100ProposalTestCommand(firstProposal);
+  const image = options.image ?? defaultProduct100ProposalImage(firstProposal, evalConfig);
   const network = options.network ?? 'none';
   const timeoutMs = options.timeoutMs ?? 30_000;
+  const proposalRetryRoot = options.proposalRetryRoot ?? outputDir;
+  const reviewerRetryRoot = options.reviewerRetryRoot ?? outputDir;
   let candidateWorktree = options.candidateWorktree ?? workspaceRef.worktree_path;
   if (
     !options.candidateWorktree &&
@@ -1383,6 +1537,127 @@ export async function runProduct100Phase5Live(options = {}) {
       m4Report,
       frozenRulepack,
       semanticGateReport
+    };
+  };
+
+  const tryNextReviewProposal = async ({
+    reason,
+    candidateWorktreeForRetry,
+    baseWorktreeForRetry,
+    previousReport
+  } = {}) => {
+    const nextProposalAttemptIndex = proposalAttemptIndex + 1;
+    if (
+      options.disableProposalRetry === true ||
+      nextProposalAttemptIndex >= (reviewReport.accepted_proposal_count ?? 0)
+    ) {
+      return null;
+    }
+    const retryReport = await runProduct100Phase5Live({
+      ...options,
+      issue,
+      outputDir: path.join(
+        proposalRetryRoot,
+        `proposal-attempt-${nextProposalAttemptIndex + 1}`
+      ),
+      proposalRetryRoot,
+      reviewerRetryRoot,
+      reviewerOutput: {
+        findings: reviewReport.findings ?? [],
+        proposals: reviewReport.accepted_proposals ?? []
+      },
+      provider:
+        options.provider ??
+        reviewReport.reviewer_provenance?.provider ??
+        'codex',
+      realLlm:
+        options.realLlm ??
+        reviewReport.reviewer_provenance?.real_llm === true,
+      reviewerCommand:
+        options.reviewerCommand ??
+        reviewReport.reviewer_provenance?.reviewer_command ??
+        'product-100-adversary-reviewer-retry',
+      builderCommand: options.builderCommand ?? 'product-100-codex-builder',
+      separateContext: options.separateContext ?? true,
+      proposalAttemptIndex: nextProposalAttemptIndex,
+      candidateWorktree: candidateWorktreeForRetry ?? candidateWorktree,
+      baseWorktree: baseWorktreeForRetry ?? baseWorktree,
+      repairDataDir: undefined,
+      postRepairCandidateWorktree: undefined
+    });
+    return {
+      ...retryReport,
+      proposal_retry_from: {
+        reason,
+        proposal_attempt_index: proposalAttemptIndex,
+        proposal_attempt_count: reviewReport.accepted_proposal_count,
+        phase5_artifact_dir: outputDir,
+        previous_report: previousReport ?? null
+      }
+    };
+  };
+
+  const tryRegeneratedReviewerProposal = async ({
+    reason,
+    candidateWorktreeForRetry,
+    baseWorktreeForRetry,
+    previousReport
+  } = {}) => {
+    const reviewerRetryAttempt = Number(options.reviewerRetryAttempt ?? 0);
+    if (
+      options.disableReviewerRetry === true ||
+      options.reviewerOutput ||
+      reviewerRetryAttempt >= reviewerRetryLimit()
+    ) {
+      return null;
+    }
+    const feedback = {
+      reason,
+      reviewer_retry_attempt: reviewerRetryAttempt + 1,
+      proposal_attempt_index: proposalAttemptIndex,
+      proposal_attempt_count: reviewReport.accepted_proposal_count,
+      rejected_proposal_ids: [
+        ...new Set(
+          [
+            ...(previousReport?.confirmations ?? []),
+            ...(previousReport?.post_repair_confirmations ?? [])
+          ]
+            .map((confirmation) => confirmation?.proposalId)
+            .filter(Boolean)
+        )
+      ],
+      confirmations: previousReport?.confirmations ?? [],
+      post_repair_confirmations:
+        previousReport?.post_repair_confirmations ?? [],
+      artifact_refs: previousReport?.artifact_refs ?? {}
+    };
+    const reviewerRetryOutputDir = path.join(
+      reviewerRetryRoot,
+      `reviewer-retry-${reviewerRetryAttempt + 1}`
+    );
+    const retryReport = await runProduct100Phase5Live({
+      ...options,
+      issue,
+      outputDir: reviewerRetryOutputDir,
+      proposalRetryRoot: reviewerRetryOutputDir,
+      reviewerRetryRoot,
+      reviewerOutput: undefined,
+      reviewerFeedback: [...(options.reviewerFeedback ?? []), feedback],
+      reviewerRetryAttempt: reviewerRetryAttempt + 1,
+      proposalAttemptIndex: 0,
+      candidateWorktree: candidateWorktreeForRetry ?? candidateWorktree,
+      baseWorktree: baseWorktreeForRetry ?? baseWorktree,
+      repairDataDir: undefined,
+      postRepairCandidateWorktree: undefined
+    });
+    return {
+      ...retryReport,
+      reviewer_retry_from: {
+        reason,
+        reviewer_retry_attempt: reviewerRetryAttempt,
+        phase5_artifact_dir: outputDir,
+        previous_report: previousReport ?? null
+      }
     };
   };
 
@@ -1512,9 +1787,11 @@ export async function runProduct100Phase5Live(options = {}) {
         frozenRulepack: postRepairPipeline.frozenRulepack,
         semanticGateReport: postRepairPipeline.semanticGateReport
       });
-      return {
+      const postRepairReport = {
         ...postRepairEvaluation,
         phase5_artifact_dir: outputDir,
+        proposal_attempt_index: proposalAttemptIndex,
+        proposal_attempt_count: reviewReport.accepted_proposal_count,
         handoff_file: postRepairHandoffFile,
         initial_handoff_file: handoffFile,
         initial_m2_confirmation_file: confirmationFile,
@@ -1540,8 +1817,71 @@ export async function runProduct100Phase5Live(options = {}) {
             ? 'continue_product_100_phase6_draft_pr_evidence_audit'
             : 'run_builder_again_with_counterexample_repair_task_and_eval'
       };
+      if (postRepairReport.phase5_pass !== true) {
+        const retryReport = await tryNextReviewProposal({
+          reason: 'post_repair_m2_m4_freeze_not_confirmed',
+          candidateWorktreeForRetry: postRepairCandidateWorktree,
+          baseWorktreeForRetry: baseWorktree,
+          previousReport: {
+            handoff_file: postRepairHandoffFile,
+            m2_confirmation_file: postRepairConfirmationFile,
+            rulepack_candidate_file: postRepairCandidateFile,
+            confirmations: m2Report.confirmations ?? [],
+            post_repair_confirmations:
+              postRepairPipeline.m2Report?.confirmations ?? [],
+            counterexample_repair_loop_pass: true,
+            next_step: postRepairReport.next_step,
+            artifact_refs: {
+              handoff_file: postRepairHandoffFile,
+              m2_confirmation_file: postRepairConfirmationFile,
+              rulepack_candidate_file: postRepairCandidateFile,
+              counterexample_repair_loop:
+                repairLoop.evidence?.cli_result ?? null
+            }
+          }
+        });
+        if (retryReport?.phase5_pass === true) return retryReport;
+        if (retryReport) {
+          const regeneratedReport = await tryRegeneratedReviewerProposal({
+            reason: 'all_review_proposals_exhausted_after_retry',
+            candidateWorktreeForRetry:
+              retryReport.counterexample_repair_loop?.candidate_worktree_for_followup ??
+              postRepairCandidateWorktree,
+            baseWorktreeForRetry: baseWorktree,
+            previousReport: {
+              confirmations: m2Report.confirmations ?? [],
+              post_repair_confirmations:
+                postRepairPipeline.m2Report?.confirmations ?? [],
+              artifact_refs: {
+                retry_phase5_artifact_dir: retryReport.phase5_artifact_dir,
+                phase5_artifact_dir: outputDir
+              }
+            }
+          });
+          if (regeneratedReport) return regeneratedReport;
+          return retryReport;
+        }
+        const regeneratedReport = await tryRegeneratedReviewerProposal({
+          reason: 'all_review_proposals_exhausted_after_repair',
+          candidateWorktreeForRetry: postRepairCandidateWorktree,
+          baseWorktreeForRetry: baseWorktree,
+          previousReport: {
+            confirmations: m2Report.confirmations ?? [],
+            post_repair_confirmations:
+              postRepairPipeline.m2Report?.confirmations ?? [],
+            artifact_refs: {
+              handoff_file: postRepairHandoffFile,
+              m2_confirmation_file: postRepairConfirmationFile,
+              rulepack_candidate_file: postRepairCandidateFile,
+              phase5_artifact_dir: outputDir
+            }
+          }
+        });
+        if (regeneratedReport) return regeneratedReport;
+      }
+      return postRepairReport;
     }
-    return {
+    const failedReport = {
       ...evaluateProduct100Phase5({
         reviewReport,
         m2Report,
@@ -1554,6 +1894,8 @@ export async function runProduct100Phase5Live(options = {}) {
         }
       }),
       phase5_artifact_dir: outputDir,
+      proposal_attempt_index: proposalAttemptIndex,
+      proposal_attempt_count: reviewReport.accepted_proposal_count,
       handoff_file: handoffFile,
       m2_confirmation_file: confirmationFile,
       rulepack_candidate_file: candidateFile,
@@ -1570,6 +1912,61 @@ export async function runProduct100Phase5Live(options = {}) {
           ? 'rerun_phase5_m2_m4_freeze_after_counterexample_repair'
           : 'run_builder_again_with_counterexample_repair_task_and_eval'
     };
+    const retryReport = await tryNextReviewProposal({
+      reason: 'm2_m4_freeze_not_confirmed',
+      candidateWorktreeForRetry: candidateWorktree,
+      baseWorktreeForRetry: baseWorktree,
+      previousReport: {
+        handoff_file: handoffFile,
+        m2_confirmation_file: confirmationFile,
+        rulepack_candidate_file: candidateFile,
+        confirmations: m2Report.confirmations ?? [],
+        counterexample_repair_loop_executed:
+          failedReport.counterexample_repair_loop_executed,
+        next_step: failedReport.next_step,
+        artifact_refs: {
+          handoff_file: handoffFile,
+          m2_confirmation_file: confirmationFile,
+          rulepack_candidate_file: candidateFile,
+          phase5_artifact_dir: outputDir
+        }
+      }
+    });
+    if (retryReport?.phase5_pass === true) return retryReport;
+    if (retryReport) {
+      const regeneratedReport = await tryRegeneratedReviewerProposal({
+        reason: 'all_review_proposals_exhausted_after_retry',
+        candidateWorktreeForRetry:
+          retryReport.counterexample_repair_loop?.candidate_worktree_for_followup ??
+          candidateWorktree,
+        baseWorktreeForRetry: baseWorktree,
+        previousReport: {
+          confirmations: m2Report.confirmations ?? [],
+          artifact_refs: {
+            retry_phase5_artifact_dir: retryReport.phase5_artifact_dir,
+            phase5_artifact_dir: outputDir
+          }
+        }
+      });
+      if (regeneratedReport) return regeneratedReport;
+      return retryReport;
+    }
+    const regeneratedReport = await tryRegeneratedReviewerProposal({
+      reason: 'all_review_proposals_exhausted',
+      candidateWorktreeForRetry: candidateWorktree,
+      baseWorktreeForRetry: baseWorktree,
+      previousReport: {
+        confirmations: m2Report.confirmations ?? [],
+        artifact_refs: {
+          handoff_file: handoffFile,
+          m2_confirmation_file: confirmationFile,
+          rulepack_candidate_file: candidateFile,
+          phase5_artifact_dir: outputDir
+        }
+      }
+    });
+    if (regeneratedReport) return regeneratedReport;
+    return failedReport;
   }
 
   return {
@@ -1581,6 +1978,8 @@ export async function runProduct100Phase5Live(options = {}) {
       semanticGateReport: initialPipeline.semanticGateReport
     }),
     phase5_artifact_dir: outputDir,
+    proposal_attempt_index: proposalAttemptIndex,
+    proposal_attempt_count: reviewReport.accepted_proposal_count,
     handoff_file: handoffFile,
     m2_confirmation_file: confirmationFile,
     rulepack_candidate_file: candidateFile,
@@ -1610,17 +2009,26 @@ export async function runProduct100Phase5LiveForIssues(options = {}) {
 
   const issueReports = [];
   const issueRunner = options.issueRunner ?? runProduct100Phase5Live;
+  const enableCounterexampleRepair =
+    options.enableCounterexampleRepair ??
+    (process.env.VIBELOOP_PRODUCT_100_ENABLE_COUNTEREXAMPLE_REPAIR === '0'
+      ? false
+      : true);
   for (const issue of candidateIssues) {
     const issueOutputDir = path.join(
       outputRoot,
       `${issue.repo_id ?? 'repo'}-${issue.issue_id ?? 'issue'}`
     );
+    await mkdir(issueOutputDir, { recursive: true });
     const report = await issueRunner({
       ...options,
       phase4,
       issue,
-      outputDir: issueOutputDir
+      outputDir: issueOutputDir,
+      enableCounterexampleRepair
     });
+    const issueReportFile = path.join(issueOutputDir, 'phase5-report.json');
+    await writeJson(issueReportFile, report);
     issueReports.push({
       repo_id: issue.repo_id ?? null,
       issue_id: issue.issue_id ?? null,
@@ -1645,6 +2053,7 @@ export async function runProduct100Phase5LiveForIssues(options = {}) {
         report.counterexample_repair_resolved === true,
       improvement_required: report.improvement_required === true,
       phase5_artifact_dir: report.phase5_artifact_dir ?? issueOutputDir,
+      phase5_report_file: issueReportFile,
       report
     });
   }
