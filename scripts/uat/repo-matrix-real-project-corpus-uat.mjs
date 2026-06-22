@@ -19,6 +19,8 @@ const MODIFIABLE_COPY_SCENARIO =
   'repo-matrix-real-project-modifiable-corpus-uat';
 const CODEX_COPY_SCENARIO = 'repo-matrix-real-project-codex-copy-uat';
 const CODEX_REPAIR_SCENARIO = 'repo-matrix-real-project-codex-repair-uat';
+const EXISTING_SOURCE_REPAIR_SCENARIO =
+  'repo-matrix-real-project-existing-source-repair-uat';
 const READ_ONLY_PASS_STATUS = 'REAL_PROJECT_CORPUS_PASS';
 const READ_ONLY_FAIL_STATUS = 'REAL_PROJECT_CORPUS_FAIL';
 const MODIFIABLE_COPY_PASS_STATUS = 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS';
@@ -27,6 +29,10 @@ const CODEX_COPY_PASS_STATUS = 'REAL_PROJECT_CODEX_COPY_PASS';
 const CODEX_COPY_FAIL_STATUS = 'REAL_PROJECT_CODEX_COPY_FAIL';
 const CODEX_REPAIR_PASS_STATUS = 'REAL_PROJECT_CODEX_REPAIR_PASS';
 const CODEX_REPAIR_FAIL_STATUS = 'REAL_PROJECT_CODEX_REPAIR_FAIL';
+const EXISTING_SOURCE_REPAIR_PASS_STATUS =
+  'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS';
+const EXISTING_SOURCE_REPAIR_FAIL_STATUS =
+  'REAL_PROJECT_EXISTING_SOURCE_REPAIR_FAIL';
 const BLOCKED_EXIT = 20;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_CODEX_TIMEOUT_MS = 180_000;
@@ -34,6 +40,8 @@ const CODEX_PROBE_FILE = '.vibeloop-codex-real-project-probe.json';
 const REPAIR_DIR = '.vibeloop-real-project-repair';
 const REPAIR_SOURCE_FILE = `${REPAIR_DIR}/invoice-total.mjs`;
 const REPAIR_VISIBLE_TEST_FILE = `${REPAIR_DIR}/visible-repair.test.mjs`;
+const EXISTING_SOURCE_REGRESSION_SENTINEL =
+  'VIBELOOP_EXISTING_SOURCE_REGRESSION';
 
 function redact(text) {
   return String(text)
@@ -500,6 +508,110 @@ function buildCodexRepairPrompt() {
     'The visible test is not the full acceptance suite. Implement the general behavior, not a hardcoded answer.',
     '',
     'Finish after the source file is fixed.'
+  ].join('\n');
+}
+
+function existingSourceLanguage(relativePath) {
+  if (
+    relativePath.endsWith('.js') ||
+    relativePath.endsWith('.mjs') ||
+    relativePath.endsWith('.cjs')
+  ) {
+    return 'javascript';
+  }
+  if (relativePath.endsWith('.py')) return 'python';
+  return null;
+}
+
+function isIgnoredExistingSource(relativePath) {
+  return (
+    relativePath.startsWith('.') ||
+    relativePath.includes('/.') ||
+    /(^|\/)(node_modules|vendor|dist|build|coverage|tmp|temp|logs)\//.test(
+      relativePath
+    ) ||
+    /(^|\/)(test|tests|spec|__tests__|fixtures?|mocks?)\//i.test(
+      relativePath
+    ) ||
+    /\.min\.js$/.test(relativePath)
+  );
+}
+
+function existingSourceCheckCommand(relativePath, language) {
+  if (language === 'javascript') {
+    return { command: process.execPath, args: ['--check', relativePath] };
+  }
+  if (language === 'python') {
+    return {
+      command: 'python3',
+      args: ['-m', 'py_compile', relativePath]
+    };
+  }
+  return null;
+}
+
+function existingSourceRegressionLine(language) {
+  if (language === 'javascript') {
+    return `const ${EXISTING_SOURCE_REGRESSION_SENTINEL} = ;`;
+  }
+  if (language === 'python') {
+    return `${EXISTING_SOURCE_REGRESSION_SENTINEL} =`;
+  }
+  return `${EXISTING_SOURCE_REGRESSION_SENTINEL}`;
+}
+
+function injectExistingSourceRegression(sourceText, language) {
+  const regressionLine = existingSourceRegressionLine(language);
+  if (sourceText.startsWith('#!')) {
+    const newlineIndex = sourceText.indexOf('\n');
+    if (newlineIndex >= 0) {
+      return `${sourceText.slice(0, newlineIndex + 1)}${regressionLine}\n${sourceText.slice(newlineIndex + 1)}`;
+    }
+  }
+  return `${regressionLine}\n${sourceText}`;
+}
+
+function listExistingSourceRepairCandidates(files) {
+  return files
+    .map((relativePath) => ({
+      relativePath,
+      language: existingSourceLanguage(relativePath)
+    }))
+    .filter(
+      (candidate) =>
+        candidate.language && !isIgnoredExistingSource(candidate.relativePath)
+    )
+    .sort((a, b) => {
+      const languageRank = { javascript: 0, python: 1 };
+      const rankDelta = languageRank[a.language] - languageRank[b.language];
+      return rankDelta || a.relativePath.localeCompare(b.relativePath);
+    });
+}
+
+function buildExistingSourceRepairPrompt({ targetFile, visibleCommand }) {
+  return [
+    'You are operating in a temporary clone of an existing real user project.',
+    `Only edit this existing tracked source file: ${targetFile}`,
+    'Do not edit tests, fixtures, package files, lockfiles, configuration, generated files, git history, or any other file.',
+    '',
+    `The file contains a deliberately introduced regression sentinel: ${EXISTING_SOURCE_REGRESSION_SENTINEL}`,
+    'Repair the existing source file by removing the regression and restoring syntactic validity without changing unrelated behavior.',
+    `Run this visible check: ${visibleCommand}`,
+    'The visible check is not the full acceptance suite. Keep the change minimal and limited to the target file.',
+    '',
+    'Finish after the existing source file is fixed.'
+  ].join('\n');
+}
+
+function buildExistingSourceHiddenVerifier({ sourcePath }) {
+  return [
+    "import { readFile } from 'node:fs/promises';",
+    '',
+    `const text = await readFile(${JSON.stringify(sourcePath)}, 'utf8');`,
+    `if (text.includes(${JSON.stringify(EXISTING_SOURCE_REGRESSION_SENTINEL)})) {`,
+    "  throw new Error('existing source regression sentinel still present');",
+    '}',
+    ''
   ].join('\n');
 }
 
@@ -981,6 +1093,336 @@ async function runCodexRepairSmoke(
   };
 }
 
+async function selectExistingSourceRepairTarget(clonePath) {
+  const filesResult = await git(clonePath, ['ls-files']);
+  if (filesResult.code !== 0) {
+    return {
+      target: null,
+      failures: ['tracked_files_unavailable'],
+      stderr: redact(filesResult.stderr).slice(0, 800)
+    };
+  }
+  const candidates = listExistingSourceRepairCandidates(
+    filesResult.stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+  );
+  for (const candidate of candidates.slice(0, 50)) {
+    const filePath = path.join(clonePath, candidate.relativePath);
+    let fileStat;
+    try {
+      fileStat = await stat(filePath);
+    } catch {
+      continue;
+    }
+    if (!fileStat.isFile() || fileStat.size <= 0 || fileStat.size > 200_000) {
+      continue;
+    }
+    const check = existingSourceCheckCommand(
+      candidate.relativePath,
+      candidate.language
+    );
+    if (!check) continue;
+    const result = await runCommand(check.command, check.args, {
+      cwd: clonePath,
+      timeoutMs: DEFAULT_TIMEOUT_MS
+    });
+    if (result.code === 0) {
+      return {
+        target: {
+          ...candidate,
+          filePath,
+          check
+        },
+        failures: []
+      };
+    }
+  }
+  return {
+    target: null,
+    failures: ['no_parseable_existing_source_target']
+  };
+}
+
+async function runCodexExistingSourceRepairSmoke(
+  sourceRepoPath,
+  cellId,
+  tmpRoot,
+  options = {}
+) {
+  const cloneRoot = path.join(tmpRoot, 'existing-source-repair-copies');
+  const clonePath = path.join(cloneRoot, cellId);
+  const logDir = path.join(tmpRoot, 'existing-source-repair-logs', cellId);
+  const repairId = `real-project-existing-source-repair-${cellId}`;
+  const failures = [];
+  await mkdir(cloneRoot, { recursive: true });
+  await mkdir(logDir, { recursive: true });
+
+  const [sourceHeadBefore, sourceStatusBefore] = await Promise.all([
+    git(sourceRepoPath, ['rev-parse', 'HEAD']),
+    git(sourceRepoPath, ['status', '--porcelain=v1'])
+  ]);
+
+  const clone = await git(
+    REPO_ROOT,
+    ['clone', '--quiet', '--no-hardlinks', '--', sourceRepoPath, clonePath],
+    { timeoutMs: 120_000 }
+  );
+  if (clone.code !== 0) {
+    return {
+      status: 'fail',
+      failures: ['clone_failed'],
+      clone_exit_code: clone.code,
+      clone_stderr: redact(clone.stderr).slice(0, 800)
+    };
+  }
+
+  const targetSelection = await selectExistingSourceRepairTarget(clonePath);
+  const target = targetSelection.target;
+  if (!target) {
+    return {
+      status: 'fail',
+      source_repo_path_hash: pathHash(sourceRepoPath),
+      clone_path_hash: pathHash(clonePath),
+      failures: targetSelection.failures,
+      target_selection_stderr: targetSelection.stderr ?? null
+    };
+  }
+
+  const visibleCommandText = [
+    target.check.command,
+    ...target.check.args.map((arg) => JSON.stringify(arg))
+  ].join(' ');
+  const hiddenVerifierFile = await writeTextFile(
+    path.join(logDir, `${repairId}-hidden-verifier.mjs`),
+    buildExistingSourceHiddenVerifier({ sourcePath: target.filePath })
+  );
+  const originalText = await readFile(target.filePath, 'utf8');
+  const originalHash = await fileHash(target.filePath);
+  const originalVisible = await runCommand(
+    target.check.command,
+    target.check.args,
+    {
+      cwd: clonePath,
+      timeoutMs: DEFAULT_TIMEOUT_MS
+    }
+  );
+  const originalVisibleLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-original-visible.json`),
+    originalVisible
+  );
+  if (originalVisible.code !== 0) {
+    failures.push('original_existing_source_check_failed');
+  }
+
+  await writeFile(
+    target.filePath,
+    injectExistingSourceRegression(originalText, target.language)
+  );
+  const seedAdd = await git(clonePath, ['add', '--', target.relativePath]);
+  const seedCommit = await git(clonePath, [
+    '-c',
+    'user.name=VibeLoop UAT',
+    '-c',
+    'user.email=vibeloop-uat@example.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '--no-verify',
+    '-m',
+    'seed vibeloop existing source regression'
+  ]);
+  const seedStatus = await git(clonePath, ['status', '--porcelain=v1']);
+  if (seedAdd.code !== 0) failures.push('seed_regression_add_failed');
+  if (seedCommit.code !== 0) failures.push('seed_regression_commit_failed');
+  if (seedStatus.code !== 0 || seedStatus.stdout.trim()) {
+    failures.push('seed_regression_dirty');
+  }
+  if (failures.length > 0) {
+    return {
+      status: 'fail',
+      source_repo_path_hash: pathHash(sourceRepoPath),
+      clone_path_hash: pathHash(clonePath),
+      repair_source: target.relativePath,
+      existing_source: true,
+      failures,
+      seed: {
+        add_exit_code: seedAdd.code,
+        commit_exit_code: seedCommit.code,
+        status: redact(seedStatus.stdout).slice(0, 400),
+        stderr: {
+          add: redact(seedAdd.stderr).slice(0, 400),
+          commit: redact(seedCommit.stderr).slice(0, 800)
+        }
+      }
+    };
+  }
+
+  const regressedHash = await fileHash(target.filePath);
+  const regressedVisible = await runCommand(
+    target.check.command,
+    target.check.args,
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const regressedHidden = await runCommand(
+    process.execPath,
+    [hiddenVerifierFile],
+    {
+      cwd: clonePath,
+      timeoutMs: DEFAULT_TIMEOUT_MS
+    }
+  );
+  const regressedVisibleLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-regressed-visible.json`),
+    regressedVisible
+  );
+  const regressedHiddenLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-regressed-hidden.json`),
+    regressedHidden
+  );
+  if (regressedVisible.code === 0) {
+    failures.push('regressed_visible_unexpected_pass');
+  }
+  if (regressedHidden.code === 0) {
+    failures.push('regressed_hidden_unexpected_pass');
+  }
+
+  const codex = await runCodexPrompt({
+    clonePath,
+    requestId: repairId,
+    prompt: buildExistingSourceRepairPrompt({
+      targetFile: target.relativePath,
+      visibleCommand: visibleCommandText
+    }),
+    model: options.codexModel,
+    timeoutMs: options.codexTimeoutMs,
+    logDir
+  });
+  if (codex.code !== 0) failures.push('codex_exec_failed');
+  if (codex.timedOut) failures.push('codex_exec_timeout');
+
+  const finalVisible = await runCommand(
+    target.check.command,
+    target.check.args,
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const finalHidden = await runCommand(process.execPath, [hiddenVerifierFile], {
+    cwd: clonePath,
+    timeoutMs: DEFAULT_TIMEOUT_MS
+  });
+  const finalVisibleLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-final-visible.json`),
+    finalVisible
+  );
+  const finalHiddenLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-final-hidden.json`),
+    finalHidden
+  );
+  if (finalVisible.code !== 0) failures.push('visible_acceptance_failed');
+  if (finalHidden.code !== 0) failures.push('hidden_acceptance_failed');
+
+  const finalHash = await fileHash(target.filePath);
+  if (regressedHash === finalHash) failures.push('source_not_changed');
+  const statusAfter = await git(clonePath, ['status', '--porcelain=v1']);
+  const diffCheck = await git(clonePath, ['diff', '--check']);
+  const changedFiles = statusAfter.stdout
+    .split(/\r?\n/)
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean)
+    .sort();
+  const expectedChangedFiles = [target.relativePath];
+  if (JSON.stringify(changedFiles) !== JSON.stringify(expectedChangedFiles)) {
+    failures.push('diff_scope_not_existing_source_only');
+  }
+  if (diffCheck.code !== 0) failures.push('diff_check_failed');
+
+  const [sourceHeadAfter, sourceStatusAfter] = await Promise.all([
+    git(sourceRepoPath, ['rev-parse', 'HEAD']),
+    git(sourceRepoPath, ['status', '--porcelain=v1'])
+  ]);
+  const sourceRepoIntegrity =
+    sourceHeadBefore.code === 0 &&
+    sourceHeadAfter.code === 0 &&
+    sourceHeadBefore.stdout.trim() === sourceHeadAfter.stdout.trim() &&
+    sourceStatusBefore.code === 0 &&
+    sourceStatusAfter.code === 0 &&
+    sourceStatusBefore.stdout === sourceStatusAfter.stdout;
+  if (!sourceRepoIntegrity) failures.push('source_repo_integrity_failed');
+
+  return {
+    status: failures.length === 0 ? 'pass' : 'fail',
+    source_repo_path_hash: pathHash(sourceRepoPath),
+    clone_path_hash: pathHash(clonePath),
+    provider: 'codex',
+    real_llm: true,
+    model: options.codexModel,
+    repair_source: target.relativePath,
+    existing_source: true,
+    existing_source_language: target.language,
+    visible_check_command: [target.check.command, ...target.check.args],
+    regression_sentinel: EXISTING_SOURCE_REGRESSION_SENTINEL,
+    base_acceptance: {
+      original_status: originalVisible.code === 0 ? 'pass' : 'fail',
+      visible_status:
+        regressedVisible.code === 0 ? 'unexpected_pass' : 'expected_fail',
+      hidden_status:
+        regressedHidden.code === 0 ? 'unexpected_pass' : 'expected_fail',
+      original_log: originalVisibleLog,
+      visible_log: regressedVisibleLog,
+      hidden_log: regressedHiddenLog
+    },
+    visible_acceptance: {
+      status: finalVisible.code === 0 ? 'pass' : 'fail',
+      log: finalVisibleLog
+    },
+    hidden_acceptance: {
+      status: finalHidden.code === 0 ? 'pass' : 'fail',
+      checked: true,
+      verifier_file: hiddenVerifierFile,
+      log: finalHiddenLog
+    },
+    diff_scope: {
+      status:
+        JSON.stringify(changedFiles) === JSON.stringify(expectedChangedFiles)
+          ? 'pass'
+          : 'fail',
+      changed_files: changedFiles,
+      expected_files: expectedChangedFiles
+    },
+    source_changed: regressedHash !== finalHash,
+    original_source_hash: originalHash,
+    regressed_source_hash: regressedHash,
+    final_source_hash: finalHash,
+    visible_test_unchanged: true,
+    source_repo_integrity: {
+      status: sourceRepoIntegrity ? 'pass' : 'fail',
+      head_unchanged:
+        sourceHeadBefore.stdout.trim() === sourceHeadAfter.stdout.trim(),
+      status_unchanged: sourceStatusBefore.stdout === sourceStatusAfter.stdout
+    },
+    diff_check_status: diffCheck.code === 0 ? 'pass' : 'fail',
+    codex: {
+      status: codex.code === 0 && !codex.timedOut ? 'pass' : 'fail',
+      exit_code: codex.code,
+      timed_out: codex.timedOut,
+      stdout_file: codex.stdout_file,
+      stderr_file: codex.stderr_file,
+      output_file: codex.output_file
+    },
+    evidence_files: {
+      final_source: target.filePath,
+      hidden_verifier: hiddenVerifierFile,
+      original_visible_log: originalVisibleLog,
+      regressed_visible_log: regressedVisibleLog,
+      regressed_hidden_log: regressedHiddenLog,
+      final_visible_log: finalVisibleLog,
+      final_hidden_log: finalHiddenLog
+    },
+    failures
+  };
+}
+
 async function analyzeRepo(repoPath, index, options = {}) {
   const resolved = path.resolve(repoPath);
   const id = `${slug(path.basename(resolved))}-${pathHash(resolved)}`;
@@ -1076,7 +1518,14 @@ async function analyzeRepo(repoPath, index, options = {}) {
         options.tmpRoot,
         options
       )
-    : null;
+    : options.existingSourceRepairSmoke
+      ? await runCodexExistingSourceRepairSmoke(
+          resolved,
+          `${index}-${id}`,
+          options.tmpRoot,
+          options
+        )
+      : null;
   if (codexRepair && codexRepair.status !== 'pass') {
     failures.push('codex_repair_smoke_failed');
   }
@@ -1145,6 +1594,8 @@ function parseArgs(argv, env = process.env) {
     env.VIBELOOP_REAL_PROJECT_CORPUS_CODEX_COPY_SMOKE === '1';
   let codexRepairSmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_CODEX_REPAIR_SMOKE === '1';
+  let existingSourceRepairSmoke =
+    env.VIBELOOP_REAL_PROJECT_CORPUS_EXISTING_SOURCE_REPAIR_SMOKE === '1';
   let codexModel = env.VIBELOOP_REAL_PROJECT_CODEX_MODEL || 'gpt-5.5';
   let codexTimeoutMs = Number(
     env.VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS || DEFAULT_CODEX_TIMEOUT_MS
@@ -1180,6 +1631,10 @@ function parseArgs(argv, env = process.env) {
       codexRepairSmoke = true;
       continue;
     }
+    if (arg === '--existing-source-repair-smoke') {
+      existingSourceRepairSmoke = true;
+      continue;
+    }
     if (arg === '--codex-model') {
       const value = argv[index + 1];
       if (!value) throw new Error('--codex-model requires a value');
@@ -1208,6 +1663,7 @@ function parseArgs(argv, env = process.env) {
     modifiableCopySmoke,
     codexCopySmoke,
     codexRepairSmoke,
+    existingSourceRepairSmoke,
     codexModel,
     codexTimeoutMs
   };
@@ -1306,32 +1762,43 @@ function cellExtraFiles(cell) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  if (options.codexCopySmoke && options.codexRepairSmoke) {
+  const codexModeCount = [
+    options.codexCopySmoke,
+    options.codexRepairSmoke,
+    options.existingSourceRepairSmoke
+  ].filter(Boolean).length;
+  if (codexModeCount > 1) {
     throw new Error(
-      '--codex-copy-smoke cannot be combined with --codex-repair-smoke'
+      '--codex-copy-smoke, --codex-repair-smoke, and --existing-source-repair-smoke are mutually exclusive'
     );
   }
-  const scenario = options.codexRepairSmoke
-    ? CODEX_REPAIR_SCENARIO
-    : options.codexCopySmoke
-      ? CODEX_COPY_SCENARIO
-      : options.modifiableCopySmoke
-        ? MODIFIABLE_COPY_SCENARIO
-        : READ_ONLY_SCENARIO;
-  const passStatus = options.codexRepairSmoke
-    ? CODEX_REPAIR_PASS_STATUS
-    : options.codexCopySmoke
-      ? CODEX_COPY_PASS_STATUS
-      : options.modifiableCopySmoke
-        ? MODIFIABLE_COPY_PASS_STATUS
-        : READ_ONLY_PASS_STATUS;
-  const failStatus = options.codexRepairSmoke
-    ? CODEX_REPAIR_FAIL_STATUS
-    : options.codexCopySmoke
-      ? CODEX_COPY_FAIL_STATUS
-      : options.modifiableCopySmoke
-        ? MODIFIABLE_COPY_FAIL_STATUS
-        : READ_ONLY_FAIL_STATUS;
+  const scenario = options.existingSourceRepairSmoke
+    ? EXISTING_SOURCE_REPAIR_SCENARIO
+    : options.codexRepairSmoke
+      ? CODEX_REPAIR_SCENARIO
+      : options.codexCopySmoke
+        ? CODEX_COPY_SCENARIO
+        : options.modifiableCopySmoke
+          ? MODIFIABLE_COPY_SCENARIO
+          : READ_ONLY_SCENARIO;
+  const passStatus = options.existingSourceRepairSmoke
+    ? EXISTING_SOURCE_REPAIR_PASS_STATUS
+    : options.codexRepairSmoke
+      ? CODEX_REPAIR_PASS_STATUS
+      : options.codexCopySmoke
+        ? CODEX_COPY_PASS_STATUS
+        : options.modifiableCopySmoke
+          ? MODIFIABLE_COPY_PASS_STATUS
+          : READ_ONLY_PASS_STATUS;
+  const failStatus = options.existingSourceRepairSmoke
+    ? EXISTING_SOURCE_REPAIR_FAIL_STATUS
+    : options.codexRepairSmoke
+      ? CODEX_REPAIR_FAIL_STATUS
+      : options.codexCopySmoke
+        ? CODEX_COPY_FAIL_STATUS
+        : options.modifiableCopySmoke
+          ? MODIFIABLE_COPY_FAIL_STATUS
+          : READ_ONLY_FAIL_STATUS;
   if (options.repos.length < options.minRepos) {
     const report = {
       status: 'blocked',
@@ -1346,7 +1813,11 @@ async function main() {
     process.exit(BLOCKED_EXIT);
   }
   let codexPreflight = null;
-  if (options.codexCopySmoke || options.codexRepairSmoke) {
+  if (
+    options.codexCopySmoke ||
+    options.codexRepairSmoke ||
+    options.existingSourceRepairSmoke
+  ) {
     codexPreflight = await codexCopyPreflight(options);
     if (codexPreflight.ok !== true) {
       const report = {
@@ -1372,6 +1843,7 @@ async function main() {
         modifiableCopySmoke: options.modifiableCopySmoke,
         codexCopySmoke: options.codexCopySmoke,
         codexRepairSmoke: options.codexRepairSmoke,
+        existingSourceRepairSmoke: options.existingSourceRepairSmoke,
         codexModel: options.codexModel,
         codexTimeoutMs: options.codexTimeoutMs,
         tmpRoot
@@ -1387,34 +1859,51 @@ async function main() {
         : failStatus,
     scenario,
     run_id: runId,
-    mode: options.codexRepairSmoke
-      ? 'real Codex temp-clone broad real project source-code repair smoke'
-      : options.codexCopySmoke
-        ? 'real Codex temp-clone broad real project corpus smoke'
-        : options.modifiableCopySmoke
-          ? 'safe modifiable-copy broad real project corpus smoke'
-          : 'read-only broad real project corpus smoke',
-    scope: options.codexRepairSmoke
-      ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
-      : options.codexCopySmoke
-        ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
-        : options.modifiableCopySmoke
-          ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
-          : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
+    mode: options.existingSourceRepairSmoke
+      ? 'real Codex temp-clone broad real project existing source-code repair smoke'
+      : options.codexRepairSmoke
+        ? 'real Codex temp-clone broad real project source-code repair smoke'
+        : options.codexCopySmoke
+          ? 'real Codex temp-clone broad real project corpus smoke'
+          : options.modifiableCopySmoke
+            ? 'safe modifiable-copy broad real project corpus smoke'
+            : 'read-only broad real project corpus smoke',
+    scope: options.existingSourceRepairSmoke
+      ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+      : options.codexRepairSmoke
+        ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+        : options.codexCopySmoke
+          ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
+          : options.modifiableCopySmoke
+            ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
+            : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
     read_only:
       !options.modifiableCopySmoke &&
       !options.codexCopySmoke &&
-      !options.codexRepairSmoke,
+      !options.codexRepairSmoke &&
+      !options.existingSourceRepairSmoke,
     source_repos_read_only: true,
     modifiable_copy_smoke: options.modifiableCopySmoke,
     codex_copy_smoke: options.codexCopySmoke,
-    codex_repair_smoke: options.codexRepairSmoke,
-    source_code_repair: options.codexRepairSmoke,
-    llm_modification: options.codexCopySmoke || options.codexRepairSmoke,
-    hidden_acceptance: options.codexCopySmoke || options.codexRepairSmoke,
+    codex_repair_smoke:
+      options.codexRepairSmoke || options.existingSourceRepairSmoke,
+    existing_source_repair_smoke: options.existingSourceRepairSmoke,
+    source_code_repair:
+      options.codexRepairSmoke || options.existingSourceRepairSmoke,
+    existing_source_repair: options.existingSourceRepairSmoke,
+    llm_modification:
+      options.codexCopySmoke ||
+      options.codexRepairSmoke ||
+      options.existingSourceRepairSmoke,
+    hidden_acceptance:
+      options.codexCopySmoke ||
+      options.codexRepairSmoke ||
+      options.existingSourceRepairSmoke,
     draft_pr: false,
     builder:
-      options.codexCopySmoke || options.codexRepairSmoke
+      options.codexCopySmoke ||
+      options.codexRepairSmoke ||
+      options.existingSourceRepairSmoke
         ? {
             real_llm: true,
             provider: 'codex',
@@ -1444,6 +1933,7 @@ async function main() {
         min_repo_count: options.minRepos,
         codex_copy_smoke: options.codexCopySmoke,
         codex_repair_smoke: options.codexRepairSmoke,
+        existing_source_repair_smoke: options.existingSourceRepairSmoke,
         modifiable_copy_smoke: options.modifiableCopySmoke
       }
     }

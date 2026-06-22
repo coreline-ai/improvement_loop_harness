@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   BLOCKED_EXIT,
   REAL_PROJECT_CODEX_REPAIR_CORPUS_EVIDENCE_SCENARIO,
+  REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO,
   buildReleaseGatePreflightReport,
   latestEvidenceBundle,
   parseJsonTail,
@@ -808,6 +809,198 @@ ELIFECYCLE Command failed with exit code 20.`);
         'llm_modification',
         'cells.repo-b.codex_repair.hidden_acceptance',
         'cells.repo-b.codex_repair.source_changed'
+      ])
+    });
+  });
+
+  it('validates real Codex temp-clone existing source repair proof fields', async () => {
+    const root = await tempRoot();
+    const scenario =
+      REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO.scenario;
+    await writeLedger(
+      root,
+      scenario,
+      'existing-source-repair-run',
+      new Date('2026-06-15T01:00:00.000Z'),
+      {
+        status:
+          REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO.expected_status,
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        existing_source_repair_smoke: true,
+        source_code_repair: true,
+        existing_source_repair: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'repo-a',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/cart-total.js',
+              existing_source: true,
+              existing_source_language: 'javascript',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'repo-b',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/cart_total.py',
+              existing_source: true,
+              existing_source_language: 'python',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      }
+    );
+    await writeManifest(root, scenario, 'existing-source-repair-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest:
+          REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO.require_manifest,
+        expectedStatus:
+          REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO.expected_status,
+        expectedLedger:
+          REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO.expected_ledger
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      status: 'present',
+      ledger_summary: {
+        codex_repair_smoke: true,
+        existing_source_repair_smoke: true,
+        source_code_repair: true,
+        existing_source_repair: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
+        cells: [
+          {
+            id: 'repo-a',
+            codex_repair_status: 'pass',
+            codex_repair_visible_acceptance_status: 'pass',
+            codex_repair_hidden_acceptance_status: 'pass',
+            codex_repair_diff_scope_status: 'pass',
+            codex_repair_source_changed: true,
+            codex_repair_repair_source: 'src/cart-total.js',
+            codex_repair_existing_source: true,
+            codex_repair_existing_source_language: 'javascript',
+            codex_repair_visible_test_unchanged: true,
+            codex_repair_source_repo_integrity_status: 'pass'
+          },
+          {
+            id: 'repo-b',
+            codex_repair_status: 'pass',
+            codex_repair_visible_acceptance_status: 'pass',
+            codex_repair_hidden_acceptance_status: 'pass',
+            codex_repair_diff_scope_status: 'pass',
+            codex_repair_source_changed: true,
+            codex_repair_repair_source: 'src/cart_total.py',
+            codex_repair_existing_source: true,
+            codex_repair_existing_source_language: 'python',
+            codex_repair_visible_test_unchanged: true,
+            codex_repair_source_repo_integrity_status: 'pass'
+          }
+        ]
+      }
+    });
+
+    await writeLedger(
+      root,
+      scenario,
+      'existing-source-repair-weakened-run',
+      new Date('2026-06-15T02:00:00.000Z'),
+      {
+        status:
+          REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO.expected_status,
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        existing_source_repair_smoke: false,
+        source_code_repair: true,
+        existing_source_repair: false,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'repo-a',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              existing_source: false,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'repo-b',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/cart_total.py',
+              existing_source: true,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      }
+    );
+    await writeManifest(root, scenario, 'existing-source-repair-weakened-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest:
+          REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO.require_manifest,
+        expectedStatus:
+          REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO.expected_status,
+        expectedLedger:
+          REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO.expected_ledger
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 'invalid_ledger',
+      ledger_failures: expect.arrayContaining([
+        'existing_source_repair',
+        'cells.repo-a.codex_repair.existing_source',
+        'cells.repo-a.codex_repair.repair_source'
       ])
     });
   });

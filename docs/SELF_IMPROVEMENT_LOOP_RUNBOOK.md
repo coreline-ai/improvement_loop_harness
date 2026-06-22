@@ -505,6 +505,34 @@ corepack pnpm uat:release-evidence-audit -- \
 
 2026-06-22 R24 real project Codex temp-clone source repair는 기존 로컬 repo 2개(`audio-musicfx-mcp`, `build-server-cli`)에서 `REAL_PROJECT_CODEX_REPAIR_PASS`, `cell_count=2`, `pass_count=2`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 fixture source file만 수정했으며, base visible/hidden expected fail, final visible/hidden pass, source-only diff, 원본 repo integrity를 검증했다. `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-codex-repair-uat`도 manifest-backed evidence를 PASS로 감사했다.
 
+기존 실제 로컬 repo의 임시 clone에서 실제 Codex가 기존 tracked source file을 고치는지 확인하려면 real Codex existing-source repair lane을 사용한다. 이 lane은 원본 repo를 수정하지 않고 각 temp clone의 기존 JS/Python source file에 syntactic regression을 커밋한 뒤, Codex CLI가 해당 기존 source file만 수정하게 한다. Hidden verifier는 original parse pass, regressed visible/hidden expected fail, final visible/hidden pass, existing-source-only diff, 원본 repo head/status unchanged를 확인한다.
+
+```bash
+corepack pnpm uat:repo-matrix:real-project-existing-source-repair -- \
+  --repo /path/to/real/repo-a \
+  --repo /path/to/real/repo-b \
+  --min-repos 2
+
+corepack pnpm uat:release-evidence-audit -- \
+  --scenario repo-matrix-real-project-existing-source-repair-uat
+```
+
+기대:
+
+- `status=REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`
+- `cell_count>=2`, `pass_count>=2`, `fail_count=0`
+- ledger가 `codex_repair_smoke=true`, `existing_source_repair=true`, `source_code_repair=true`, `llm_modification=true`, `hidden_acceptance=true`, `source_repos_read_only=true`, `draft_pr=false`, `builder.real_llm=true`, `builder.provider=codex`를 남긴다.
+- 각 cell은 `codex_repair.status=pass`, `codex_repair.existing_source=true`, `codex_repair.visible_acceptance.status=pass`, `codex_repair.hidden_acceptance.status=pass`, `codex_repair.diff_scope.status=pass`, `codex_repair.source_changed=true`, `codex_repair.source_repo_integrity.status=pass`여야 한다.
+- 이 lane은 기존 tracked source file repair 증거이며, 아직 임의 업무 bug repair, GitHub draft PR, 임의/대형 repo 전체 PASS를 의미하지 않는다.
+
+최근 확인 evidence:
+
+```text
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-existing-source-repair-uat/real-project-corpus-27749-1782114194641/ledger.json
+```
+
+2026-06-22 R27 real project Codex existing-source repair는 기존 로컬 repo 2개(`improvement_loop_harness`, `build-server-cli`)에서 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`, `cell_count=2`, `pass_count=2`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 기존 tracked source file(`apps/server/scripts/postgres-connection-check.mjs`, `web/help-content.js`)만 수정했으며, original parse pass, regressed visible/hidden expected fail, final visible/hidden pass, existing-source-only diff, 원본 repo integrity를 검증했다. `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-uat`도 manifest-backed evidence를 PASS로 감사했다.
+
 ---
 
 ## 검증 체크리스트 (claim → 확인 → 기대)
@@ -692,4 +720,4 @@ cat ~/.vibeloop/product-100-real-loop-*/product-100-progress.json
 
 ### 현재 로컬 기준 기대 결과
 
-현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-22 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 Phase4 full report `/Users/iriver/.vibeloop/product-100-phase4-full-20260619165620.json`, Phase5 aggregate report `/Users/iriver/.vibeloop/product-100-phase5-full-rerun-20260621231906.json`, Phase6 draft PR report `/Users/iriver/.vibeloop/product-100-phase6-20260622-001250/phase6-draft-pr-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-phase6-20260622-001250`다. P4 semantic/M4 lane은 R25에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-67051-1782109648286`와 local real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-67359-1782109671844`로 cart+profile visibility 5-rule corpus, M2 confirmed 5, M4 replay-safe 5/5, 10/10 attack scenario PASS를 남겼고, R26 credentialed CI run `27935528811`도 real reviewer artifact audit PASS를 남겼다. Broad real project corpus는 R24에서 실제 로컬 repo temp-clone source repair + hidden verifier까지 확장됐지만, 이 결과는 dedicated fixture source repair이며 기존 업무 소스/임의 사용자 repo 전체에 대한 제품 전체 100% PASS가 아니다.
+현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-22 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 Phase4 full report `/Users/iriver/.vibeloop/product-100-phase4-full-20260619165620.json`, Phase5 aggregate report `/Users/iriver/.vibeloop/product-100-phase5-full-rerun-20260621231906.json`, Phase6 draft PR report `/Users/iriver/.vibeloop/product-100-phase6-20260622-001250/phase6-draft-pr-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-phase6-20260622-001250`다. P4 semantic/M4 lane은 R25에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-67051-1782109648286`와 local real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-67359-1782109671844`로 cart+profile visibility 5-rule corpus, M2 confirmed 5, M4 replay-safe 5/5, 10/10 attack scenario PASS를 남겼고, R26 credentialed CI run `27935528811`도 real reviewer artifact audit PASS를 남겼다. Broad real project corpus는 R27에서 실제 로컬 repo temp-clone existing-source repair + hidden verifier까지 확장됐지만, 이 결과는 syntactic regression repair smoke이며 임의 업무 bug repair/GitHub draft PR/임의 사용자 repo 전체에 대한 제품 전체 100% PASS가 아니다.

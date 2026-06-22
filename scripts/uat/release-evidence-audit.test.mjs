@@ -1259,6 +1259,202 @@ describe('release evidence audit', () => {
     );
   });
 
+  it('keeps real Codex existing-source repair corpus audit explicit and requires existing source evidence', async () => {
+    const selected = selectReleaseEvidenceAuditScenarios({
+      scenarioNames: ['repo-matrix-real-project-existing-source-repair-uat']
+    });
+    expect(selected).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        scenario: 'repo-matrix-real-project-existing-source-repair-uat',
+        expected_status: 'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS',
+        expected_ledger: {
+          min_cell_count: 2,
+          min_pass_count: 2,
+          max_fail_count: 0,
+          required_codex_repair_smoke: true,
+          required_existing_source_repair: true,
+          required_source_code_repair: true,
+          required_real_llm_modification: true,
+          required_hidden_acceptance: true,
+          required_source_repos_read_only: true,
+          required_no_draft_pr: true
+        }
+      })
+    ]);
+    expect(
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).toContain('repo-matrix-real-project-existing-source-repair-uat');
+    expect(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).not.toContain('repo-matrix-real-project-existing-source-repair-uat');
+
+    const root = await tempRoot();
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-existing-source-repair-uat',
+      'real-project-existing-source-repair-run',
+      {
+        status: 'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS',
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        existing_source_repair_smoke: true,
+        source_code_repair: true,
+        existing_source_repair: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: {
+          real_llm: true,
+          provider: 'codex',
+          model: 'gpt-5.5'
+        },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'node-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/cart-total.js',
+              existing_source: true,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'python-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/cart_total.py',
+              existing_source: true,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      }
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-existing-source-repair-uat',
+      'real-project-existing-source-repair-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['repo-matrix-real-project-existing-source-repair-uat']
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.evidence).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        ok: true,
+        scenario: 'repo-matrix-real-project-existing-source-repair-uat',
+        ledger_summary: expect.objectContaining({
+          status: 'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS',
+          codex_repair_smoke: true,
+          existing_source_repair: true,
+          source_code_repair: true,
+          llm_modification: true,
+          hidden_acceptance: true,
+          source_repos_read_only: true,
+          draft_pr: false
+        })
+      })
+    ]);
+
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-existing-source-repair-uat',
+      'real-project-existing-source-repair-weakened-run',
+      {
+        status: 'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS',
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        existing_source_repair_smoke: false,
+        source_code_repair: true,
+        existing_source_repair: false,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: {
+          real_llm: true,
+          provider: 'codex',
+          model: 'gpt-5.5'
+        },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'node-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              existing_source: false,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'python-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/cart_total.py',
+              existing_source: true,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      },
+      new Date(Date.now() + 1000)
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-existing-source-repair-uat',
+      'real-project-existing-source-repair-weakened-run'
+    );
+
+    const weakenedReport = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['repo-matrix-real-project-existing-source-repair-uat']
+    });
+
+    expect(weakenedReport.status).toBe('fail');
+    expect(weakenedReport.evidence[0].ledger_failures).toEqual(
+      expect.arrayContaining([
+        'existing_source_repair',
+        'cells.node-real-project.codex_repair.existing_source',
+        'cells.node-real-project.codex_repair.repair_source'
+      ])
+    );
+  });
+
   it('audits explicit Product-100 evidence with every fixed requirement and Phase7 proof', async () => {
     const root = await tempRoot();
     await writeLedger(
