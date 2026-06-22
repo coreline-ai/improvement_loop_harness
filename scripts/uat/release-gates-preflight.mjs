@@ -277,6 +277,26 @@ export const REAL_PROJECT_CODEX_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
   }
 };
 
+export const REAL_PROJECT_BUSINESS_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
+  gate: 'P5',
+  name: 'real Codex temp-clone broad real project business bug repair fixture evidence',
+  scenario: 'repo-matrix-real-project-business-repair-uat',
+  require_manifest: true,
+  expected_status: 'REAL_PROJECT_BUSINESS_REPAIR_PASS',
+  expected_ledger: {
+    min_cell_count: 2,
+    min_pass_count: 2,
+    max_fail_count: 0,
+    required_codex_repair_smoke: true,
+    required_business_bug_repair: true,
+    required_source_code_repair: true,
+    required_real_llm_modification: true,
+    required_hidden_acceptance: true,
+    required_source_repos_read_only: true,
+    required_no_draft_pr: true
+  }
+};
+
 export const REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
   gate: 'P5',
   name: 'real Codex temp-clone broad real project existing source repair evidence',
@@ -459,6 +479,8 @@ function summarizeMatrixCells(cells) {
       cell.codex_repair?.diff_scope?.status ?? null,
     codex_repair_repair_source: cell.codex_repair?.repair_source ?? null,
     codex_repair_source_changed: cell.codex_repair?.source_changed ?? null,
+    codex_repair_business_bug_repair:
+      cell.codex_repair?.business_bug_repair ?? null,
     codex_repair_existing_source: cell.codex_repair?.existing_source ?? null,
     codex_repair_existing_source_language:
       cell.codex_repair?.existing_source_language ?? null,
@@ -884,7 +906,8 @@ function requiredCodexRepairCellFailures(
   cellSummaries,
   required = false,
   requireExistingSource = false,
-  requireGithubDraftPr = false
+  requireGithubDraftPr = false,
+  requireBusinessBugRepair = false
 ) {
   if (!required) return [];
   const failures = [];
@@ -910,6 +933,12 @@ function requiredCodexRepairCellFailures(
     }
     if (requireExistingSource && cell.codex_repair_existing_source !== true) {
       failures.push(`cells.${id}.codex_repair.existing_source`);
+    }
+    if (
+      requireBusinessBugRepair &&
+      cell.codex_repair_business_bug_repair !== true
+    ) {
+      failures.push(`cells.${id}.codex_repair.business_bug_repair`);
     }
     if (
       requireExistingSource &&
@@ -1101,6 +1130,8 @@ export async function latestEvidenceBundle(
         modifiable_copy_smoke: ledgerJson.modifiable_copy_smoke ?? false,
         codex_copy_smoke: ledgerJson.codex_copy_smoke ?? false,
         codex_repair_smoke: ledgerJson.codex_repair_smoke ?? false,
+        business_repair_smoke: ledgerJson.business_repair_smoke ?? false,
+        business_bug_repair: ledgerJson.business_bug_repair ?? false,
         existing_source_repair_smoke:
           ledgerJson.existing_source_repair_smoke ?? false,
         source_code_repair: ledgerJson.source_code_repair ?? false,
@@ -1219,6 +1250,13 @@ export async function latestEvidenceBundle(
       ledgerFailures.push('source_code_repair');
     }
     if (
+      options.expectedLedger?.required_business_bug_repair &&
+      (ledgerSummary.business_bug_repair !== true ||
+        ledgerSummary.business_repair_smoke !== true)
+    ) {
+      ledgerFailures.push('business_bug_repair');
+    }
+    if (
       options.expectedLedger?.required_existing_source_repair &&
       (ledgerSummary.existing_source_repair !== true ||
         ledgerSummary.existing_source_repair_smoke !== true)
@@ -1299,7 +1337,8 @@ export async function latestEvidenceBundle(
         ledgerSummary.cells,
         options.expectedLedger?.required_codex_repair_smoke,
         options.expectedLedger?.required_existing_source_repair,
-        options.expectedLedger?.required_github_draft_pr
+        options.expectedLedger?.required_github_draft_pr,
+        options.expectedLedger?.required_business_bug_repair
       )
     );
     ledgerFailures.push(

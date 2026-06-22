@@ -1262,6 +1262,191 @@ describe('release evidence audit', () => {
     );
   });
 
+  it('keeps real Codex business repair corpus audit explicit and requires business bug evidence', async () => {
+    const scenario = 'repo-matrix-real-project-business-repair-uat';
+    const selected = selectReleaseEvidenceAuditScenarios({
+      scenarioNames: [scenario]
+    });
+    expect(selected).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        scenario,
+        expected_status: 'REAL_PROJECT_BUSINESS_REPAIR_PASS',
+        expected_ledger: {
+          min_cell_count: 2,
+          min_pass_count: 2,
+          max_fail_count: 0,
+          required_codex_repair_smoke: true,
+          required_source_code_repair: true,
+          required_business_bug_repair: true,
+          required_real_llm_modification: true,
+          required_hidden_acceptance: true,
+          required_source_repos_read_only: true,
+          required_no_draft_pr: true
+        }
+      })
+    ]);
+    expect(
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).toContain(scenario);
+    expect(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).not.toContain(scenario);
+
+    const root = await tempRoot();
+    await writeLedger(root, scenario, 'real-project-business-repair-run', {
+      status: 'REAL_PROJECT_BUSINESS_REPAIR_PASS',
+      evidence_missing_count: 0,
+      codex_repair_smoke: true,
+      business_repair_smoke: true,
+      source_code_repair: true,
+      business_bug_repair: true,
+      llm_modification: true,
+      hidden_acceptance: true,
+      source_repos_read_only: true,
+      draft_pr: false,
+      builder: {
+        real_llm: true,
+        provider: 'codex',
+        model: 'gpt-5.5'
+      },
+      cell_count: 2,
+      pass_count: 2,
+      fail_count: 0,
+      cells: [
+        {
+          id: 'node-real-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_bug_repair: true,
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'python-real-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_bug_repair: true,
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        }
+      ]
+    });
+    await writeManifest(root, scenario, 'real-project-business-repair-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.evidence).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          status: 'REAL_PROJECT_BUSINESS_REPAIR_PASS',
+          codex_repair_smoke: true,
+          business_repair_smoke: true,
+          source_code_repair: true,
+          business_bug_repair: true,
+          llm_modification: true,
+          hidden_acceptance: true,
+          source_repos_read_only: true,
+          draft_pr: false
+        })
+      })
+    ]);
+
+    await writeLedger(
+      root,
+      scenario,
+      'real-project-business-repair-weakened-run',
+      {
+        status: 'REAL_PROJECT_BUSINESS_REPAIR_PASS',
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        business_repair_smoke: false,
+        source_code_repair: true,
+        business_bug_repair: false,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: {
+          real_llm: true,
+          provider: 'codex',
+          model: 'gpt-5.5'
+        },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'node-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              business_bug_repair: false,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'python-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      },
+      new Date(Date.now() + 1000)
+    );
+    await writeManifest(
+      root,
+      scenario,
+      'real-project-business-repair-weakened-run'
+    );
+
+    const weakenedReport = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(weakenedReport.status).toBe('fail');
+    expect(weakenedReport.evidence[0].ledger_failures).toEqual(
+      expect.arrayContaining([
+        'business_bug_repair',
+        'cells.node-real-project.codex_repair.business_bug_repair',
+        'cells.python-real-project.codex_repair.business_bug_repair'
+      ])
+    );
+  });
+
   it('keeps real Codex existing-source repair corpus audit explicit and requires existing source evidence', async () => {
     const selected = selectReleaseEvidenceAuditScenarios({
       scenarioNames: ['repo-matrix-real-project-existing-source-repair-uat']

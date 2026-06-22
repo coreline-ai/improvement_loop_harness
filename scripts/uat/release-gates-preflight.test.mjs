@@ -817,6 +817,180 @@ ELIFECYCLE Command failed with exit code 20.`);
     });
   });
 
+  it('validates real Codex temp-clone business bug repair proof fields', async () => {
+    const root = await tempRoot();
+    const scenario = 'repo-matrix-real-project-business-repair-uat';
+    const expectedStatus = 'REAL_PROJECT_BUSINESS_REPAIR_PASS';
+    const expectedLedger = {
+      min_cell_count: 2,
+      min_pass_count: 2,
+      max_fail_count: 0,
+      required_codex_repair_smoke: true,
+      required_source_code_repair: true,
+      required_business_bug_repair: true,
+      required_real_llm_modification: true,
+      required_hidden_acceptance: true,
+      required_source_repos_read_only: true,
+      required_no_draft_pr: true
+    };
+
+    await writeLedger(
+      root,
+      scenario,
+      'business-repair-run',
+      new Date('2026-06-15T01:00:00.000Z'),
+      {
+        status: expectedStatus,
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        business_repair_smoke: true,
+        source_code_repair: true,
+        business_bug_repair: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'repo-a',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              business_bug_repair: true,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'repo-b',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              business_bug_repair: true,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      }
+    );
+    await writeManifest(root, scenario, 'business-repair-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatus,
+        expectedLedger
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      status: 'present',
+      ledger_summary: {
+        codex_repair_smoke: true,
+        business_repair_smoke: true,
+        source_code_repair: true,
+        business_bug_repair: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        cells: [
+          {
+            id: 'repo-a',
+            codex_repair_status: 'pass',
+            codex_repair_business_bug_repair: true
+          },
+          {
+            id: 'repo-b',
+            codex_repair_status: 'pass',
+            codex_repair_business_bug_repair: true
+          }
+        ]
+      }
+    });
+
+    await writeLedger(
+      root,
+      scenario,
+      'business-repair-weakened-run',
+      new Date('2026-06-15T02:00:00.000Z'),
+      {
+        status: expectedStatus,
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        business_repair_smoke: false,
+        source_code_repair: true,
+        business_bug_repair: false,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'repo-a',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              business_bug_repair: false,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'repo-b',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      }
+    );
+    await writeManifest(root, scenario, 'business-repair-weakened-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatus,
+        expectedLedger
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 'invalid_ledger',
+      ledger_failures: expect.arrayContaining([
+        'business_bug_repair',
+        'cells.repo-a.codex_repair.business_bug_repair',
+        'cells.repo-b.codex_repair.business_bug_repair'
+      ])
+    });
+  });
+
   it('validates real Codex temp-clone existing source repair proof fields', async () => {
     const root = await tempRoot();
     const scenario =

@@ -19,6 +19,7 @@ const MODIFIABLE_COPY_SCENARIO =
   'repo-matrix-real-project-modifiable-corpus-uat';
 const CODEX_COPY_SCENARIO = 'repo-matrix-real-project-codex-copy-uat';
 const CODEX_REPAIR_SCENARIO = 'repo-matrix-real-project-codex-repair-uat';
+const BUSINESS_REPAIR_SCENARIO = 'repo-matrix-real-project-business-repair-uat';
 const EXISTING_SOURCE_REPAIR_SCENARIO =
   'repo-matrix-real-project-existing-source-repair-uat';
 const EXISTING_SOURCE_REPAIR_PR_SCENARIO =
@@ -31,6 +32,8 @@ const CODEX_COPY_PASS_STATUS = 'REAL_PROJECT_CODEX_COPY_PASS';
 const CODEX_COPY_FAIL_STATUS = 'REAL_PROJECT_CODEX_COPY_FAIL';
 const CODEX_REPAIR_PASS_STATUS = 'REAL_PROJECT_CODEX_REPAIR_PASS';
 const CODEX_REPAIR_FAIL_STATUS = 'REAL_PROJECT_CODEX_REPAIR_FAIL';
+const BUSINESS_REPAIR_PASS_STATUS = 'REAL_PROJECT_BUSINESS_REPAIR_PASS';
+const BUSINESS_REPAIR_FAIL_STATUS = 'REAL_PROJECT_BUSINESS_REPAIR_FAIL';
 const EXISTING_SOURCE_REPAIR_PASS_STATUS =
   'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS';
 const EXISTING_SOURCE_REPAIR_FAIL_STATUS =
@@ -1400,6 +1403,11 @@ async function runCodexRepairSmoke(
     model: options.codexModel,
     repair_source: REPAIR_SOURCE_FILE,
     visible_test: REPAIR_VISIBLE_TEST_FILE,
+    business_bug_repair: options.businessRepairSmoke === true,
+    business_domain:
+      options.businessRepairSmoke === true ? 'invoice_total' : null,
+    business_fixture: options.businessRepairSmoke === true,
+    semantic_hidden_acceptance: options.businessRepairSmoke === true,
     base_acceptance: {
       visible_status:
         baseVisible.code === 0 ? 'unexpected_pass' : 'expected_fail',
@@ -1896,21 +1904,22 @@ async function analyzeRepo(repoPath, index, options = {}) {
   if (codexCopy && codexCopy.status !== 'pass') {
     failures.push('codex_copy_smoke_failed');
   }
-  const codexRepair = options.codexRepairSmoke
-    ? await runCodexRepairSmoke(
-        resolved,
-        `${index}-${id}`,
-        options.tmpRoot,
-        options
-      )
-    : options.existingSourceRepairSmoke || options.existingSourceRepairPrSmoke
-      ? await runCodexExistingSourceRepairSmoke(
+  const codexRepair =
+    options.codexRepairSmoke || options.businessRepairSmoke
+      ? await runCodexRepairSmoke(
           resolved,
           `${index}-${id}`,
           options.tmpRoot,
           options
         )
-      : null;
+      : options.existingSourceRepairSmoke || options.existingSourceRepairPrSmoke
+        ? await runCodexExistingSourceRepairSmoke(
+            resolved,
+            `${index}-${id}`,
+            options.tmpRoot,
+            options
+          )
+        : null;
   if (codexRepair && codexRepair.status !== 'pass') {
     failures.push('codex_repair_smoke_failed');
   }
@@ -1979,6 +1988,8 @@ function parseArgs(argv, env = process.env) {
     env.VIBELOOP_REAL_PROJECT_CORPUS_CODEX_COPY_SMOKE === '1';
   let codexRepairSmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_CODEX_REPAIR_SMOKE === '1';
+  let businessRepairSmoke =
+    env.VIBELOOP_REAL_PROJECT_CORPUS_BUSINESS_REPAIR_SMOKE === '1';
   let existingSourceRepairSmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_EXISTING_SOURCE_REPAIR_SMOKE === '1';
   let existingSourceRepairPrSmoke =
@@ -2026,6 +2037,10 @@ function parseArgs(argv, env = process.env) {
     }
     if (arg === '--codex-repair-smoke') {
       codexRepairSmoke = true;
+      continue;
+    }
+    if (arg === '--business-repair-smoke') {
+      businessRepairSmoke = true;
       continue;
     }
     if (arg === '--existing-source-repair-smoke') {
@@ -2082,6 +2097,7 @@ function parseArgs(argv, env = process.env) {
     modifiableCopySmoke,
     codexCopySmoke,
     codexRepairSmoke,
+    businessRepairSmoke,
     existingSourceRepairSmoke,
     existingSourceRepairPrSmoke,
     codexModel,
@@ -2188,47 +2204,54 @@ async function main() {
   const codexModeCount = [
     options.codexCopySmoke,
     options.codexRepairSmoke,
+    options.businessRepairSmoke,
     options.existingSourceRepairSmoke,
     options.existingSourceRepairPrSmoke
   ].filter(Boolean).length;
   if (codexModeCount > 1) {
     throw new Error(
-      '--codex-copy-smoke, --codex-repair-smoke, --existing-source-repair-smoke, and --existing-source-repair-pr-smoke are mutually exclusive'
+      '--codex-copy-smoke, --codex-repair-smoke, --business-repair-smoke, --existing-source-repair-smoke, and --existing-source-repair-pr-smoke are mutually exclusive'
     );
   }
   const scenario = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_SCENARIO
     : options.existingSourceRepairSmoke
       ? EXISTING_SOURCE_REPAIR_SCENARIO
-      : options.codexRepairSmoke
-        ? CODEX_REPAIR_SCENARIO
-        : options.codexCopySmoke
-          ? CODEX_COPY_SCENARIO
-          : options.modifiableCopySmoke
-            ? MODIFIABLE_COPY_SCENARIO
-            : READ_ONLY_SCENARIO;
+      : options.businessRepairSmoke
+        ? BUSINESS_REPAIR_SCENARIO
+        : options.codexRepairSmoke
+          ? CODEX_REPAIR_SCENARIO
+          : options.codexCopySmoke
+            ? CODEX_COPY_SCENARIO
+            : options.modifiableCopySmoke
+              ? MODIFIABLE_COPY_SCENARIO
+              : READ_ONLY_SCENARIO;
   const passStatus = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_PASS_STATUS
     : options.existingSourceRepairSmoke
       ? EXISTING_SOURCE_REPAIR_PASS_STATUS
-      : options.codexRepairSmoke
-        ? CODEX_REPAIR_PASS_STATUS
-        : options.codexCopySmoke
-          ? CODEX_COPY_PASS_STATUS
-          : options.modifiableCopySmoke
-            ? MODIFIABLE_COPY_PASS_STATUS
-            : READ_ONLY_PASS_STATUS;
+      : options.businessRepairSmoke
+        ? BUSINESS_REPAIR_PASS_STATUS
+        : options.codexRepairSmoke
+          ? CODEX_REPAIR_PASS_STATUS
+          : options.codexCopySmoke
+            ? CODEX_COPY_PASS_STATUS
+            : options.modifiableCopySmoke
+              ? MODIFIABLE_COPY_PASS_STATUS
+              : READ_ONLY_PASS_STATUS;
   const failStatus = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_FAIL_STATUS
     : options.existingSourceRepairSmoke
       ? EXISTING_SOURCE_REPAIR_FAIL_STATUS
-      : options.codexRepairSmoke
-        ? CODEX_REPAIR_FAIL_STATUS
-        : options.codexCopySmoke
-          ? CODEX_COPY_FAIL_STATUS
-          : options.modifiableCopySmoke
-            ? MODIFIABLE_COPY_FAIL_STATUS
-            : READ_ONLY_FAIL_STATUS;
+      : options.businessRepairSmoke
+        ? BUSINESS_REPAIR_FAIL_STATUS
+        : options.codexRepairSmoke
+          ? CODEX_REPAIR_FAIL_STATUS
+          : options.codexCopySmoke
+            ? CODEX_COPY_FAIL_STATUS
+            : options.modifiableCopySmoke
+              ? MODIFIABLE_COPY_FAIL_STATUS
+              : READ_ONLY_FAIL_STATUS;
   if (options.repos.length < options.minRepos) {
     const report = {
       status: 'blocked',
@@ -2246,6 +2269,7 @@ async function main() {
   if (
     options.codexCopySmoke ||
     options.codexRepairSmoke ||
+    options.businessRepairSmoke ||
     options.existingSourceRepairSmoke ||
     options.existingSourceRepairPrSmoke
   ) {
@@ -2289,7 +2313,9 @@ async function main() {
       await analyzeRepo(repo, index + 1, {
         modifiableCopySmoke: options.modifiableCopySmoke,
         codexCopySmoke: options.codexCopySmoke,
-        codexRepairSmoke: options.codexRepairSmoke,
+        codexRepairSmoke:
+          options.codexRepairSmoke || options.businessRepairSmoke,
+        businessRepairSmoke: options.businessRepairSmoke,
         existingSourceRepairSmoke:
           options.existingSourceRepairSmoke ||
           options.existingSourceRepairPrSmoke,
@@ -2324,28 +2350,33 @@ async function main() {
       ? 'real Codex temp-clone broad real project existing source-code repair + GitHub draft PR smoke'
       : options.existingSourceRepairSmoke
         ? 'real Codex temp-clone broad real project existing source-code repair smoke'
-        : options.codexRepairSmoke
-          ? 'real Codex temp-clone broad real project source-code repair smoke'
-          : options.codexCopySmoke
-            ? 'real Codex temp-clone broad real project corpus smoke'
-            : options.modifiableCopySmoke
-              ? 'safe modifiable-copy broad real project corpus smoke'
-              : 'read-only broad real project corpus smoke',
+        : options.businessRepairSmoke
+          ? 'real Codex temp-clone broad real project business bug repair fixture smoke'
+          : options.codexRepairSmoke
+            ? 'real Codex temp-clone broad real project source-code repair smoke'
+            : options.codexCopySmoke
+              ? 'real Codex temp-clone broad real project corpus smoke'
+              : options.modifiableCopySmoke
+                ? 'safe modifiable-copy broad real project corpus smoke'
+                : 'read-only broad real project corpus smoke',
     scope: options.existingSourceRepairPrSmoke
       ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, source repo integrity, and GitHub draft PR publication to temporary private repos; not arbitrary business bug repair or arbitrary-repo product PASS'
       : options.existingSourceRepairSmoke
         ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
-        : options.codexRepairSmoke
-          ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
-          : options.codexCopySmoke
-            ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
-            : options.modifiableCopySmoke
-              ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
-              : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
+        : options.businessRepairSmoke
+          ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated invoice-total business logic fixture; real Codex must repair quantity, discount, tax, and final-rounding semantics in source code only; hidden verifier checks generalized business behavior, diff scope, and source repo integrity; not GitHub draft PR, existing application business-source repair, or arbitrary-repo product PASS'
+          : options.codexRepairSmoke
+            ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+            : options.codexCopySmoke
+              ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
+              : options.modifiableCopySmoke
+                ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
+                : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
     read_only:
       !options.modifiableCopySmoke &&
       !options.codexCopySmoke &&
       !options.codexRepairSmoke &&
+      !options.businessRepairSmoke &&
       !options.existingSourceRepairSmoke &&
       !options.existingSourceRepairPrSmoke,
     source_repos_read_only: true,
@@ -2353,13 +2384,17 @@ async function main() {
     codex_copy_smoke: options.codexCopySmoke,
     codex_repair_smoke:
       options.codexRepairSmoke ||
+      options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke,
+    business_repair_smoke: options.businessRepairSmoke,
+    business_bug_repair: options.businessRepairSmoke,
     existing_source_repair_smoke:
       options.existingSourceRepairSmoke || options.existingSourceRepairPrSmoke,
     existing_source_repair_pr_smoke: options.existingSourceRepairPrSmoke,
     source_code_repair:
       options.codexRepairSmoke ||
+      options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke,
     existing_source_repair:
@@ -2367,11 +2402,13 @@ async function main() {
     llm_modification:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
+      options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke,
     hidden_acceptance:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
+      options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke,
     draft_pr: options.existingSourceRepairPrSmoke,
@@ -2380,6 +2417,7 @@ async function main() {
     builder:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
+      options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke
         ? {
@@ -2415,8 +2453,11 @@ async function main() {
         codex_copy_smoke: options.codexCopySmoke,
         codex_repair_smoke:
           options.codexRepairSmoke ||
+          options.businessRepairSmoke ||
           options.existingSourceRepairSmoke ||
           options.existingSourceRepairPrSmoke,
+        business_repair_smoke: options.businessRepairSmoke,
+        business_bug_repair: options.businessRepairSmoke,
         existing_source_repair_smoke:
           options.existingSourceRepairSmoke ||
           options.existingSourceRepairPrSmoke,
