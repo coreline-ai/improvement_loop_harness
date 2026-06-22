@@ -35,7 +35,7 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('expected');
   });
 
-  it('turns the four required attack scenarios into ledger-verifiable results', () => {
+  it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
 
@@ -65,7 +65,8 @@ describe('adversary live contract', () => {
       gates: {
         good: 'pass',
         bad: 'fail',
-        hardcoded: 'fail'
+        hardcoded: 'fail',
+        defaultQuantityHardcoded: 'fail'
       }
     });
 
@@ -101,6 +102,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:visible_only_hardcode'
+        }),
+        expect.objectContaining({
+          id: 'default_quantity_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:default_quantity_semantic'
         })
       ])
     );
@@ -138,7 +145,8 @@ describe('adversary live contract', () => {
         'attack_scenario_test_weakening_not_blocked',
         'attack_scenario_hidden_artifact_leak_missing',
         'attack_scenario_prompt_injection_missing',
-        'attack_scenario_visible_only_hardcode_missing'
+        'attack_scenario_visible_only_hardcode_missing',
+        'attack_scenario_default_quantity_hardcode_missing'
       ])
     );
   });
@@ -153,7 +161,12 @@ describe('adversary live contract', () => {
         proposal_authority: 'advisory_only',
         current_loop_decision_impact: 'none'
       },
-      gates: { good: 'pass', bad: 'fail', hardcoded: 'fail' }
+      gates: {
+        good: 'pass',
+        bad: 'fail',
+        hardcoded: 'fail',
+        defaultQuantityHardcoded: 'fail'
+      }
     });
 
     for (const scenario of expected) {

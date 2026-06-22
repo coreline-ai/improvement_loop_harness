@@ -689,6 +689,120 @@ describe('Product-100 Codex live UAT driver contract', () => {
     expect(report.evaluation.requirements.docs_run_ledger_readme_truthful).toBe(true);
   });
 
+  it('auto-finalizes default Phase6 evidence bundle and release audit when Phase6 and Phase7 live gates are enabled', async () => {
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), 'p100-auto-phase6-'));
+    const phase5Pass = {
+      phase5_pass: true,
+      real_codex_adversary_reviewer_used: true,
+      accepted_review_proposal_count_at_least_one: true,
+      same_model_review_false: true,
+      m2_confirmed_under_r1: true,
+      m4_replay_safe_under_r1: true,
+      frozen_rulepack_semantic_gate_passed_next_loop: true
+    };
+    const calls = {
+      phase6: [],
+      bundles: 0,
+      ledgers: 0,
+      audits: 0,
+      phase7: 0
+    };
+    const report = await buildProduct100CodexLiveUatReport({
+      preflightReport: passPreflight,
+      phase4Report: {
+        ...phase4Pass,
+        tmp_root: tmpRoot,
+        data_dir: tmpRoot,
+        issues: [{ issue_id: 'NM-001', repo_id: 'node-monorepo-scope' }]
+      },
+      phase5Report: phase5Pass,
+      baseValidationReport: baseValidationPass,
+      runId: 'test-run',
+      env: {
+        VIBELOOP_PRODUCT_100_ENABLE_PHASE6_LIVE: '1',
+        VIBELOOP_PRODUCT_100_ENABLE_PHASE7_DOCS_CHECK: '1',
+        VIBELOOP_PRODUCT_100_KEEP_TMP: '1'
+      },
+      phase6ReleaseRunner: async (input) => {
+        calls.phase6.push(input);
+        if (!input.draftPrs) {
+          return {
+            kind: 'product_100_phase6_release',
+            phase6_pass: false,
+            draft_prs: [
+              {
+                issue_id: 'NM-001',
+                state: 'open',
+                draft: true,
+                url: 'https://github.com/coreline-ai/example/pull/1',
+                body: 'Product-100 draft body'
+              }
+            ],
+            issue_results: input.phase4.issues,
+            draft_pr_validation: { ok: true, failures: [] }
+          };
+        }
+        return {
+          kind: 'product_100_phase6_release',
+          phase6_pass: true,
+          github_draft_prs_open: true,
+          evidence_missing_count_zero: true,
+          evidence_copied_count_positive: true,
+          release_evidence_audit_pass: true,
+          draft_prs: input.draftPrs,
+          issue_results: input.phase4.issues,
+          evidence_bundle: input.evidenceBundle,
+          release_audit: input.releaseAudit
+        };
+      },
+      phase7Runner: async ({ ledger }) => {
+        calls.phase7 += 1;
+        expect(ledger.status).toBe('PRODUCT_100_CODEX_LIVE_PASS');
+        return {
+          phase7_pass: true,
+          docs_run_ledger_readme_truthful: true
+        };
+      },
+      evidenceBundleWriter: async ({ ledger, runId }) => {
+        calls.bundles += 1;
+        expect(ledger.status).toBe('PRODUCT_100_CODEX_LIVE_PASS');
+        return {
+          run_id: runId,
+          bundle_dir: path.join(tmpRoot, 'evidence', String(calls.bundles)),
+          manifest_path: path.join(tmpRoot, 'evidence', String(calls.bundles), 'uat-evidence-manifest.json'),
+          missing_count: 0,
+          copied_count: 2,
+          evidence_missing_count: 0,
+          evidence_copied_count: 3
+        };
+      },
+      evidenceLedgerWriter: async () => {
+        calls.ledgers += 1;
+      },
+      releaseAuditBuilder: async ({ scenarioNames }) => {
+        calls.audits += 1;
+        expect(scenarioNames).toEqual(['product-100-codex-live-uat']);
+        return {
+          status: 'pass',
+          audit_summary: { required_count: 1, passed_count: 1, failed_count: 0 }
+        };
+      }
+    });
+
+    expect(calls.phase6).toHaveLength(3);
+    expect(calls.phase6[0].evidenceRef).toBe(
+      'product-100-codex-live-uat/test-run'
+    );
+    expect(calls.bundles).toBe(2);
+    expect(calls.ledgers).toBe(2);
+    expect(calls.audits).toBe(2);
+    expect(calls.phase7).toBe(1);
+    expect(report.status).toBe('PRODUCT_100_CODEX_LIVE_PASS');
+    expect(report.evaluation.pass).toBe(true);
+    expect(report.summary.phase6.evidence_bundle.evidence_missing_count).toBe(0);
+    expect(report.summary.phase6.release_audit.status).toBe('pass');
+  });
+
 
   it('maps Phase6 evidence but still refuses Product-100 PASS before Phase7 documentation/run-ledger closure', async () => {
     const phase5Pass = {

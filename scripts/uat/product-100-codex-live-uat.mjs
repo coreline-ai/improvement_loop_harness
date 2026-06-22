@@ -22,9 +22,12 @@ import {
 import { prepareProduct100CodexHome } from './product-100-codex-home.mjs';
 import {
   evaluateProduct100Phase6,
-  runProduct100Phase6Release
+  runProduct100Phase6Release,
+  writeProduct100EvidenceBundle
 } from './product-100-release.mjs';
 import { runProduct100Phase7DocsCheck } from './product-100-docs.mjs';
+import { writeUatEvidenceLedger } from './evidence-bundle.mjs';
+import { buildReleaseEvidenceAuditReport } from './release-evidence-audit.mjs';
 import {
   PRODUCT_100_BLOCKED_STATUS,
   PRODUCT_100_FAIL_STATUS,
@@ -670,6 +673,148 @@ function phase4Ledger({ preflight, evalSummary, baseValidation, phase4, phase5, 
   });
 }
 
+async function runProduct100Phase6EvidenceAudit({
+  preflight,
+  evalSummary,
+  baseValidation,
+  phase4,
+  phase5,
+  runId,
+  phase7Runner = runProduct100Phase7DocsCheck,
+  phase6ReleaseRunner = runProduct100Phase6Release,
+  evidenceBundleWriter = writeProduct100EvidenceBundle,
+  evidenceLedgerWriter = writeUatEvidenceLedger,
+  releaseAuditBuilder = buildReleaseEvidenceAuditReport
+} = {}) {
+  const evidenceRef = `${PRODUCT_100_LIVE_UAT_SCENARIO}/${runId}`;
+  const draftPhase6 = await phase6ReleaseRunner({
+    phase4,
+    phase5,
+    runId,
+    evidenceRef
+  });
+  const bootstrapPhase6 = await phase6ReleaseRunner({
+    phase4,
+    phase5,
+    runId,
+    draftPrs: draftPhase6.draft_prs,
+    evidenceBundle: {
+      missing_count: 0,
+      copied_count: 1,
+      source: 'bootstrap_before_product_100_evidence_bundle'
+    },
+    releaseAudit: {
+      status: 'pass',
+      source: 'bootstrap_before_product_100_release_evidence_audit'
+    }
+  });
+  const desiredPassLedgerForDocs = phase4Ledger({
+    preflight,
+    evalSummary,
+    baseValidation,
+    phase4,
+    phase5,
+    phase6: bootstrapPhase6,
+    phase7: {
+      phase7_pass: true,
+      docs_run_ledger_readme_truthful: true,
+      bootstrap: true
+    },
+    runId
+  });
+  const phase7 = await phase7Runner({
+    ledger: desiredPassLedgerForDocs,
+    runId,
+    phase4,
+    phase5,
+    phase6: bootstrapPhase6
+  });
+  const bootstrapLedger = phase4Ledger({
+    preflight,
+    evalSummary,
+    baseValidation,
+    phase4,
+    phase5,
+    phase6: bootstrapPhase6,
+    phase7,
+    runId
+  });
+  let evidenceBundle = await evidenceBundleWriter({
+    ledger: bootstrapLedger,
+    runId,
+    tmpRoot: phase4.tmp_root,
+    dataDir: phase4.data_dir,
+    outputs: [preflight, phase4, phase5, draftPhase6, bootstrapPhase6, phase7],
+    proxyStats: phase4.proxy_stats,
+    extraJson: {
+      phase6_draft_prs: draftPhase6.draft_prs ?? [],
+      phase6_draft_pr_validation: draftPhase6.draft_pr_validation ?? null
+    }
+  });
+  const auditedBootstrapLedger = phase4Ledger({
+    preflight,
+    evalSummary,
+    baseValidation,
+    phase4,
+    phase5,
+    phase6: {
+      ...bootstrapPhase6,
+      evidence_bundle: evidenceBundle
+    },
+    phase7,
+    runId
+  });
+  await evidenceLedgerWriter(evidenceBundle, auditedBootstrapLedger);
+  const releaseAudit = await releaseAuditBuilder({
+    scenarioNames: [PRODUCT_100_LIVE_UAT_SCENARIO]
+  });
+  const finalPhase6 = await phase6ReleaseRunner({
+    phase4,
+    phase5,
+    runId,
+    draftPrs: draftPhase6.draft_prs,
+    evidenceBundle,
+    releaseAudit
+  });
+  const finalLedger = phase4Ledger({
+    preflight,
+    evalSummary,
+    baseValidation,
+    phase4,
+    phase5,
+    phase6: finalPhase6,
+    phase7,
+    runId
+  });
+  evidenceBundle = await evidenceBundleWriter({
+    ledger: finalLedger,
+    runId,
+    tmpRoot: phase4.tmp_root,
+    dataDir: phase4.data_dir,
+    outputs: [preflight, phase4, phase5, finalPhase6, phase7, releaseAudit],
+    proxyStats: phase4.proxy_stats,
+    extraJson: {
+      phase6_draft_prs: draftPhase6.draft_prs ?? [],
+      phase6_draft_pr_validation: draftPhase6.draft_pr_validation ?? null,
+      release_evidence_audit: releaseAudit
+    }
+  });
+  await evidenceLedgerWriter(evidenceBundle, finalLedger);
+  const finalReleaseAudit = await releaseAuditBuilder({
+    scenarioNames: [PRODUCT_100_LIVE_UAT_SCENARIO]
+  });
+  return {
+    phase6: {
+      ...finalPhase6,
+      evidence_bundle: evidenceBundle,
+      release_audit: finalReleaseAudit
+    },
+    phase7,
+    evidence_bundle: evidenceBundle,
+    release_audit: finalReleaseAudit
+  };
+}
+
 function run(command, args, options = {}) {
   return new Promise((resolve) => {
     const child = spawn(command, args, {
@@ -1130,16 +1275,17 @@ export async function runProduct100RealCodexLoop(options = {}) {
 }
 
 export async function buildProduct100CodexLiveUatReport(options = {}) {
+  const env = options.env ?? process.env;
   const runId = options.runId ?? `product-100-${process.pid}-${Date.now()}`;
   const preflight =
     options.preflightReport ??
     (await buildProduct100PreflightReport({
-      env: options.env ?? process.env,
+      env,
       requirePostgres: options.requirePostgres
     }));
   const corpus = options.corpus ?? buildProduct100CorpusSpec();
   const evalArtifacts = buildProduct100IssueEvalArtifacts(corpus, {
-    agentTimeoutSeconds: product100AgentTimeoutSeconds(options.env ?? process.env, options)
+    agentTimeoutSeconds: product100AgentTimeoutSeconds(env, options)
   });
   const evalSummary = summarizeProduct100EvalArtifacts(evalArtifacts);
   let scaffoldRoot = null;
@@ -1148,7 +1294,7 @@ export async function buildProduct100CodexLiveUatReport(options = {}) {
     scaffoldRoot = await mkdtemp(`${os.tmpdir()}/product-100-live-scaffold-`);
     await writeProduct100Scaffold(scaffoldRoot, corpus);
     baseValidation = await validateProduct100BaseFailures(scaffoldRoot, corpus);
-    if (process.env.VIBELOOP_PRODUCT_100_KEEP_TMP !== '1') {
+    if (env.VIBELOOP_PRODUCT_100_KEEP_TMP !== '1') {
       await rm(scaffoldRoot, { recursive: true, force: true });
       scaffoldRoot = null;
     }
@@ -1186,24 +1332,51 @@ export async function buildProduct100CodexLiveUatReport(options = {}) {
   const phase5 =
     options.phase5Report ??
     (phase4.every_issue_product_100_phase4_pass === true ||
-    process.env.VIBELOOP_PRODUCT_100_ENABLE_PHASE5_LIVE === '1'
+    env.VIBELOOP_PRODUCT_100_ENABLE_PHASE5_LIVE === '1'
       ? await (options.phase5Runner ?? runProduct100Phase5LiveForIssues)({
           phase4,
           codexHome: phase4.codex_home
         })
       : null);
-  const phase6 =
-    options.phase6Report ??
-    (phase4.every_issue_product_100_phase4_pass === true &&
+  let phase6 = options.phase6Report ?? null;
+  let phase7 = options.phase7Report ?? null;
+  const phase6LiveRequested =
+    phase4.every_issue_product_100_phase4_pass === true &&
     phase5?.phase5_pass === true &&
     (options.phase6Runner ||
-      process.env.VIBELOOP_PRODUCT_100_ENABLE_PHASE6_LIVE === '1')
-      ? await (options.phase6Runner ?? runProduct100Phase6Release)({
-          phase4,
-          phase5,
-          runId
-        })
-      : null);
+      env.VIBELOOP_PRODUCT_100_ENABLE_PHASE6_LIVE === '1');
+  const phase7DocsRequested =
+    options.phase7Runner ||
+    env.VIBELOOP_PRODUCT_100_ENABLE_PHASE7_DOCS_CHECK === '1';
+  if (!phase6 && phase6LiveRequested) {
+    if (!options.phase6Runner && phase7DocsRequested) {
+      const finalized = await runProduct100Phase6EvidenceAudit({
+        preflight,
+        evalSummary,
+        baseValidation,
+        phase4,
+        phase5,
+        runId,
+        phase7Runner: options.phase7Runner ?? runProduct100Phase7DocsCheck,
+        phase6ReleaseRunner:
+          options.phase6ReleaseRunner ?? runProduct100Phase6Release,
+        evidenceBundleWriter:
+          options.evidenceBundleWriter ?? writeProduct100EvidenceBundle,
+        evidenceLedgerWriter:
+          options.evidenceLedgerWriter ?? writeUatEvidenceLedger,
+        releaseAuditBuilder:
+          options.releaseAuditBuilder ?? buildReleaseEvidenceAuditReport
+      });
+      phase6 = finalized.phase6;
+      phase7 = finalized.phase7;
+    } else {
+      phase6 = await (options.phase6Runner ?? runProduct100Phase6Release)({
+        phase4,
+        phase5,
+        runId
+      });
+    }
+  }
   const desiredPassLedgerForDocs =
     phase6?.phase6_pass === true
       ? buildProduct100Ledger({
@@ -1226,11 +1399,9 @@ export async function buildProduct100CodexLiveUatReport(options = {}) {
           issue_results: phase4.issues ?? []
         })
       : null;
-  const phase7 =
-    options.phase7Report ??
-    (phase6?.phase6_pass === true &&
-    (options.phase7Runner ||
-      process.env.VIBELOOP_PRODUCT_100_ENABLE_PHASE7_DOCS_CHECK === '1')
+  phase7 =
+    phase7 ??
+    (phase6?.phase6_pass === true && phase7DocsRequested
       ? await (options.phase7Runner ?? runProduct100Phase7DocsCheck)({
           ledger: desiredPassLedgerForDocs,
           runId,

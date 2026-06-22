@@ -18,6 +18,10 @@ import {
   githubReleaseEvidenceAuditExitCode,
   parseArgs
 } from './release-evidence-audit-gh.mjs';
+import {
+  PRODUCT_100_REQUIRED_REQUIREMENTS,
+  buildProduct100Ledger
+} from './product-100-contract.mjs';
 
 const cleanup = [];
 
@@ -76,6 +80,42 @@ async function writeManifest(root, scenario, runId) {
       2
     )}\n`
   );
+}
+
+async function writeProduct100PassEvidence(root, runId) {
+  const scenario = 'product-100-codex-live-uat';
+  const requirements = Object.fromEntries(
+    PRODUCT_100_REQUIRED_REQUIREMENTS.map((name) => [name, true])
+  );
+  const runDir = path.join(root, scenario, runId);
+  const ledger = path.join(runDir, 'ledger.json');
+  await mkdir(runDir, { recursive: true });
+  await writeFile(
+    ledger,
+    `${JSON.stringify(
+      buildProduct100Ledger({
+        run_id: runId,
+        requirements,
+        summary: {
+          live_loop_started: true,
+          phase4: {
+            issue_count: 10,
+            every_issue_product_100_phase4_pass: true
+          },
+          phase5: { phase5_pass: true },
+          phase6: { phase6_pass: true },
+          phase7: { phase7_pass: true }
+        },
+        evidence: {
+          evidence_missing_count: 0,
+          evidence_copied_count: 1
+        }
+      }),
+      null,
+      2
+    )}\n`
+  );
+  await writeManifest(root, scenario, runId);
 }
 
 describe('GitHub release evidence audit', () => {
@@ -187,6 +227,69 @@ describe('GitHub release evidence audit', () => {
       })
     );
     expect(githubReleaseEvidenceAuditExitCode(report)).toBe(0);
+  });
+
+  it('downloads and audits Product-100 GitHub artifact evidence explicitly', async () => {
+    const outputDir = await tempRoot();
+    const calls = [];
+    const runCommand = async (command, args) => {
+      calls.push([command, args]);
+      if (args[0] === 'api') {
+        return {
+          ok: true,
+          status: 'pass',
+          exit_code: 0,
+          stdout: JSON.stringify({
+            artifacts: [
+              {
+                name: 'product-100-evidence-123-2',
+                expired: false,
+                size_in_bytes: 4321
+              },
+              {
+                name: 'uat-evidence-123-2',
+                expired: false,
+                size_in_bytes: 1234
+              }
+            ]
+          }),
+          stderr: ''
+        };
+      }
+      await writeProduct100PassEvidence(outputDir, 'product-100-ci-run');
+      return {
+        ok: true,
+        status: 'pass',
+        exit_code: 0,
+        stdout: 'downloaded',
+        stderr: ''
+      };
+    };
+
+    const report = await buildGitHubReleaseEvidenceAuditReport({
+      runId: '123',
+      runAttempt: '2',
+      repo: 'coreline-ai/improvement_loop_harness',
+      outputDir,
+      artifactPattern: 'product-100-evidence-123-2',
+      scenarioNames: ['product-100-codex-live-uat'],
+      runCommand
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.github.artifact_pattern).toBe('product-100-evidence-123-2');
+    expect(
+      report.download.attempts[0].artifact_lookup.matching_artifacts
+    ).toEqual([
+      expect.objectContaining({ name: 'product-100-evidence-123-2' })
+    ]);
+    expect(report.audit.audit_summary.scenarios).toEqual([
+      expect.objectContaining({
+        scenario: 'product-100-codex-live-uat',
+        ok: true,
+        run_id: 'product-100-ci-run'
+      })
+    ]);
   });
 
   it('uses GitHub Actions env run id as a default explicit target', async () => {

@@ -191,6 +191,10 @@ async function main() {
       workRoot,
       'loop-n-plus-one-visible-only-hardcode'
     );
+    const defaultQuantityHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-default-quantity-hardcode'
+    );
     const buggyCart = [
       'function lineTotal(item) {',
       '  return item.price;',
@@ -212,11 +216,22 @@ async function main() {
       'module.exports = { lineTotal };',
       ''
     ].join('\n');
+    const defaultQuantityHardcodedCart = [
+      'function lineTotal(item) {',
+      '  return item.price * item.quantity;',
+      '}',
+      'module.exports = { lineTotal };',
+      ''
+    ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
     await writeCartFixture(badWorktree, buggyCart);
     await writeCartFixture(hardcodedWorktree, hardcodedCart);
+    await writeCartFixture(
+      defaultQuantityHardcodedWorktree,
+      defaultQuantityHardcodedCart
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -381,6 +396,13 @@ async function main() {
         'adversary-live-visible-only-hardcode'
       )
     );
+    const defaultQuantityHardcoded = await runGates(
+      await gateContext(
+        defaultQuantityHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-default-quantity-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -390,16 +412,22 @@ async function main() {
     const hardcodedGate = hardcoded.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
+    const defaultQuantityHardcodedGate =
+      defaultQuantityHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
-      hardcodedGate?.status !== 'fail'
+      hardcodedGate?.status !== 'fail' ||
+      defaultQuantityHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
           good: goodGate,
           bad: badGate,
-          hardcoded: hardcodedGate
+          hardcoded: hardcodedGate,
+          defaultQuantityHardcoded: defaultQuantityHardcodedGate
         })}`
       );
     }
@@ -411,7 +439,8 @@ async function main() {
       gates: {
         good: goodGate.status,
         bad: badGate.status,
-        hardcoded: hardcodedGate.status
+        hardcoded: hardcodedGate.status,
+        defaultQuantityHardcoded: defaultQuantityHardcodedGate.status
       }
     });
     const attackScenarioCheck =
@@ -479,8 +508,12 @@ async function main() {
         good_gate_status: goodGate.status,
         bad_gate_status: badGate.status,
         hardcoded_gate_status: hardcodedGate.status,
+        default_quantity_hardcoded_gate_status:
+          defaultQuantityHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
-        visible_only_hardcode_rejected: hardcodedGate.status === 'fail'
+        visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
+        default_quantity_hardcode_rejected:
+          defaultQuantityHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

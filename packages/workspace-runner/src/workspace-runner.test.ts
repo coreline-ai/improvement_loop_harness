@@ -294,6 +294,51 @@ describe('dependency provisioning', () => {
     );
   }, 10_000);
 
+  it('preserves isolated HOME and Corepack cache for pnpm fallback installs', async () => {
+    const dataDir = await tempDir('vibeloop-deps-corepack-home-data-');
+    const workspace = await tempDir('vibeloop-deps-corepack-home-ws-');
+    const fakeBin = await tempDir('vibeloop-deps-corepack-home-bin-');
+    const isolatedHome = await tempDir('vibeloop-deps-corepack-home-');
+    const corepackHome = await tempDir('vibeloop-deps-corepack-cache-');
+    const fakeCorepack = path.join(fakeBin, 'corepack');
+    await writeFile(
+      path.join(workspace, 'pnpm-lock.yaml'),
+      "lockfileVersion: '9.0'\n\nimporters:\n\n  .: {}\n"
+    );
+    await writeFile(
+      path.join(workspace, 'package.json'),
+      '{"name":"fixture","version":"1.0.0"}\n'
+    );
+    await writeFile(
+      fakeCorepack,
+      [
+        '#!/bin/sh',
+        'printf "HOME=%s\\nCOREPACK_HOME=%s\\n" "$HOME" "$COREPACK_HOME" > "$PWD/install-env.txt"',
+        '/bin/mkdir -p "$PWD/node_modules/fake"',
+        'printf ok > "$PWD/node_modules/fake/index.js"',
+        ''
+      ].join('\n')
+    );
+    await chmod(fakeCorepack, 0o700);
+
+    await expect(
+      provisionDependencies({
+        workspaceRoot: workspace,
+        dataDir,
+        projectId: 'proj-pnpm-corepack-home-install',
+        env: {
+          PATH: fakeBin,
+          HOME: isolatedHome,
+          COREPACK_HOME: corepackHome
+        }
+      })
+    ).resolves.toMatchObject({ status: 'cache_miss', manager: 'pnpm' });
+
+    await expect(
+      readFile(path.join(workspace, 'install-env.txt'), 'utf8')
+    ).resolves.toBe(`HOME=${isolatedHome}\nCOREPACK_HOME=${corepackHome}\n`);
+  }, 10_000);
+
   it('falls back to corepack for yarn lockfiles when yarn is not on PATH', async () => {
     const dataDir = await tempDir('vibeloop-deps-yarn-corepack-data-');
     const workspace = await tempDir('vibeloop-deps-yarn-corepack-ws-');

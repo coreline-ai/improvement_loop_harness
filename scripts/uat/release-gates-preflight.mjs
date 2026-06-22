@@ -81,8 +81,8 @@ export const EVIDENCE_SCENARIOS = [
     require_manifest: true,
     expected_status: 'REPO_MATRIX_PASS',
     expected_ledger: {
-      min_cell_count: 16,
-      min_pass_count: 13,
+      min_cell_count: 19,
+      min_pass_count: 16,
       max_fail_count: 0,
       min_dependency_checked_count: 16,
       min_dependency_cache_miss_count: 3,
@@ -117,6 +117,9 @@ export const EVIDENCE_SCENARIOS = [
         },
         { id: 'js-monorepo-scope', status: 'pass' },
         { id: 'react-next-like', status: 'pass' },
+        { id: 'django-like-service', status: 'pass' },
+        { id: 'rails-like-service', status: 'pass' },
+        { id: 'android-gradle-like', status: 'pass' },
         { id: 'cli-tool', status: 'pass' },
         {
           id: 'no-package-manager',
@@ -479,7 +482,12 @@ function requiredAttackScenarioFailures(
     if (expected?.expected_outcome === 'reject_or_no_pr' && scenario.blocked !== true) {
       failures.push(`attack_scenarios.${required}.blocked`);
     }
-    if (required === 'visible_only_hardcode' && scenario.executed !== true) {
+    if (
+      ['visible_only_hardcode', 'default_quantity_hardcode'].includes(
+        required
+      ) &&
+      scenario.executed !== true
+    ) {
       failures.push(`attack_scenarios.${required}.executed`);
     }
   }

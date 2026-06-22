@@ -1,0 +1,162 @@
+name: Product-100 Live Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: Run the live Product-100 Codex/GitHub evidence job.
+        required: true
+        type: boolean
+        default: false
+      github_owner:
+        description: GitHub owner used for temporary private corpus repos.
+        required: true
+        type: string
+        default: coreline-ai
+      keep_remote:
+        description: Preserve temporary GitHub repos and draft PRs for audit.
+        required: true
+        type: boolean
+        default: true
+      require_postgres:
+        description: Require Postgres preflight during the live run.
+        required: true
+        type: boolean
+        default: false
+      replay_run_id:
+        description: Optional existing run id to download and audit instead of running live.
+        required: false
+        type: string
+        default: ''
+      replay_run_attempt:
+        description: Attempt for replay_run_id.
+        required: false
+        type: string
+        default: '1'
+      replay_repo:
+        description: OWNER/REPO for replay artifacts.
+        required: true
+        type: string
+        default: coreline-ai/improvement_loop_harness
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  live-evidence:
+    name: live Product-100 evidence
+    if: ${{ inputs.run_live }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vibeloop
+          POSTGRES_PASSWORD: vibeloop
+          POSTGRES_DB: vibeloop
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd "pg_isready -U vibeloop -d vibeloop"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql://vibeloop:vibeloop@127.0.0.1:54329/vibeloop
+      TEST_DATABASE_URL: postgresql://vibeloop:vibeloop@127.0.0.1:54329/vibeloop
+      GH_TOKEN: ${{ secrets.PRODUCT100_GH_TOKEN }}
+      VIBELOOP_UAT_EVIDENCE_DIR: ${{ github.workspace }}/.uat-evidence-product100
+      VIBELOOP_PRODUCT_100_ENABLE_PHASE6_LIVE: '1'
+      VIBELOOP_PRODUCT_100_ENABLE_PHASE7_DOCS_CHECK: '1'
+      VIBELOOP_PRODUCT_100_ENABLE_GITHUB_REPOS: '1'
+      VIBELOOP_PRODUCT_100_GITHUB_OWNER: ${{ inputs.github_owner }}
+      VIBELOOP_UAT_KEEP_REMOTE: ${{ inputs.keep_remote && '1' || '0' }}
+      VIBELOOP_PRODUCT_100_REQUIRE_POSTGRES: ${{ inputs.require_postgres && '1' || '0' }}
+      VIBELOOP_PRODUCT_100_KEEP_TMP: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate
+      - run: pnpm exec prisma migrate deploy
+      - run: docker pull node:22-alpine
+      - run: docker pull python:3.12-alpine
+      - run: gh auth status
+      - run: corepack pnpm uat:product-100:preflight
+      - run: corepack pnpm uat:product-100:codex-live
+      - run: corepack pnpm uat:release-evidence-audit -- --scenario product-100-codex-live-uat
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: product-100-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence-product100
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  live-artifact-audit:
+    name: audit live Product-100 artifact
+    if: ${{ always() && inputs.run_live }}
+    runs-on: ubuntu-latest
+    needs: [live-evidence]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: product-100-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-product-100-evidence
+          merge-multiple: true
+      - name: Audit downloaded Product-100 evidence
+        run: |
+          mkdir -p .ci-product-100-audit
+          set +e
+          node scripts/uat/release-evidence-audit.mjs \
+            --evidence-root .ci-product-100-evidence \
+            --scenario product-100-codex-live-uat \
+            > .ci-product-100-audit/release-evidence-audit.json \
+            2> .ci-product-100-audit/release-evidence-audit.stderr
+          status=$?
+          cat .ci-product-100-audit/release-evidence-audit.json
+          if [ -s .ci-product-100-audit/release-evidence-audit.stderr ]; then
+            cat .ci-product-100-audit/release-evidence-audit.stderr >&2
+          fi
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: product-100-artifact-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-product-100-audit
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  replay-artifact-audit:
+    name: replay Product-100 artifact audit
+    if: ${{ inputs.replay_run_id != '' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Download and audit Product-100 evidence from a prior run
+        run: |
+          node scripts/uat/release-evidence-audit-gh.mjs \
+            --run-id "${{ inputs.replay_run_id }}" \
+            --run-attempt "${{ inputs.replay_run_attempt }}" \
+            --repo "${{ inputs.replay_repo }}" \
+            --artifact-pattern "product-100-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}" \
+            --scenario product-100-codex-live-uat

@@ -315,8 +315,8 @@ corepack pnpm uat:adversary-live
 
 기대:
 
-- Docker-compatible runtime이 있으면 preflight는 `status=pass`, `uat:adversary-live`는 controlled command adversary proposal을 M2 격리 confirm → M4 replay → freeze → N+1 `builtin:rulepack-semantic` good/pass bad/fail까지 실행한다.
-- 현재 머신처럼 `docker`가 없으면 둘 다 `status=blocked`, `reason=CONTAINER_RUNTIME_UNAVAILABLE`, exit 20. 이 경우 P4 live adversary PASS를 선언하지 않는다.
+- Docker-compatible runtime이 있으면 preflight는 `status=pass`, `uat:adversary-live`는 controlled command adversary proposal을 M2 격리 confirm → M4 replay → freeze → N+1 `builtin:rulepack-semantic` good/pass, bad/fail, visible-only hardcode/fail, default-quantity hardcode/fail까지 실행한다.
+- `docker`가 없으면 둘 다 `status=blocked`, `reason=CONTAINER_RUNTIME_UNAVAILABLE`, exit 20. 이 경우 P4 live adversary PASS를 선언하지 않는다.
 
 ---
 
@@ -331,9 +331,10 @@ corepack pnpm uat:repo-matrix
 기대:
 
 - `status=REPO_MATRIX_PASS`
-- `cell_count=10`, `pass_count=8`, `blocked_count=1`, `unsupported_count=1`, `fail_count=0`
+- `cell_count=19`, `pass_count>=16`, `blocked_count=1`, `unsupported_count<=1`, `fail_count=0`
+- broad controlled framework-like cells include Django-like, Rails-like, and Android/Gradle-like repo shapes
 - `dirty-worktree`는 `dirty_source_guard`로 blocked
-- `network-restricted-r1`은 현재 머신처럼 Docker가 없으면 `unsupported`
+- `network-restricted-r1`은 Docker/R1 smoke가 가능하면 `pass`, Docker가 없으면 `unsupported`
 - stdout의 `evidence_bundle` 아래 `ledger.json`과 각 supported cell의 `eval-report.json`이 남는다.
 
 최근 확인 evidence:
@@ -473,6 +474,36 @@ corepack pnpm uat:product-100:preflight
 ```
 
 위 설정이 없는데 `VIBELOOP_PRODUCT_100_ENABLE_PHASE6_LIVE=1`만 켜면 preflight는 `github_draft_prs_open` blocker로 fail-closed한다. 생성되는 private repo 이름은 `vibeloop-p100-<run>-<corpus-repo>` 형식이다.
+
+### CI artifact 재현성
+
+실제 GitHub Actions artifact까지 재현하려면 `Product-100 Live Evidence` workflow를 수동 실행한다. 이 workflow는 opt-in일 때만 live Codex/GitHub run을 수행하고, 같은 run에서 업로드된 `product-100-evidence-<run_id>-<attempt>` artifact를 다시 다운로드해 `release-evidence-audit --scenario product-100-codex-live-uat`로 감사한다.
+
+사전 조건:
+
+- repository secret `PRODUCT100_GH_TOKEN`: private corpus repo 생성, branch push, draft PR 생성을 할 수 있는 PAT.
+- Codex CLI/OAuth 또는 해당 환경의 live Codex 인증. 이 인증이 없으면 preflight 또는 live runner가 fail-closed한다.
+- Docker runtime with `node:22-alpine` and `python:3.12-alpine`.
+
+```bash
+gh workflow run product-100-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=true \
+  -f github_owner=coreline-ai \
+  -f keep_remote=true \
+  -f require_postgres=false
+```
+
+기존 Product-100 artifact를 재감사할 때는 live run 없이 replay input만 지정한다.
+
+```bash
+gh workflow run product-100-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=false \
+  -f replay_run_id=<run_id> \
+  -f replay_run_attempt=<attempt> \
+  -f replay_repo=coreline-ai/improvement_loop_harness
+```
 
 진행 상태는 stdout을 기다리지 말고 run root의 heartbeat 파일을 본다.
 

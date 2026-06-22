@@ -117,6 +117,10 @@ function attackScenarios() {
       scenario
     ])
   );
+  const semanticScenarioIds = [
+    'visible_only_hardcode',
+    'default_quantity_hardcode'
+  ];
   return {
     checked_count: REQUIRED_ATTACK_SCENARIOS.length,
     passed_count: REQUIRED_ATTACK_SCENARIOS.length,
@@ -132,7 +136,7 @@ function attackScenarios() {
         stage:
           id === 'prompt_injection'
             ? 'authority_invariant'
-            : id === 'visible_only_hardcode'
+            : semanticScenarioIds.includes(id)
               ? 'n_plus_one_rulepack_semantic'
               : 'static_filter',
         mechanism:
@@ -140,10 +144,12 @@ function attackScenarios() {
             ? 'authority_invariant:advisory_only'
             : id === 'visible_only_hardcode'
               ? 'rulepack_semantic:visible_only_hardcode'
+              : id === 'default_quantity_hardcode'
+                ? 'rulepack_semantic:default_quantity_semantic'
               : id === 'hidden_artifact_leak'
                 ? 'static_filter:no_hidden_leak'
                 : 'static_filter:no_weakening',
-        executed: id === 'visible_only_hardcode',
+        executed: semanticScenarioIds.includes(id),
         blocked: true,
         current_loop_impact: 'none',
         pr_created: false,
@@ -210,6 +216,9 @@ function matrixCells() {
     ['typescript-esm', 'pass', 'skipped'],
     ['js-monorepo-scope', 'pass', 'skipped'],
     ['react-next-like', 'pass', 'skipped'],
+    ['django-like-service', 'pass', 'skipped'],
+    ['rails-like-service', 'pass', 'skipped'],
+    ['android-gradle-like', 'pass', 'skipped'],
     ['cli-tool', 'pass', 'skipped'],
     ['no-package-manager', 'pass', 'skipped'],
     ['large-file-count', 'pass', 'skipped'],
@@ -232,15 +241,15 @@ function matrixCells() {
 function matrixLedger() {
   return {
     status: 'REPO_MATRIX_PASS',
-    cell_count: 16,
-    pass_count: 14,
+    cell_count: 19,
+    pass_count: 17,
     blocked_count: 1,
     unsupported_count: 1,
     fail_count: 0,
     dependency_provisioning: {
-      checked_count: 16,
+      checked_count: 19,
       statuses: {
-        skipped: 11,
+        skipped: 14,
         cache_miss: 3,
         not_run: 1,
         unsupported: 1
@@ -399,7 +408,7 @@ describe('release evidence audit', () => {
           scenario: 'repo-matrix-uat',
           ledger_summary: expect.objectContaining({
             status: 'REPO_MATRIX_PASS',
-            cell_count: 16
+            cell_count: 19
           })
         })
       ])

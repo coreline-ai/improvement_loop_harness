@@ -109,6 +109,10 @@ function validAttackScenarios() {
       scenario
     ])
   );
+  const semanticScenarioIds = [
+    'visible_only_hardcode',
+    'default_quantity_hardcode'
+  ];
   return {
     checked_count: REQUIRED_ATTACK_SCENARIOS.length,
     passed_count: REQUIRED_ATTACK_SCENARIOS.length,
@@ -124,7 +128,7 @@ function validAttackScenarios() {
         stage:
           id === 'prompt_injection'
             ? 'authority_invariant'
-            : id === 'visible_only_hardcode'
+            : semanticScenarioIds.includes(id)
               ? 'n_plus_one_rulepack_semantic'
               : 'static_filter',
         mechanism:
@@ -132,10 +136,12 @@ function validAttackScenarios() {
             ? 'authority_invariant:advisory_only'
             : id === 'visible_only_hardcode'
               ? 'rulepack_semantic:visible_only_hardcode'
+              : id === 'default_quantity_hardcode'
+                ? 'rulepack_semantic:default_quantity_semantic'
               : id === 'hidden_artifact_leak'
                 ? 'static_filter:no_hidden_leak'
                 : 'static_filter:no_weakening',
-        executed: id === 'visible_only_hardcode',
+        executed: semanticScenarioIds.includes(id),
         blocked: true,
         current_loop_impact: 'none',
         pr_created: false,
@@ -273,6 +279,21 @@ function repoMatrixCells(overrides = {}) {
     },
     {
       id: 'react-next-like',
+      status: 'pass',
+      dependency_provisioning: { status: 'skipped' }
+    },
+    {
+      id: 'django-like-service',
+      status: 'pass',
+      dependency_provisioning: { status: 'skipped' }
+    },
+    {
+      id: 'rails-like-service',
+      status: 'pass',
+      dependency_provisioning: { status: 'skipped' }
+    },
+    {
+      id: 'android-gradle-like',
       status: 'pass',
       dependency_provisioning: { status: 'skipped' }
     },
@@ -479,6 +500,9 @@ ELIFECYCLE Command failed with exit code 20.`);
       { id: 'typescript-esm', status: 'pass', provisioning_status: 'skipped' },
       { id: 'js-monorepo-scope', status: 'pass' },
       { id: 'react-next-like', status: 'pass' },
+      { id: 'django-like-service', status: 'pass' },
+      { id: 'rails-like-service', status: 'pass' },
+      { id: 'android-gradle-like', status: 'pass' },
       { id: 'cli-tool', status: 'pass' },
       {
         id: 'no-package-manager',
@@ -504,13 +528,13 @@ ELIFECYCLE Command failed with exit code 20.`);
       new Date('2026-06-15T01:00:00.000Z'),
       {
         status: 'REPO_MATRIX_PASS',
-        cell_count: 16,
-        pass_count: 14,
+        cell_count: 19,
+        pass_count: 17,
         fail_count: 0,
         dependency_provisioning: {
-          checked_count: 16,
+          checked_count: 19,
           statuses: {
-            skipped: 11,
+            skipped: 14,
             cache_miss: 3,
             not_run: 1,
             unsupported: 1
@@ -523,8 +547,8 @@ ELIFECYCLE Command failed with exit code 20.`);
     await writeManifest(root, 'repo-matrix-uat', 'matrix-run');
 
     const expectedLedger = {
-      min_cell_count: 16,
-      min_pass_count: 13,
+      min_cell_count: 19,
+      min_pass_count: 16,
       max_fail_count: 0,
       min_dependency_checked_count: 16,
       min_dependency_cache_miss_count: 3,
@@ -542,11 +566,11 @@ ELIFECYCLE Command failed with exit code 20.`);
       expected_ledger: expectedLedger,
       ledger,
       ledger_summary: {
-        cell_count: 16,
-        pass_count: 14,
+        cell_count: 19,
+        pass_count: 17,
         fail_count: 0,
         dependency_provisioning: {
-          checked_count: 16,
+          checked_count: 19,
           statuses: {
             cache_miss: 3
           }
@@ -578,14 +602,14 @@ ELIFECYCLE Command failed with exit code 20.`);
       new Date('2026-06-15T01:30:00.000Z'),
       {
         status: 'REPO_MATRIX_PASS',
-        cell_count: 16,
-        pass_count: 15,
+        cell_count: 19,
+        pass_count: 18,
         unsupported_count: 0,
         fail_count: 0,
         dependency_provisioning: {
-          checked_count: 16,
+          checked_count: 19,
           statuses: {
-            skipped: 12,
+            skipped: 15,
             cache_miss: 3,
             not_run: 1
           }
@@ -611,7 +635,7 @@ ELIFECYCLE Command failed with exit code 20.`);
     ).resolves.toMatchObject({
       ok: true,
       ledger_summary: {
-        pass_count: 15,
+        pass_count: 18,
         unsupported_count: 0,
         cells: expect.arrayContaining([
           expect.objectContaining({
@@ -630,13 +654,13 @@ ELIFECYCLE Command failed with exit code 20.`);
       new Date('2026-06-15T02:00:00.000Z'),
       {
         status: 'REPO_MATRIX_PASS',
-        cell_count: 16,
-        pass_count: 13,
+        cell_count: 19,
+        pass_count: 16,
         fail_count: 0,
         dependency_provisioning: {
-          checked_count: 16,
+          checked_count: 19,
           statuses: {
-            skipped: 10,
+            skipped: 13,
             cache_miss: 3,
             not_run: 1,
             unsupported: 2
@@ -663,10 +687,10 @@ ELIFECYCLE Command failed with exit code 20.`);
     ).resolves.toMatchObject({
       ok: true,
       ledger_summary: {
-        cell_count: 16,
-        pass_count: 13,
+        cell_count: 19,
+        pass_count: 16,
         dependency_provisioning: {
-          checked_count: 16,
+          checked_count: 19,
           statuses: {
             unsupported: 2
           }
@@ -688,13 +712,13 @@ ELIFECYCLE Command failed with exit code 20.`);
       new Date('2026-06-15T03:00:00.000Z'),
       {
         status: 'REPO_MATRIX_PASS',
-        cell_count: 16,
-        pass_count: 14,
+        cell_count: 19,
+        pass_count: 17,
         fail_count: 0,
         dependency_provisioning: {
-          checked_count: 16,
+          checked_count: 19,
           statuses: {
-            skipped: 16
+            skipped: 19
           }
         },
         cells: repoMatrixCells(),
@@ -722,13 +746,13 @@ ELIFECYCLE Command failed with exit code 20.`);
       new Date('2026-06-15T04:00:00.000Z'),
       {
         status: 'REPO_MATRIX_PASS',
-        cell_count: 16,
-        pass_count: 14,
+        cell_count: 19,
+        pass_count: 17,
         fail_count: 0,
         dependency_provisioning: {
-          checked_count: 16,
+          checked_count: 19,
           statuses: {
-            skipped: 11,
+            skipped: 14,
             cache_miss: 3,
             not_run: 1,
             unsupported: 1
@@ -1290,7 +1314,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.test_weakening',
         'attack_scenarios.hidden_artifact_leak',
         'attack_scenarios.prompt_injection',
-        'attack_scenarios.visible_only_hardcode'
+        'attack_scenarios.visible_only_hardcode',
+        'attack_scenarios.default_quantity_hardcode'
       ])
     });
     expect(releaseGateExitCode(invalidAttackEvidenceReport)).toBe(1);

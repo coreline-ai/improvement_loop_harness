@@ -287,7 +287,20 @@ async function runDefaultInstaller(
   env?: NodeJS.ProcessEnv
 ): Promise<void> {
   const command = installCommand(lockfile);
-  const installEnv = scrubEnv(env ?? process.env);
+  const installEnv = scrubEnv(
+    env ?? process.env,
+    env?.HOME ? { homeDir: env.HOME } : {}
+  );
+  if (!installEnv.COREPACK_HOME) {
+    const corepackHome =
+      process.env.COREPACK_HOME ??
+      (process.env.HOME
+        ? path.join(process.env.HOME, '.cache', 'node', 'corepack')
+        : undefined);
+    if (corepackHome && (await exists(corepackHome))) {
+      installEnv.COREPACK_HOME = corepackHome;
+    }
+  }
   if (installEnv.HOME) {
     await mkdir(installEnv.HOME, { recursive: true, mode: 0o700 });
   }

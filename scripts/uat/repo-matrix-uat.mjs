@@ -386,6 +386,66 @@ function typescriptCartFiles() {
   };
 }
 
+function djangoLikeFiles() {
+  return {
+    'manage.py': [
+      '#!/usr/bin/env python3',
+      'import sys',
+      '',
+      'if __name__ == "__main__":',
+      '    print("django-like fixture", " ".join(sys.argv[1:]))',
+      ''
+    ].join('\n'),
+    'shop/__init__.py': '',
+    'shop/cart.py': [
+      'def render_line(item):',
+      '    return f"{item[\'name\']}: ${item[\'price\']}"',
+      ''
+    ].join('\n')
+  };
+}
+
+function railsLikeFiles() {
+  return {
+    'app/models/cart_line.rb': [
+      'class CartLine',
+      '  def self.total(price:, quantity: nil)',
+      '    price',
+      '  end',
+      'end',
+      ''
+    ].join('\n'),
+    'config/application.rb': [
+      'module CartApp',
+      '  class Application',
+      '  end',
+      'end',
+      ''
+    ].join('\n')
+  };
+}
+
+function androidGradleLikeFiles() {
+  return {
+    'settings.gradle': 'pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }\n',
+    'build.gradle': 'plugins { id "com.android.application" version "8.7.0" apply false }\n',
+    'app/build.gradle': 'plugins { id "com.android.application" }\n',
+    'app/src/main/AndroidManifest.xml': '<manifest xmlns:android="http://schemas.android.com/apk/res/android" />\n',
+    'app/src/main/java/com/example/cart/CartLine.java': [
+      'package com.example.cart;',
+      '',
+      'public final class CartLine {',
+      '  private CartLine() {}',
+      '',
+      '  public static int total(int price, int quantity) {',
+      '    return price;',
+      '  }',
+      '}',
+      ''
+    ].join('\n')
+  };
+}
+
 function standardCell(options) {
   return {
     kind: 'run',
@@ -532,6 +592,53 @@ const cells = [
     targetPaths: ['app/cart-view.cjs'],
     visibleCommand: 'node tests/cart-view.test.cjs',
     expectedChangedFiles: ['app/cart-view.cjs', 'tests/cart-view.test.cjs']
+  }),
+  standardCell({
+    id: 'django-like-service',
+    label: 'Django-like Python service',
+    corpus_axis: ['django-like', 'python', 'web-service'],
+    requires: [{ command: 'python3', args: ['--version'] }],
+    files: djangoLikeFiles(),
+    writeScope: ['shop/', 'tests/'],
+    targetPaths: ['shop/cart.py'],
+    visibleCommand: 'python3 tests/test_cart_view.py',
+    expectedChangedFiles: ['shop/cart.py', 'tests/test_cart_view.py']
+  }),
+  standardCell({
+    id: 'rails-like-service',
+    label: 'Rails-like Ruby service',
+    corpus_axis: ['rails-like', 'ruby', 'web-service'],
+    requires: [{ command: 'ruby', args: ['--version'] }],
+    files: railsLikeFiles(),
+    writeScope: ['app/models/', 'test/'],
+    targetPaths: ['app/models/cart_line.rb'],
+    visibleCommand: 'ruby test/models/cart_line_test.rb',
+    expectedChangedFiles: [
+      'app/models/cart_line.rb',
+      'test/models/cart_line_test.rb'
+    ]
+  }),
+  standardCell({
+    id: 'android-gradle-like',
+    label: 'Android/Gradle-like Java module',
+    corpus_axis: ['android-gradle-like', 'java', 'mobile'],
+    requires: [
+      { command: javaTool('javac'), args: ['-version'] },
+      { command: javaTool('java'), args: ['-version'] }
+    ],
+    files: androidGradleLikeFiles(),
+    writeScope: ['app/src/main/java/', 'app/src/test/java/'],
+    targetPaths: ['app/src/main/java/com/example/cart/CartLine.java'],
+    visibleCommand: [
+      'rm -rf out',
+      'mkdir -p out',
+      `${shSingleQuote(javaTool('javac'))} -d out app/src/main/java/com/example/cart/CartLine.java app/src/test/java/com/example/cart/CartLineTest.java`,
+      `${shSingleQuote(javaTool('java'))} -cp out com.example.cart.CartLineTest`
+    ].join(' && '),
+    expectedChangedFiles: [
+      'app/src/main/java/com/example/cart/CartLine.java',
+      'app/src/test/java/com/example/cart/CartLineTest.java'
+    ]
   }),
   standardCell({
     id: 'cli-tool',
@@ -753,6 +860,69 @@ function fixFilesForCell(id) {
           "const rendered = renderLine({ name: 'Widget', price: 4, quantity: 3 });",
           "if (!rendered.includes('x3')) throw new Error('quantity missing from view');",
           "if (!rendered.includes('$12')) throw new Error('line total missing from view');",
+          ''
+        ].join('\n')
+      };
+    case 'django-like-service':
+      return {
+        'shop/cart.py': [
+          'def render_line(item):',
+          '    quantity = item.get("quantity", 1)',
+          '    return f"{item[\'name\']} x{quantity}: ${item[\'price\'] * quantity}"',
+          ''
+        ].join('\n'),
+        'tests/test_cart_view.py': [
+          'import sys',
+          "sys.path.insert(0, '.')",
+          'from shop.cart import render_line',
+          '',
+          'rendered = render_line({"name": "Widget", "price": 4, "quantity": 3})',
+          'assert "x3" in rendered',
+          'assert "$12" in rendered',
+          ''
+        ].join('\n')
+      };
+    case 'rails-like-service':
+      return {
+        'app/models/cart_line.rb': [
+          'class CartLine',
+          '  def self.total(price:, quantity: nil)',
+          '    price * (quantity || 1)',
+          '  end',
+          'end',
+          ''
+        ].join('\n'),
+        'test/models/cart_line_test.rb': [
+          "require_relative '../../app/models/cart_line'",
+          "abort('quantity not applied') unless CartLine.total(price: 4, quantity: 3) == 12",
+          "abort('default quantity broken') unless CartLine.total(price: 4) == 4",
+          ''
+        ].join('\n')
+      };
+    case 'android-gradle-like':
+      return {
+        'app/src/main/java/com/example/cart/CartLine.java': [
+          'package com.example.cart;',
+          '',
+          'public final class CartLine {',
+          '  private CartLine() {}',
+          '',
+          '  public static int total(int price, int quantity) {',
+          '    return price * quantity;',
+          '  }',
+          '}',
+          ''
+        ].join('\n'),
+        'app/src/test/java/com/example/cart/CartLineTest.java': [
+          'package com.example.cart;',
+          '',
+          'public final class CartLineTest {',
+          '  public static void main(String[] args) {',
+          '    if (CartLine.total(4, 3) != 12) {',
+          '      throw new AssertionError("quantity not applied");',
+          '    }',
+          '  }',
+          '}',
           ''
         ].join('\n')
       };
