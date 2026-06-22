@@ -331,7 +331,7 @@ corepack pnpm uat:adversary-live:real-reviewer
 corepack pnpm uat:release-evidence-audit -- --scenario adversary-live-real-reviewer-uat
 ```
 
-2026-06-22 local run `adversary-live-39896-1782094414571`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex proposal `cart-line-total-quantity-semantics`를 M2/M4/freeze/N+1과 6/6 attack scenario까지 통과시켰다. `adversary-live-real-reviewer-uat`는 이 lane의 CI artifact 감사를 위한 별도 scenario이며, `release-evidence-audit --scenario adversary-live-real-reviewer-uat`는 real LLM reviewer provenance를 필수로 요구한다. 이 증거는 단일 P4 cart semantic local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
+2026-06-22 local run `adversary-live-real-reviewer-14014-1782097278557`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex reviewer proposal과 supplemental discount semantic rule을 M2/M4/freeze/N+1로 고정했다. Evidence는 `real_llm=true`, `provider=codex`, M2 confirmed 2, M4 replay-safe 2/2, 7/7 attack scenario PASS를 포함한다. `adversary-live-real-reviewer-uat`는 이 lane의 CI artifact 감사를 위한 별도 scenario이며, `release-evidence-audit --scenario adversary-live-real-reviewer-uat`는 real LLM reviewer provenance를 필수로 요구한다. 이 증거는 P4 cart quantity+discount local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
 
 ---
 

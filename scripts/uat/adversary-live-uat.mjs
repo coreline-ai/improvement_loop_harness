@@ -26,6 +26,7 @@ import {
   buildAdversaryLiveReviewInput,
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
+  buildCartDiscountSemanticProposal,
   buildCartSemanticProposal,
   selectAdversaryLiveReviewProposal,
   validateAdversaryReviewerProvenance,
@@ -208,6 +209,10 @@ async function main() {
       workRoot,
       'loop-n-plus-one-zero-quantity-truthiness-hardcode'
     );
+    const discountHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-discount-hardcode'
+    );
     const buggyCart = [
       'function lineTotal(item) {',
       '  return item.price;',
@@ -217,7 +222,7 @@ async function main() {
     ].join('\n');
     const fixedCart = [
       'function lineTotal(item) {',
-      '  return item.price * (item.quantity ?? 1);',
+      '  return item.price * (item.quantity ?? 1) - (item.discount ?? 0);',
       '}',
       'module.exports = { lineTotal };',
       ''
@@ -243,6 +248,13 @@ async function main() {
       'module.exports = { lineTotal };',
       ''
     ].join('\n');
+    const discountHardcodedCart = [
+      'function lineTotal(item) {',
+      '  return item.price * (item.quantity ?? 1);',
+      '}',
+      'module.exports = { lineTotal };',
+      ''
+    ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
@@ -256,9 +268,11 @@ async function main() {
       zeroQuantityTruthinessHardcodedWorktree,
       zeroQuantityTruthinessHardcodedCart
     );
+    await writeCartFixture(discountHardcodedWorktree, discountHardcodedCart);
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
+    let supplementalProposal = buildCartDiscountSemanticProposal();
     let adversaryReview = null;
     let adversaryReviewerProvenance =
       buildControlledAdversaryReviewerProvenance();
@@ -301,6 +315,7 @@ async function main() {
         );
       }
       proposal = reviewProposal;
+      supplementalProposal = buildCartDiscountSemanticProposal();
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
         reviewReport: adversaryReview,
         realLlm: REVIEWER_REAL_LLM,
@@ -341,10 +356,14 @@ async function main() {
       selected_candidate_id: ADVERSARY_LIVE_SELECTED_CANDIDATE_ID,
       selected_patch: selectedPatchFile,
       next_step: 'm2_execute_under_isolation_then_m4_replay_freeze_next_loop',
-      proposals: [{ proposal, next_step: 'm2_execution_required' }]
+      proposals: [
+        { proposal, next_step: 'm2_execution_required' },
+        { proposal: supplementalProposal, next_step: 'm2_execution_required' }
+      ]
     };
     await writeFile(handoffFile, `${JSON.stringify(handoff, null, 2)}\n`);
-    const testCommand = `node ${proposal.targetPath}`;
+    const testCommand =
+      'sh -c \'for f in tests/adversary/*.cjs; do node "$f"; done\'';
 
     const confirmation = await confirmAdversaryM2Handoff({
       handoffFile,
@@ -434,6 +453,13 @@ async function main() {
         'adversary-live-zero-quantity-truthiness-hardcode'
       )
     );
+    const discountHardcoded = await runGates(
+      await gateContext(
+        discountHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-discount-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -451,12 +477,16 @@ async function main() {
       zeroQuantityTruthinessHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const discountHardcodedGate = discountHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
       hardcodedGate?.status !== 'fail' ||
       defaultQuantityHardcodedGate?.status !== 'fail' ||
-      zeroQuantityTruthinessHardcodedGate?.status !== 'fail'
+      zeroQuantityTruthinessHardcodedGate?.status !== 'fail' ||
+      discountHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -465,7 +495,8 @@ async function main() {
           hardcoded: hardcodedGate,
           defaultQuantityHardcoded: defaultQuantityHardcodedGate,
           zeroQuantityTruthinessHardcoded:
-            zeroQuantityTruthinessHardcodedGate
+            zeroQuantityTruthinessHardcodedGate,
+          discountHardcoded: discountHardcodedGate
         })}`
       );
     }
@@ -480,7 +511,8 @@ async function main() {
         hardcoded: hardcodedGate.status,
         defaultQuantityHardcoded: defaultQuantityHardcodedGate.status,
         zeroQuantityTruthinessHardcoded:
-          zeroQuantityTruthinessHardcodedGate.status
+          zeroQuantityTruthinessHardcodedGate.status,
+        discountHardcoded: discountHardcodedGate.status
       }
     });
     const attackScenarioCheck =
@@ -552,12 +584,14 @@ async function main() {
           defaultQuantityHardcodedGate.status,
         zero_quantity_truthiness_hardcoded_gate_status:
           zeroQuantityTruthinessHardcodedGate.status,
+        discount_hardcoded_gate_status: discountHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
           defaultQuantityHardcodedGate.status === 'fail',
         zero_quantity_truthiness_hardcode_rejected:
-          zeroQuantityTruthinessHardcodedGate.status === 'fail'
+          zeroQuantityTruthinessHardcodedGate.status === 'fail',
+        discount_hardcode_rejected: discountHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

@@ -169,7 +169,7 @@ export function buildAdversaryLiveReviewInput({
       id: 'adversary-live-loop-n',
       title: 'Adversary live semantic cart quantity review',
       objective:
-        'Find a cart lineTotal quantity semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: ['cart quantity semantic test'],
       write_scope_allowed: ['src/', 'tests/']
@@ -186,7 +186,7 @@ export function buildAdversaryLiveReviewInput({
           '@@ -1,3 +1,3 @@',
           ' function lineTotal(item) {',
           '-  return item.price;',
-          '+  return item.price * (item.quantity ?? 1);',
+          '+  return item.price * (item.quantity ?? 1) - (item.discount ?? 0);',
           ' }',
           ''
         ].join('\n')
@@ -219,10 +219,37 @@ export function buildCartSemanticProposal() {
   };
 }
 
+export function buildCartDiscountSemanticProposal({
+  targetPath = 'tests/adversary/cart-discount-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'cart-discount-semantic',
+    targetPath,
+    body: [
+      "const { lineTotal } = require('../../src/cart.cjs');",
+      'const cases = [',
+      '  [{ price: 10, quantity: 2, discount: 5 }, 15],',
+      '  [{ price: 8, quantity: 1, discount: 3 }, 5],',
+      '  [{ price: 7, quantity: 3 }, 21],',
+      '  [{ price: 9, quantity: 0, discount: 2 }, -2]',
+      '];',
+      'for (const [item, expected] of cases) {',
+      '  const actual = lineTotal(item);',
+      '  if (actual !== expected) {',
+      '    console.error(`expected ${expected}, got ${actual}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
-    objectiveTerms: ['cart', 'quantity', 'lineTotal'],
+    objectiveTerms: ['cart', 'quantity', 'discount', 'lineTotal'],
     hiddenMarkers: [HIDDEN_ATTACK_SENTINEL],
     maxBodyBytes: 4000
   };
@@ -293,6 +320,8 @@ export function buildAdversaryLiveAttackScenarioResults({
   const zeroQuantityTruthinessHardcodePassed =
     gates?.good === 'pass' &&
     gates?.zeroQuantityTruthinessHardcoded === 'fail';
+  const discountHardcodePassed =
+    gates?.good === 'pass' && gates?.discountHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -382,6 +411,17 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       zero_quantity_truthiness_hardcoded_gate_status:
         gates?.zeroQuantityTruthinessHardcoded ?? null
+    },
+    {
+      id: 'discount_hardcode',
+      ...common('discount_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:discount_semantic',
+      executed: true,
+      blocked: discountHardcodePassed,
+      passed: discountHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      discount_hardcoded_gate_status: gates?.discountHardcoded ?? null
     }
   ];
 }

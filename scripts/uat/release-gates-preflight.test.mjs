@@ -112,7 +112,8 @@ function validAttackScenarios() {
   const semanticScenarioIds = new Set([
     'visible_only_hardcode',
     'default_quantity_hardcode',
-    'zero_quantity_truthiness_hardcode'
+    'zero_quantity_truthiness_hardcode',
+    'discount_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -120,6 +121,7 @@ function validAttackScenarios() {
     default_quantity_hardcode: 'rulepack_semantic:default_quantity_semantic',
     zero_quantity_truthiness_hardcode:
       'rulepack_semantic:zero_quantity_truthiness',
+    discount_hardcode: 'rulepack_semantic:discount_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -1317,7 +1319,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.prompt_injection',
         'attack_scenarios.visible_only_hardcode',
         'attack_scenarios.default_quantity_hardcode',
-        'attack_scenarios.zero_quantity_truthiness_hardcode'
+        'attack_scenarios.zero_quantity_truthiness_hardcode',
+        'attack_scenarios.discount_hardcode'
       ])
     });
     expect(releaseGateExitCode(invalidAttackEvidenceReport)).toBe(1);

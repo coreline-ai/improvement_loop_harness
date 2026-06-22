@@ -24,7 +24,8 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'visible_only_hardcode',
   'default_quantity_hardcode',
-  'zero_quantity_truthiness_hardcode'
+  'zero_quantity_truthiness_hardcode',
+  'discount_hardcode'
 ]);
 
 export const PREFLIGHTS = [

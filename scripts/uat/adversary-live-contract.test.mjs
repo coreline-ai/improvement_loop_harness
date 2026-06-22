@@ -8,6 +8,7 @@ import {
   buildAdversaryLiveReviewInput,
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
+  buildCartDiscountSemanticProposal,
   buildCartSemanticProposal,
   buildRejectedAttackProposals,
   selectAdversaryLiveReviewProposal,
@@ -33,6 +34,21 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('quantity: 2');
     expect(proposal.body).toContain('quantity: 0');
     expect(proposal.body).toContain('expected');
+  });
+
+  it('adds a supplemental discount semantic proposal for multi-rule M4 coverage', () => {
+    const proposal = buildCartDiscountSemanticProposal({
+      targetPath: 'tests/adversary/cart-line-total-semantics.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'cart-discount-semantic',
+      targetPath: 'tests/adversary/cart-line-total-semantics.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('discount: 5');
+    expect(proposal.body).toContain('quantity: 0');
+    expect(proposal.body).toContain('lineTotal');
   });
 
   it('turns the required attack scenarios into ledger-verifiable results', () => {
@@ -67,7 +83,8 @@ describe('adversary live contract', () => {
         bad: 'fail',
         hardcoded: 'fail',
         defaultQuantityHardcoded: 'fail',
-        zeroQuantityTruthinessHardcoded: 'fail'
+        zeroQuantityTruthinessHardcoded: 'fail',
+        discountHardcoded: 'fail'
       }
     });
 
@@ -115,6 +132,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:zero_quantity_truthiness'
+        }),
+        expect.objectContaining({
+          id: 'discount_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:discount_semantic'
         })
       ])
     );
@@ -154,7 +177,8 @@ describe('adversary live contract', () => {
         'attack_scenario_prompt_injection_missing',
         'attack_scenario_visible_only_hardcode_missing',
         'attack_scenario_default_quantity_hardcode_missing',
-        'attack_scenario_zero_quantity_truthiness_hardcode_missing'
+        'attack_scenario_zero_quantity_truthiness_hardcode_missing',
+        'attack_scenario_discount_hardcode_missing'
       ])
     );
   });
@@ -174,7 +198,8 @@ describe('adversary live contract', () => {
         bad: 'fail',
         hardcoded: 'fail',
         defaultQuantityHardcoded: 'fail',
-        zeroQuantityTruthinessHardcoded: 'fail'
+        zeroQuantityTruthinessHardcoded: 'fail',
+        discountHardcoded: 'fail'
       }
     });
 
