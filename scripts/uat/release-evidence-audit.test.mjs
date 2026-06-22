@@ -364,10 +364,11 @@ async function writeValidAllReleaseEvidence(root) {
     {
       status: 'BROAD_LIVE_REPRESENTATIVE_PASS',
       evidence_missing_count: 0,
-      cell_count: 3,
-      pass_count: 3,
+      cell_count: 4,
+      pass_count: 4,
       fail_count: 0,
       cells: [
+        { id: 'react-next-like', status: 'pass' },
         { id: 'django-like-service', status: 'pass' },
         { id: 'rails-like-service', status: 'pass' },
         { id: 'android-gradle-like', status: 'pass' }
@@ -548,8 +549,8 @@ describe('release evidence audit', () => {
           scenario: 'repo-matrix-broad-codex-live-uat',
           ledger_summary: expect.objectContaining({
             status: 'BROAD_LIVE_REPRESENTATIVE_PASS',
-            cell_count: 3,
-            pass_count: 3,
+            cell_count: 4,
+            pass_count: 4,
             fail_count: 0
           })
         })

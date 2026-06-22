@@ -170,10 +170,11 @@ export const EVIDENCE_SCENARIOS = [
     require_manifest: true,
     expected_status: 'BROAD_LIVE_REPRESENTATIVE_PASS',
     expected_ledger: {
-      min_cell_count: 3,
-      min_pass_count: 3,
+      min_cell_count: 4,
+      min_pass_count: 4,
       max_fail_count: 0,
       required_cells: [
+        { id: 'react-next-like', status: 'pass' },
         { id: 'django-like-service', status: 'pass' },
         { id: 'rails-like-service', status: 'pass' },
         { id: 'android-gradle-like', status: 'pass' }

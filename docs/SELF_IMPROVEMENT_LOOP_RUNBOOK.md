@@ -347,7 +347,7 @@ corepack pnpm uat:repo-matrix
 
 - `status=REPO_MATRIX_PASS`
 - `cell_count=19`, `pass_count>=16`, `blocked_count=1`, `unsupported_count<=1`, `fail_count=0`
-- broad controlled framework-like cells include Django-like, Rails-like, and Android/Gradle-like repo shapes
+- broad controlled framework-like cells include React/Next-like, Django-like, Rails-like, and Android/Gradle-like repo shapes
 - `dirty-worktree`는 `dirty_source_guard`로 blocked
 - `network-restricted-r1`은 Docker/R1 smoke가 가능하면 `pass`, Docker가 없으면 `unsupported`
 - stdout의 `evidence_bundle` 아래 `ledger.json`과 각 supported cell의 `eval-report.json`이 남는다.
@@ -370,12 +370,12 @@ VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:repo-matrix:codex-broad-live
 
 - Python: `status=PYTHON_LIVE_REPRESENTATIVE_PASS`
 - Monorepo: `status=MONOREPO_LIVE_REPRESENTATIVE_PASS`
-- Broad framework: `status=BROAD_LIVE_REPRESENTATIVE_PASS`, `cell_count=3`, `pass_count=3`, `fail_count=0`
+- Broad framework: `status=BROAD_LIVE_REPRESENTATIVE_PASS`, `cell_count=4`, `pass_count=4`, `fail_count=0`
 - `builder.real_llm=true`, `proxy_auth_header_seen=true`
 - GitHub PR은 `OPEN` + `draft`, base=`main`
 - Python 변경 파일은 `src/cart.py`, `tests/test_cart_quantity.py`
 - Monorepo 변경 파일은 `packages/cart/src/index.cjs`, `packages/cart/tests/cart-quantity.test.cjs`; `packages/catalog/`는 변경되지 않아야 한다.
-- Broad framework 변경 파일은 Django-like `shop/cart.py`/`tests/test_cart_base.py`/`tests/test_cart_view.py`, Rails-like `app/models/cart_line.rb`/`test/models/cart_line_test.rb`, Android-like `CartLine.java`/`CartLineTest.java`로 제한된다.
+- Broad framework 변경 파일은 React-like `app/cart-view.cjs`/`tests/cart-view.test.cjs`(+ optional `tests/cart-view-base.test.cjs`), Django-like `shop/cart.py`/`tests/test_cart_base.py`/`tests/test_cart_view.py`, Rails-like `app/models/cart_line.rb`/`test/models/cart_line_test.rb`, Android-like `CartLine.java`/`CartLineTest.java`로 제한된다.
 - `final_verification.passed=true`, hidden acceptance pass, `github.main_unchanged=true`
 - evidence bundle은 `repo-matrix-*-codex-live-uat/<run-id>/ledger.json`과 candidate/reverify run manifest(`audit_keep=true`)를 포함한다.
 
@@ -386,13 +386,14 @@ VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:repo-matrix:codex-broad-live
 https://github.com/coreline-ai/vibeloop-python-live-89436-1781498088975/pull/1
 /Users/iriver/.vibeloop/uat-evidence/repo-matrix-monorepo-codex-live-uat/monorepo-realuser-live-34325-1781499102895/ledger.json
 https://github.com/coreline-ai/vibeloop-monorepo-live-34325-1781499102895/pull/1
-/Users/iriver/.vibeloop/uat-evidence/repo-matrix-broad-codex-live-uat/broad-realuser-live-16608-1782091851845/ledger.json
-https://github.com/coreline-ai/vibeloop-django-live-16608-1782091851845/pull/1
-https://github.com/coreline-ai/vibeloop-rails-live-16608-1782091851845/pull/1
-https://github.com/coreline-ai/vibeloop-android-live-16608-1782091851845/pull/1
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-broad-codex-live-uat/broad-realuser-live-85151-1782100084935/ledger.json
+https://github.com/coreline-ai/vibeloop-react-live-85151-1782100084935/pull/1
+https://github.com/coreline-ai/vibeloop-django-live-85151-1782100084935/pull/1
+https://github.com/coreline-ai/vibeloop-rails-live-85151-1782100084935/pull/1
+https://github.com/coreline-ai/vibeloop-android-live-85151-1782100084935/pull/1
 ```
 
-2026-06-22 R17 broad framework live run은 `BROAD_LIVE_REPRESENTATIVE_PASS`, `cell_count=3`, `pass_count=3`, `fail_count=0`, `proxy_auth_header_seen=true`를 남겼다. `corepack pnpm uat:release-evidence-audit -- --all-release-evidence`도 P2/P3/P4/P5 7개 scenario 전체 PASS로 새 broad evidence를 감사했다.
+2026-06-22 R17 broad framework live rerun은 `BROAD_LIVE_REPRESENTATIVE_PASS`, `cell_count=4`, `pass_count=4`, `fail_count=0`, `proxy_auth_header_seen=true`를 남겼다. React/Django/Rails/Android-like 4개 private repo 모두 draft PR open/draft, hidden acceptance, final reverify, `main_unchanged=true`를 통과했고, evidence copied 431/missing 0(manifest copied 432)로 보존됐다. `corepack pnpm uat:release-evidence-audit -- --all-release-evidence`도 P2/P3/P4/P5 7개 scenario 전체 PASS로 새 broad evidence를 감사했다.
 
 ---
 

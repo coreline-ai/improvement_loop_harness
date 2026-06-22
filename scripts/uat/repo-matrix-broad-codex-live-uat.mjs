@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Broad representative LIVE UAT for framework-like repo-diversity cells.
 //
-// This promotes three controlled framework-shaped matrix cells into real
-// GitHub + real Codex lanes: Django-like, Rails-like, and Android/Gradle-like.
+// This promotes four controlled framework-shaped matrix cells into real
+// GitHub + real Codex lanes: React/Next-like, Django-like, Rails-like, and
+// Android/Gradle-like.
 // It is broader than the single Python/monorepo representative lanes, but it is
 // still a representative controlled corpus, not an arbitrary-user-repo PASS.
 import { spawn } from 'node:child_process';
@@ -43,6 +44,7 @@ function javaTool(name) {
 }
 
 const CELL_IDS = [
+  'react-next-like',
   'django-like-service',
   'rails-like-service',
   'android-gradle-like'
@@ -199,6 +201,94 @@ function djangoScenario() {
         sourcePath: 'hidden/cart_view.hidden.py',
         targetPath: 'tests/hidden/test_cart_view_hidden.py',
         command: 'python3 tests/hidden/test_cart_view_hidden.py'
+      }
+    }
+  };
+}
+
+function reactNextScenario() {
+  const visibleCommand = 'node tests/cart-view.test.cjs';
+  return {
+    id: 'react-next-like',
+    label: 'React/Next-like frontend utility',
+    repoPrefix: 'vibeloop-react-live',
+    projectId: 'broad-react-live',
+    runtimeChecks: [{ command: process.execPath, args: ['--version'] }],
+    branchSlug: 'react-cart-view',
+    commitMessage: 'vibeloop: real-codex verified fix (react-like cart view)',
+    prTitle: '[VibeLoop] real-codex verified fix: React-like cart view',
+    mode: 'representative broad live cell (react-next-like frontend utility)',
+    expectedPrFiles: ['app/cart-view.cjs', 'tests/cart-view.test.cjs'],
+    optionalPrFiles: ['tests/cart-view-base.test.cjs'],
+    files: {
+      'README.md': [
+        '# React/Next-like Cart View Scenario',
+        '',
+        'A tiny frontend-shaped Node utility with a cart line rendering bug.',
+        'Missing quantity means 1, and quantity 0 is a valid zero total.',
+        ''
+      ].join('\n'),
+      'package.json': [
+        '{',
+        '  "scripts": {',
+        '    "test": "node tests/cart-view.test.cjs"',
+        '  }',
+        '}',
+        ''
+      ].join('\n'),
+      'app/cart-view.cjs': [
+        'function renderLine(item) {',
+        '  return `${item.name}: $${item.price}`;',
+        '}',
+        '',
+        'module.exports = { renderLine };',
+        ''
+      ].join('\n'),
+      'tests/cart-view-base.test.cjs': [
+        "const { renderLine } = require('../app/cart-view.cjs');",
+        '',
+        "if (renderLine({ name: 'Widget', price: 4 }) !== 'Widget: $4') {",
+        "  throw new Error('base render changed unexpectedly');",
+        '}',
+        ''
+      ].join('\n'),
+      'hidden/cart-view.hidden.cjs': [
+        `// ${HIDDEN}`,
+        "const { renderLine } = require('../../app/cart-view.cjs');",
+        '',
+        "const quantity = renderLine({ name: 'Widget', price: 4, quantity: 3 });",
+        "if (!quantity.includes('x3')) throw new Error('quantity missing');",
+        "if (!quantity.includes('$12')) throw new Error('line total missing');",
+        '',
+        "const zero = renderLine({ name: 'Zero', price: 5, quantity: 0 });",
+        "if (!zero.includes('x0')) throw new Error('zero quantity missing');",
+        "if (!zero.includes('$0')) throw new Error('zero total missing');",
+        '',
+        "const fallback = renderLine({ name: 'Solo', price: 7 });",
+        "if (!fallback.includes('x1')) throw new Error('default quantity missing');",
+        "if (!fallback.includes('$7')) throw new Error('default total missing');",
+        ''
+      ].join('\n')
+    },
+    task: {
+      id: 'real-user-react-like-cart-view',
+      title: 'React-like cart view render respects quantity',
+      objective:
+        'Fix the React/Next-like cart renderer so item quantity is included in the rendered line, missing quantity defaults to 1, quantity 0 is valid, line total uses price * quantity, and add tests/cart-view.test.cjs that fails on the base commit and passes on the candidate.',
+      writeScope: ['app/', 'tests/'],
+      requiredTest: visibleCommand,
+      maxChangedFiles: 6,
+      maxChangedLines: 180
+    },
+    eval: {
+      project: 'real-user-react-like-cart-view',
+      targetPaths: ['app/cart-view.cjs'],
+      visibleCommand,
+      hidden: {
+        name: 'hidden_react_cart_view_mixed_quantities',
+        sourcePath: 'hidden/cart-view.hidden.cjs',
+        targetPath: 'tests/hidden/cart-view.hidden.cjs',
+        command: 'node tests/hidden/cart-view.hidden.cjs'
       }
     }
   };
@@ -385,10 +475,12 @@ function androidScenario() {
 }
 
 const SCENARIOS = new Map(
-  [djangoScenario(), railsScenario(), androidScenario()].map((scenario) => [
-    scenario.id,
-    scenario
-  ])
+  [
+    reactNextScenario(),
+    djangoScenario(),
+    railsScenario(),
+    androidScenario()
+  ].map((scenario) => [scenario.id, scenario])
 );
 
 function yamlSingleQuote(value) {
@@ -527,7 +619,13 @@ async function loadSelectedReport(output) {
   };
 }
 
-async function verifyDraftPr({ fullRepo, prUrl, branch, expectedFiles }) {
+async function verifyDraftPr({
+  fullRepo,
+  prUrl,
+  branch,
+  expectedFiles,
+  optionalFiles = []
+}) {
   if (!prUrl || prUrl.startsWith('pr_create_failed:')) {
     return { confirmed: false, reason: prUrl ?? 'missing_pr_url' };
   }
@@ -550,7 +648,10 @@ async function verifyDraftPr({ fullRepo, prUrl, branch, expectedFiles }) {
     ? parsed.files.map((file) => file.path).sort()
     : [];
   const expected = [...expectedFiles].sort();
-  const filesMatch = JSON.stringify(files) === JSON.stringify(expected);
+  const allowed = [...new Set([...expectedFiles, ...optionalFiles])].sort();
+  const requiredFilesPresent = expected.every((file) => files.includes(file));
+  const noUnexpectedFiles = files.every((file) => allowed.includes(file));
+  const filesMatch = requiredFilesPresent && noUnexpectedFiles;
   const confirmed =
     parsed.url === prUrl &&
     parsed.state === 'OPEN' &&
@@ -567,7 +668,11 @@ async function verifyDraftPr({ fullRepo, prUrl, branch, expectedFiles }) {
     base_ref: parsed.baseRefName,
     files,
     files_match: filesMatch,
-    expected_files: expected
+    expected_files: expected,
+    optional_files: [...optionalFiles].sort(),
+    allowed_files: allowed,
+    required_files_present: requiredFilesPresent,
+    no_unexpected_files: noUnexpectedFiles
   };
 }
 
@@ -696,7 +801,8 @@ async function runScenario({ scenario, tag, tmpRoot, dataDir, agentSpec, tokenBu
     fullRepo,
     prUrl,
     branch,
-    expectedFiles: scenario.expectedPrFiles
+    expectedFiles: scenario.expectedPrFiles,
+    optionalFiles: scenario.optionalPrFiles ?? []
   });
   const mainHead = (
     await git(localRepo, ['ls-remote', 'origin', 'refs/heads/main'])
@@ -733,6 +839,7 @@ async function runScenario({ scenario, tag, tmpRoot, dataDir, agentSpec, tokenBu
     limits: out.limits ?? null,
     advisory_tie_break: out.advisory_tie_break ?? null,
     expected_pr_files: scenario.expectedPrFiles,
+    optional_pr_files: scenario.optionalPrFiles ?? [],
     draft_pr_view: prVerification,
     false_pass: 0,
     leak: selected.leak ? 1 : 0,
@@ -842,7 +949,7 @@ async function main() {
       run_id: `broad-realuser-live-${tag}`,
       mode: 'broad representative repo-diversity live cells',
       scope:
-        'controlled Django-like/Rails-like/Android-like repos promoted to real GitHub + real Codex lanes; not arbitrary-user-repo PASS',
+        'controlled React/Next-like/Django-like/Rails-like/Android-like repos promoted to real GitHub + real Codex lanes; not arbitrary-user-repo PASS',
       requested_cells: selectedScenarios.map((scenario) => scenario.id),
       cell_count: cells.length,
       pass_count: cells.filter((cell) => cell.status === 'pass').length,
