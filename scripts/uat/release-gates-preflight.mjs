@@ -256,6 +256,25 @@ export const REAL_PROJECT_CODEX_COPY_CORPUS_EVIDENCE_SCENARIO = {
   }
 };
 
+export const REAL_PROJECT_CODEX_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
+  gate: 'P5',
+  name: 'real Codex temp-clone broad real project source repair evidence',
+  scenario: 'repo-matrix-real-project-codex-repair-uat',
+  require_manifest: true,
+  expected_status: 'REAL_PROJECT_CODEX_REPAIR_PASS',
+  expected_ledger: {
+    min_cell_count: 2,
+    min_pass_count: 2,
+    max_fail_count: 0,
+    required_codex_repair_smoke: true,
+    required_source_code_repair: true,
+    required_real_llm_modification: true,
+    required_hidden_acceptance: true,
+    required_source_repos_read_only: true,
+    required_no_draft_pr: true
+  }
+};
+
 export function defaultEvidenceRoot(env = process.env) {
   return (
     env.VIBELOOP_UAT_EVIDENCE_DIR ??
@@ -387,7 +406,19 @@ function summarizeMatrixCells(cells) {
     codex_copy_status: cell.codex_copy?.status ?? null,
     codex_copy_hidden_acceptance_status:
       cell.codex_copy?.hidden_acceptance?.status ?? null,
-    codex_copy_diff_scope_status: cell.codex_copy?.diff_scope?.status ?? null
+    codex_copy_diff_scope_status: cell.codex_copy?.diff_scope?.status ?? null,
+    codex_repair_status: cell.codex_repair?.status ?? null,
+    codex_repair_visible_acceptance_status:
+      cell.codex_repair?.visible_acceptance?.status ?? null,
+    codex_repair_hidden_acceptance_status:
+      cell.codex_repair?.hidden_acceptance?.status ?? null,
+    codex_repair_diff_scope_status:
+      cell.codex_repair?.diff_scope?.status ?? null,
+    codex_repair_source_changed: cell.codex_repair?.source_changed ?? null,
+    codex_repair_visible_test_unchanged:
+      cell.codex_repair?.visible_test_unchanged ?? null,
+    codex_repair_source_repo_integrity_status:
+      cell.codex_repair?.source_repo_integrity?.status ?? null
   }));
 }
 
@@ -512,8 +543,7 @@ function summarizeAdversaryReviewer(ledgerJson) {
     proposal_source: reviewer.proposal_source ?? null,
     authority: reviewer.authority ?? null,
     decision_impact: reviewer.decision_impact ?? null,
-    current_loop_decision_impact:
-      reviewer.current_loop_decision_impact ?? null,
+    current_loop_decision_impact: reviewer.current_loop_decision_impact ?? null,
     same_model_review: reviewer.same_model_review ?? null,
     prompt_version: reviewer.prompt_version ?? null,
     prompt_hash: reviewer.prompt_hash ?? null,
@@ -573,7 +603,10 @@ function requiredAttackScenarioFailures(
     if (scenario.promotion_allowed !== false) {
       failures.push(`attack_scenarios.${required}.promotion_allowed`);
     }
-    if (expected?.expected_outcome === 'reject_or_no_pr' && scenario.blocked !== true) {
+    if (
+      expected?.expected_outcome === 'reject_or_no_pr' &&
+      scenario.blocked !== true
+    ) {
       failures.push(`attack_scenarios.${required}.blocked`);
     }
     if (SEMANTIC_ATTACK_SCENARIOS.has(required) && scenario.executed !== true) {
@@ -691,8 +724,7 @@ function summarizeProduct100Ledger(ledgerJson) {
       : null,
     requirements: normalizedRequirements,
     live_loop_started: summary.live_loop_started === true,
-    phase4_pass:
-      summary.phase4?.every_issue_product_100_phase4_pass === true,
+    phase4_pass: summary.phase4?.every_issue_product_100_phase4_pass === true,
     phase5_pass: summary.phase5?.phase5_pass === true,
     phase6_pass: summary.phase6?.phase6_pass === true,
     phase7_pass:
@@ -775,10 +807,7 @@ function requiredCellFailures(cellSummaries, requiredCells = []) {
   return failures;
 }
 
-function requiredCodexCopyCellFailures(
-  cellSummaries,
-  required = false
-) {
+function requiredCodexCopyCellFailures(cellSummaries, required = false) {
   if (!required) return [];
   const failures = [];
   for (const cell of cellSummaries ?? []) {
@@ -794,6 +823,39 @@ function requiredCodexCopyCellFailures(
     }
     if (cell.codex_copy_diff_scope_status !== 'pass') {
       failures.push(`cells.${id}.codex_copy.diff_scope`);
+    }
+  }
+  return failures;
+}
+
+function requiredCodexRepairCellFailures(cellSummaries, required = false) {
+  if (!required) return [];
+  const failures = [];
+  for (const cell of cellSummaries ?? []) {
+    const id = cell.id ?? 'unknown';
+    if (cell.status !== 'pass') {
+      failures.push(`cells.${id}.status`);
+    }
+    if (cell.codex_repair_status !== 'pass') {
+      failures.push(`cells.${id}.codex_repair.status`);
+    }
+    if (cell.codex_repair_visible_acceptance_status !== 'pass') {
+      failures.push(`cells.${id}.codex_repair.visible_acceptance`);
+    }
+    if (cell.codex_repair_hidden_acceptance_status !== 'pass') {
+      failures.push(`cells.${id}.codex_repair.hidden_acceptance`);
+    }
+    if (cell.codex_repair_diff_scope_status !== 'pass') {
+      failures.push(`cells.${id}.codex_repair.diff_scope`);
+    }
+    if (cell.codex_repair_source_changed !== true) {
+      failures.push(`cells.${id}.codex_repair.source_changed`);
+    }
+    if (cell.codex_repair_visible_test_unchanged !== true) {
+      failures.push(`cells.${id}.codex_repair.visible_test_unchanged`);
+    }
+    if (cell.codex_repair_source_repo_integrity_status !== 'pass') {
+      failures.push(`cells.${id}.codex_repair.source_repo_integrity`);
     }
   }
   return failures;
@@ -948,6 +1010,8 @@ export async function latestEvidenceBundle(
         dependency_provisioning: ledgerJson.dependency_provisioning ?? null,
         modifiable_copy_smoke: ledgerJson.modifiable_copy_smoke ?? false,
         codex_copy_smoke: ledgerJson.codex_copy_smoke ?? false,
+        codex_repair_smoke: ledgerJson.codex_repair_smoke ?? false,
+        source_code_repair: ledgerJson.source_code_repair ?? false,
         llm_modification: ledgerJson.llm_modification ?? false,
         hidden_acceptance: ledgerJson.hidden_acceptance ?? false,
         source_repos_read_only: ledgerJson.source_repos_read_only ?? null,
@@ -1048,6 +1112,18 @@ export async function latestEvidenceBundle(
       ledgerFailures.push('codex_copy_smoke');
     }
     if (
+      options.expectedLedger?.required_codex_repair_smoke &&
+      ledgerSummary.codex_repair_smoke !== true
+    ) {
+      ledgerFailures.push('codex_repair_smoke');
+    }
+    if (
+      options.expectedLedger?.required_source_code_repair &&
+      ledgerSummary.source_code_repair !== true
+    ) {
+      ledgerFailures.push('source_code_repair');
+    }
+    if (
       options.expectedLedger?.required_real_llm_modification &&
       (ledgerSummary.llm_modification !== true ||
         ledgerSummary.builder?.real_llm !== true ||
@@ -1101,6 +1177,12 @@ export async function latestEvidenceBundle(
       ...requiredCodexCopyCellFailures(
         ledgerSummary.cells,
         options.expectedLedger?.required_codex_copy_smoke
+      )
+    );
+    ledgerFailures.push(
+      ...requiredCodexRepairCellFailures(
+        ledgerSummary.cells,
+        options.expectedLedger?.required_codex_repair_smoke
       )
     );
     ledgerFailures.push(

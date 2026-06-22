@@ -267,7 +267,6 @@ function matrixLedger() {
   };
 }
 
-
 function product100PassLedger(overrides = {}) {
   const requirements = Object.fromEntries(
     PRODUCT_100_REQUIRED_REQUIREMENTS.map((name) => [name, true])
@@ -612,8 +611,12 @@ describe('release evidence audit', () => {
         expected_ledger: { required_product_100: true }
       })
     ]);
-    expect(SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)).toContain('product-100-codex-live-uat');
-    expect(ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)).not.toContain('product-100-codex-live-uat');
+    expect(
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).toContain('product-100-codex-live-uat');
+    expect(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).not.toContain('product-100-codex-live-uat');
   });
 
   it('keeps real reviewer P4 audit explicit and requires real LLM provenance', async () => {
@@ -630,8 +633,12 @@ describe('release evidence audit', () => {
         })
       })
     ]);
-    expect(SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)).toContain('adversary-live-real-reviewer-uat');
-    expect(ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)).not.toContain('adversary-live-real-reviewer-uat');
+    expect(
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).toContain('adversary-live-real-reviewer-uat');
+    expect(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).not.toContain('adversary-live-real-reviewer-uat');
 
     const root = await tempRoot();
     await writeLedger(
@@ -640,7 +647,11 @@ describe('release evidence audit', () => {
       'controlled-run',
       adversaryLedger()
     );
-    await writeManifest(root, 'adversary-live-real-reviewer-uat', 'controlled-run');
+    await writeManifest(
+      root,
+      'adversary-live-real-reviewer-uat',
+      'controlled-run'
+    );
 
     const controlledReport = await buildReleaseEvidenceAuditReport({
       evidenceRoots: [root],
@@ -1059,6 +1070,192 @@ describe('release evidence audit', () => {
     );
   });
 
+  it('keeps real Codex temp-clone source repair corpus audit explicit and requires repair evidence', async () => {
+    const selected = selectReleaseEvidenceAuditScenarios({
+      scenarioNames: ['repo-matrix-real-project-codex-repair-uat']
+    });
+    expect(selected).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        scenario: 'repo-matrix-real-project-codex-repair-uat',
+        expected_status: 'REAL_PROJECT_CODEX_REPAIR_PASS',
+        expected_ledger: {
+          min_cell_count: 2,
+          min_pass_count: 2,
+          max_fail_count: 0,
+          required_codex_repair_smoke: true,
+          required_source_code_repair: true,
+          required_real_llm_modification: true,
+          required_hidden_acceptance: true,
+          required_source_repos_read_only: true,
+          required_no_draft_pr: true
+        }
+      })
+    ]);
+    expect(
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).toContain('repo-matrix-real-project-codex-repair-uat');
+    expect(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).not.toContain('repo-matrix-real-project-codex-repair-uat');
+
+    const root = await tempRoot();
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-codex-repair-uat',
+      'real-project-codex-repair-run',
+      {
+        status: 'REAL_PROJECT_CODEX_REPAIR_PASS',
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        source_code_repair: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: {
+          real_llm: true,
+          provider: 'codex',
+          model: 'gpt-5.5'
+        },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'node-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'python-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      }
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-codex-repair-uat',
+      'real-project-codex-repair-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['repo-matrix-real-project-codex-repair-uat']
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.evidence).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        ok: true,
+        scenario: 'repo-matrix-real-project-codex-repair-uat',
+        ledger_summary: expect.objectContaining({
+          status: 'REAL_PROJECT_CODEX_REPAIR_PASS',
+          codex_repair_smoke: true,
+          source_code_repair: true,
+          llm_modification: true,
+          hidden_acceptance: true,
+          source_repos_read_only: true,
+          draft_pr: false,
+          builder: expect.objectContaining({
+            real_llm: true,
+            provider: 'codex'
+          })
+        })
+      })
+    ]);
+
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-codex-repair-uat',
+      'real-project-codex-repair-weakened-run',
+      {
+        status: 'REAL_PROJECT_CODEX_REPAIR_PASS',
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        source_code_repair: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: {
+          real_llm: true,
+          provider: 'codex',
+          model: 'gpt-5.5'
+        },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'node-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'python-real-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'fail' },
+              diff_scope: { status: 'pass' },
+              source_changed: false,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      },
+      new Date(Date.now() + 1000)
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-codex-repair-uat',
+      'real-project-codex-repair-weakened-run'
+    );
+
+    const weakenedReport = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['repo-matrix-real-project-codex-repair-uat']
+    });
+
+    expect(weakenedReport.status).toBe('fail');
+    expect(weakenedReport.evidence[0].ledger_failures).toEqual(
+      expect.arrayContaining([
+        'cells.python-real-project.codex_repair.hidden_acceptance',
+        'cells.python-real-project.codex_repair.source_changed'
+      ])
+    );
+  });
+
   it('audits explicit Product-100 evidence with every fixed requirement and Phase7 proof', async () => {
     const root = await tempRoot();
     await writeLedger(
@@ -1067,7 +1264,11 @@ describe('release evidence audit', () => {
       'product-100-pass-run',
       product100PassLedger()
     );
-    await writeManifest(root, 'product-100-codex-live-uat', 'product-100-pass-run');
+    await writeManifest(
+      root,
+      'product-100-codex-live-uat',
+      'product-100-pass-run'
+    );
 
     const report = await buildReleaseEvidenceAuditReport({
       evidenceRoots: [root],
@@ -1127,7 +1328,11 @@ describe('release evidence audit', () => {
         ledger: { status: 'PRODUCT_100_CODEX_LIVE_FAIL' }
       })
     );
-    await writeManifest(root, 'product-100-codex-live-uat', 'product-100-fail-run');
+    await writeManifest(
+      root,
+      'product-100-codex-live-uat',
+      'product-100-fail-run'
+    );
 
     const report = await buildReleaseEvidenceAuditReport({
       evidenceRoots: [root],

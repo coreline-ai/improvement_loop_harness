@@ -18,32 +18,52 @@ const READ_ONLY_SCENARIO = 'repo-matrix-real-project-corpus-uat';
 const MODIFIABLE_COPY_SCENARIO =
   'repo-matrix-real-project-modifiable-corpus-uat';
 const CODEX_COPY_SCENARIO = 'repo-matrix-real-project-codex-copy-uat';
+const CODEX_REPAIR_SCENARIO = 'repo-matrix-real-project-codex-repair-uat';
 const READ_ONLY_PASS_STATUS = 'REAL_PROJECT_CORPUS_PASS';
 const READ_ONLY_FAIL_STATUS = 'REAL_PROJECT_CORPUS_FAIL';
 const MODIFIABLE_COPY_PASS_STATUS = 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS';
 const MODIFIABLE_COPY_FAIL_STATUS = 'REAL_PROJECT_MODIFIABLE_CORPUS_FAIL';
 const CODEX_COPY_PASS_STATUS = 'REAL_PROJECT_CODEX_COPY_PASS';
 const CODEX_COPY_FAIL_STATUS = 'REAL_PROJECT_CODEX_COPY_FAIL';
+const CODEX_REPAIR_PASS_STATUS = 'REAL_PROJECT_CODEX_REPAIR_PASS';
+const CODEX_REPAIR_FAIL_STATUS = 'REAL_PROJECT_CODEX_REPAIR_FAIL';
 const BLOCKED_EXIT = 20;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_CODEX_TIMEOUT_MS = 180_000;
 const CODEX_PROBE_FILE = '.vibeloop-codex-real-project-probe.json';
+const REPAIR_DIR = '.vibeloop-real-project-repair';
+const REPAIR_SOURCE_FILE = `${REPAIR_DIR}/invoice-total.mjs`;
+const REPAIR_VISIBLE_TEST_FILE = `${REPAIR_DIR}/visible-repair.test.mjs`;
 
 function redact(text) {
   return String(text)
     .replace(/https:\/\/([^/\s:@]+):([^@\s]+)@/g, 'https://[REDACTED]@')
-    .replace(/(Token|Authorization|Bearer)\s+[A-Za-z0-9._~+/=-]+/g, '$1 [REDACTED]');
+    .replace(
+      /(Token|Authorization|Bearer)\s+[A-Za-z0-9._~+/=-]+/g,
+      '$1 [REDACTED]'
+    );
 }
 
 function slug(value) {
-  return String(value)
-    .replace(/[^A-Za-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'repo';
+  return (
+    String(value)
+      .replace(/[^A-Za-z0-9._-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'repo'
+  );
 }
 
 function pathHash(value) {
-  return createHash('sha256').update(path.resolve(value)).digest('hex').slice(0, 12);
+  return createHash('sha256')
+    .update(path.resolve(value))
+    .digest('hex')
+    .slice(0, 12);
+}
+
+async function fileHash(filePath) {
+  return createHash('sha256')
+    .update(await readFile(filePath))
+    .digest('hex');
 }
 
 function runCommand(command, args, options = {}) {
@@ -51,7 +71,11 @@ function runCommand(command, args, options = {}) {
     const child = spawn(command, args, {
       cwd: options.cwd ?? REPO_ROOT,
       env: options.env ?? process.env,
-      stdio: [options.stdinText === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']
+      stdio: [
+        options.stdinText === undefined ? 'ignore' : 'pipe',
+        'pipe',
+        'pipe'
+      ]
     });
     let stdout = '';
     let stderr = '';
@@ -158,12 +182,20 @@ function parseJsonTail(text) {
 function classifyLanguages(files) {
   const languages = new Set();
   for (const file of files) {
-    if (file.endsWith('.ts') || file.endsWith('.tsx')) languages.add('typescript');
-    else if (file.endsWith('.js') || file.endsWith('.cjs') || file.endsWith('.mjs') || file.endsWith('.jsx')) languages.add('javascript');
+    if (file.endsWith('.ts') || file.endsWith('.tsx'))
+      languages.add('typescript');
+    else if (
+      file.endsWith('.js') ||
+      file.endsWith('.cjs') ||
+      file.endsWith('.mjs') ||
+      file.endsWith('.jsx')
+    )
+      languages.add('javascript');
     else if (file.endsWith('.py')) languages.add('python');
     else if (file.endsWith('.rb')) languages.add('ruby');
     else if (file.endsWith('.java')) languages.add('java');
-    else if (file.endsWith('.kt') || file.endsWith('.kts')) languages.add('kotlin');
+    else if (file.endsWith('.kt') || file.endsWith('.kts'))
+      languages.add('kotlin');
     else if (file.endsWith('.swift')) languages.add('swift');
     else if (file.endsWith('.rs')) languages.add('rust');
     else if (file.endsWith('.go')) languages.add('go');
@@ -195,7 +227,8 @@ function detectMarkers(files) {
   }
   if (files.some((file) => file.startsWith('src/'))) markers.push('src/');
   if (files.some((file) => file.startsWith('app/'))) markers.push('app/');
-  if (files.some((file) => file.startsWith('packages/'))) markers.push('packages/');
+  if (files.some((file) => file.startsWith('packages/')))
+    markers.push('packages/');
   if (files.some((file) => /(^|\/)(test|tests|spec|__tests__)\//i.test(file))) {
     markers.push('tests/');
   }
@@ -220,7 +253,9 @@ async function smokeChecks(repoPath, files) {
       '-c',
       "import pathlib, tomllib; tomllib.loads(pathlib.Path('pyproject.toml').read_text()); print('pyproject-ok')"
     ];
-    const result = await runCommand(command[0], command.slice(1), { cwd: repoPath });
+    const result = await runCommand(command[0], command.slice(1), {
+      cwd: repoPath
+    });
     checks.push({
       id: 'pyproject_toml_parse',
       status: result.code === 0 ? 'pass' : 'fail',
@@ -312,7 +347,8 @@ async function runModifiableCopySmoke(sourceRepoPath, cellId, tmpRoot) {
     status: failures.length === 0 ? 'pass' : 'fail',
     source_repo_path_hash: pathHash(sourceRepoPath),
     clone_path_hash: pathHash(clonePath),
-    write_probe_detected: statusAfterWrite.code === 0 && Boolean(statusAfterWrite.stdout.trim()),
+    write_probe_detected:
+      statusAfterWrite.code === 0 && Boolean(statusAfterWrite.stdout.trim()),
     staged_diff_check_status: diffCheck.code === 0 ? 'pass' : 'fail',
     cleanup_status:
       reset.code === 0 && clean.code === 0 && !finalStatus.stdout.trim()
@@ -359,6 +395,114 @@ function buildCodexProbePrompt({ probeId }) {
   ].join('\n');
 }
 
+function buildRepairSource() {
+  return [
+    'export function computeInvoiceTotal(items, options = {}) {',
+    '  let subtotal = 0;',
+    '  for (const item of items) {',
+    '    subtotal += Number(item.price ?? 0);',
+    '  }',
+    '  return Math.round(subtotal * 100) / 100;',
+    '}',
+    ''
+  ].join('\n');
+}
+
+function buildVisibleRepairTest() {
+  return [
+    "import { computeInvoiceTotal } from './invoice-total.mjs';",
+    '',
+    'const cases = [',
+    '  {',
+    "    name: 'quantity with discount and tax',",
+    '    items: [',
+    '      { price: 12.25, quantity: 2 },',
+    '      { price: 5, quantity: 3 }',
+    '    ],',
+    '    options: { discountRate: 0.1, taxRate: 0.0825 },',
+    '    expected: 38.48',
+    '  },',
+    '  {',
+    "    name: 'round only after tax is applied',",
+    '    items: [{ price: 0.105 }, { price: 1.005, quantity: 2 }],',
+    '    options: { taxRate: 0.075 },',
+    '    expected: 2.27',
+    '  }',
+    '];',
+    '',
+    'for (const testCase of cases) {',
+    '  const actual = computeInvoiceTotal(testCase.items, testCase.options);',
+    '  if (actual !== testCase.expected) {',
+    '    throw new Error(`${testCase.name}: expected ${testCase.expected}, got ${actual}`);',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
+function buildHiddenRepairVerifier({ sourcePath }) {
+  return [
+    "import { pathToFileURL } from 'node:url';",
+    '',
+    `const sourceUrl = pathToFileURL(${JSON.stringify(sourcePath)}).href;`,
+    'const { computeInvoiceTotal } = await import(sourceUrl);',
+    '',
+    'function expectedTotal(items, options = {}) {',
+    '  let subtotal = 0;',
+    '  for (const item of items) {',
+    "    const quantity = Object.hasOwn(item, 'quantity') ? Number(item.quantity) : 1;",
+    '    subtotal += Number(item.price ?? 0) * quantity;',
+    '  }',
+    '  const discountRate = Number(options.discountRate ?? 0);',
+    '  const taxRate = Number(options.taxRate ?? 0);',
+    '  const total = subtotal * (1 - discountRate) * (1 + taxRate);',
+    '  return Math.round((total + Number.EPSILON) * 100) / 100;',
+    '}',
+    '',
+    'const cases = [',
+    '  {',
+    "    name: 'default quantity participates in discount and tax rounding',",
+    '    items: [{ price: 0.105 }, { price: 1.2, quantity: 2 }],',
+    '    options: { taxRate: 0.075 }',
+    '  },',
+    '  {',
+    "    name: 'zero quantity stays zero instead of falling back to one',",
+    '    items: [{ price: 99, quantity: 0 }, { price: 10, quantity: 1 }],',
+    '    options: { discountRate: 0.1 }',
+    '  },',
+    '  {',
+    "    name: 'fractional subtotal rounds only after discount and tax',",
+    '    items: [{ price: 19.995, quantity: 2 }],',
+    '    options: { discountRate: 0.125, taxRate: 0.0825 }',
+    '  }',
+    '];',
+    '',
+    'for (const testCase of cases) {',
+    '  const actual = computeInvoiceTotal(testCase.items, testCase.options);',
+    '  const expected = expectedTotal(testCase.items, testCase.options);',
+    '  if (actual !== expected) {',
+    '    throw new Error(`${testCase.name}: expected ${expected}, got ${actual}`);',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
+function buildCodexRepairPrompt() {
+  return [
+    'You are operating in a temporary clone of an existing real user project.',
+    `Only edit this source file: ${REPAIR_SOURCE_FILE}`,
+    `Do not edit ${REPAIR_VISIBLE_TEST_FILE} or any other file.`,
+    '',
+    'Task: fix computeInvoiceTotal so invoice totals use item quantity, optional discountRate, optional taxRate, default quantity 1, valid quantity 0, and cent rounding only once after discount and tax are both applied.',
+    'Do not round subtotal, discounted subtotal, or any intermediate value. Compute the full total first, then round the final result to cents.',
+    `Run this visible test: node ${REPAIR_VISIBLE_TEST_FILE}`,
+    'The visible test is not the full acceptance suite. Implement the general behavior, not a hardcoded answer.',
+    '',
+    'Finish after the source file is fixed.'
+  ].join('\n');
+}
+
 function parseCodexProbe(text) {
   try {
     return JSON.parse(text);
@@ -373,9 +517,31 @@ async function writeTextFile(filePath, text) {
   return filePath;
 }
 
-async function runCodexProbe({ clonePath, probeId, model, timeoutMs, logDir }) {
-  const outputFile = path.join(logDir, `${probeId}-last-message.txt`);
-  const prompt = buildCodexProbePrompt({ probeId });
+async function writeCommandResultLog(filePath, result) {
+  return writeTextFile(
+    filePath,
+    `${JSON.stringify(
+      {
+        exit_code: result.code,
+        timed_out: result.timedOut,
+        stdout: redact(result.stdout),
+        stderr: redact(result.stderr)
+      },
+      null,
+      2
+    )}\n`
+  );
+}
+
+async function runCodexPrompt({
+  clonePath,
+  requestId,
+  prompt,
+  model,
+  timeoutMs,
+  logDir
+}) {
+  const outputFile = path.join(logDir, `${requestId}-last-message.txt`);
   const result = await runCommand(
     process.env.VIBELOOP_REAL_PROJECT_CODEX_BIN || 'codex',
     [
@@ -410,11 +576,11 @@ async function runCodexProbe({ clonePath, probeId, model, timeoutMs, logDir }) {
     }
   );
   const stdoutFile = await writeTextFile(
-    path.join(logDir, `${probeId}-stdout.log`),
+    path.join(logDir, `${requestId}-stdout.log`),
     redact(result.stdout)
   );
   const stderrFile = await writeTextFile(
-    path.join(logDir, `${probeId}-stderr.log`),
+    path.join(logDir, `${requestId}-stderr.log`),
     redact(result.stderr)
   );
   return {
@@ -425,7 +591,23 @@ async function runCodexProbe({ clonePath, probeId, model, timeoutMs, logDir }) {
   };
 }
 
-async function runCodexCopySmoke(sourceRepoPath, cellId, tmpRoot, options = {}) {
+async function runCodexProbe({ clonePath, probeId, model, timeoutMs, logDir }) {
+  return runCodexPrompt({
+    clonePath,
+    requestId: probeId,
+    prompt: buildCodexProbePrompt({ probeId }),
+    model,
+    timeoutMs,
+    logDir
+  });
+}
+
+async function runCodexCopySmoke(
+  sourceRepoPath,
+  cellId,
+  tmpRoot,
+  options = {}
+) {
   const cloneRoot = path.join(tmpRoot, 'codex-copies');
   const clonePath = path.join(cloneRoot, cellId);
   const logDir = path.join(tmpRoot, 'codex-logs', cellId);
@@ -525,8 +707,7 @@ async function runCodexCopySmoke(sourceRepoPath, cellId, tmpRoot, options = {}) 
     hiddenAcceptanceFailures.push('dirty_before_probe');
   }
   if (
-    probeJson?.notes !==
-    'real Codex wrote this file in a temporary copy only'
+    probeJson?.notes !== 'real Codex wrote this file in a temporary copy only'
   ) {
     hiddenAcceptanceFailures.push('notes');
   }
@@ -564,6 +745,237 @@ async function runCodexCopySmoke(sourceRepoPath, cellId, tmpRoot, options = {}) 
       stdout_file: codex.stdout_file,
       stderr_file: codex.stderr_file,
       output_file: codex.output_file
+    },
+    failures
+  };
+}
+
+async function runCodexRepairSmoke(
+  sourceRepoPath,
+  cellId,
+  tmpRoot,
+  options = {}
+) {
+  const cloneRoot = path.join(tmpRoot, 'codex-repair-copies');
+  const clonePath = path.join(cloneRoot, cellId);
+  const logDir = path.join(tmpRoot, 'codex-repair-logs', cellId);
+  const repairId = `real-project-codex-repair-${cellId}`;
+  const failures = [];
+  await mkdir(cloneRoot, { recursive: true });
+  await mkdir(logDir, { recursive: true });
+
+  const [sourceHeadBefore, sourceStatusBefore] = await Promise.all([
+    git(sourceRepoPath, ['rev-parse', 'HEAD']),
+    git(sourceRepoPath, ['status', '--porcelain=v1'])
+  ]);
+
+  const clone = await git(
+    REPO_ROOT,
+    ['clone', '--quiet', '--no-hardlinks', '--', sourceRepoPath, clonePath],
+    { timeoutMs: 120_000 }
+  );
+  if (clone.code !== 0) {
+    return {
+      status: 'fail',
+      failures: ['clone_failed'],
+      clone_exit_code: clone.code,
+      clone_stderr: redact(clone.stderr).slice(0, 800)
+    };
+  }
+
+  const sourcePath = path.join(clonePath, REPAIR_SOURCE_FILE);
+  const visibleTestPath = path.join(clonePath, REPAIR_VISIBLE_TEST_FILE);
+  const hiddenVerifierFile = await writeTextFile(
+    path.join(logDir, `${repairId}-hidden-verifier.mjs`),
+    buildHiddenRepairVerifier({ sourcePath })
+  );
+
+  await writeTextFile(sourcePath, buildRepairSource());
+  await writeTextFile(visibleTestPath, buildVisibleRepairTest());
+  const seedAdd = await git(clonePath, ['add', '--', REPAIR_DIR]);
+  const seedCommit = await git(clonePath, [
+    '-c',
+    'user.name=VibeLoop UAT',
+    '-c',
+    'user.email=vibeloop-uat@example.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '--no-verify',
+    '-m',
+    'seed vibeloop real project source repair fixture'
+  ]);
+  const seedStatus = await git(clonePath, ['status', '--porcelain=v1']);
+  if (seedAdd.code !== 0) failures.push('seed_fixture_add_failed');
+  if (seedCommit.code !== 0) failures.push('seed_fixture_commit_failed');
+  if (seedStatus.code !== 0 || seedStatus.stdout.trim()) {
+    failures.push('seed_fixture_dirty');
+  }
+  if (failures.length > 0) {
+    return {
+      status: 'fail',
+      source_repo_path_hash: pathHash(sourceRepoPath),
+      clone_path_hash: pathHash(clonePath),
+      repair_source: REPAIR_SOURCE_FILE,
+      visible_test: REPAIR_VISIBLE_TEST_FILE,
+      failures,
+      seed: {
+        add_exit_code: seedAdd.code,
+        commit_exit_code: seedCommit.code,
+        status: redact(seedStatus.stdout).slice(0, 400),
+        stderr: {
+          add: redact(seedAdd.stderr).slice(0, 400),
+          commit: redact(seedCommit.stderr).slice(0, 800)
+        }
+      }
+    };
+  }
+
+  const sourceHashBefore = await fileHash(sourcePath);
+  const visibleHashBefore = await fileHash(visibleTestPath);
+  const baseVisible = await runCommand(
+    process.execPath,
+    [REPAIR_VISIBLE_TEST_FILE],
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const baseHidden = await runCommand(process.execPath, [hiddenVerifierFile], {
+    cwd: clonePath,
+    timeoutMs: DEFAULT_TIMEOUT_MS
+  });
+  const baseVisibleLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-base-visible.json`),
+    baseVisible
+  );
+  const baseHiddenLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-base-hidden.json`),
+    baseHidden
+  );
+  if (baseVisible.code === 0) failures.push('base_visible_unexpected_pass');
+  if (baseHidden.code === 0) failures.push('base_hidden_unexpected_pass');
+
+  const codex = await runCodexPrompt({
+    clonePath,
+    requestId: repairId,
+    prompt: buildCodexRepairPrompt(),
+    model: options.codexModel,
+    timeoutMs: options.codexTimeoutMs,
+    logDir
+  });
+  if (codex.code !== 0) failures.push('codex_exec_failed');
+  if (codex.timedOut) failures.push('codex_exec_timeout');
+
+  const finalVisible = await runCommand(
+    process.execPath,
+    [REPAIR_VISIBLE_TEST_FILE],
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const finalHidden = await runCommand(process.execPath, [hiddenVerifierFile], {
+    cwd: clonePath,
+    timeoutMs: DEFAULT_TIMEOUT_MS
+  });
+  const finalVisibleLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-final-visible.json`),
+    finalVisible
+  );
+  const finalHiddenLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-final-hidden.json`),
+    finalHidden
+  );
+  if (finalVisible.code !== 0) failures.push('visible_acceptance_failed');
+  if (finalHidden.code !== 0) failures.push('hidden_acceptance_failed');
+
+  const sourceHashAfter = await fileHash(sourcePath);
+  const visibleHashAfter = await fileHash(visibleTestPath);
+  if (sourceHashBefore === sourceHashAfter) failures.push('source_not_changed');
+  if (visibleHashBefore !== visibleHashAfter)
+    failures.push('visible_test_modified');
+
+  const statusAfter = await git(clonePath, ['status', '--porcelain=v1']);
+  const diffCheck = await git(clonePath, ['diff', '--check']);
+  const changedFiles = statusAfter.stdout
+    .split(/\r?\n/)
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean)
+    .sort();
+  const expectedChangedFiles = [REPAIR_SOURCE_FILE];
+  if (JSON.stringify(changedFiles) !== JSON.stringify(expectedChangedFiles)) {
+    failures.push('diff_scope_not_source_only');
+  }
+  if (diffCheck.code !== 0) failures.push('diff_check_failed');
+
+  const [sourceHeadAfter, sourceStatusAfter] = await Promise.all([
+    git(sourceRepoPath, ['rev-parse', 'HEAD']),
+    git(sourceRepoPath, ['status', '--porcelain=v1'])
+  ]);
+  const sourceRepoIntegrity =
+    sourceHeadBefore.code === 0 &&
+    sourceHeadAfter.code === 0 &&
+    sourceHeadBefore.stdout.trim() === sourceHeadAfter.stdout.trim() &&
+    sourceStatusBefore.code === 0 &&
+    sourceStatusAfter.code === 0 &&
+    sourceStatusBefore.stdout === sourceStatusAfter.stdout;
+  if (!sourceRepoIntegrity) failures.push('source_repo_integrity_failed');
+
+  return {
+    status: failures.length === 0 ? 'pass' : 'fail',
+    source_repo_path_hash: pathHash(sourceRepoPath),
+    clone_path_hash: pathHash(clonePath),
+    provider: 'codex',
+    real_llm: true,
+    model: options.codexModel,
+    repair_source: REPAIR_SOURCE_FILE,
+    visible_test: REPAIR_VISIBLE_TEST_FILE,
+    base_acceptance: {
+      visible_status:
+        baseVisible.code === 0 ? 'unexpected_pass' : 'expected_fail',
+      hidden_status:
+        baseHidden.code === 0 ? 'unexpected_pass' : 'expected_fail',
+      visible_log: baseVisibleLog,
+      hidden_log: baseHiddenLog
+    },
+    visible_acceptance: {
+      status: finalVisible.code === 0 ? 'pass' : 'fail',
+      log: finalVisibleLog
+    },
+    hidden_acceptance: {
+      status: finalHidden.code === 0 ? 'pass' : 'fail',
+      checked: true,
+      verifier_file: hiddenVerifierFile,
+      log: finalHiddenLog
+    },
+    diff_scope: {
+      status:
+        JSON.stringify(changedFiles) === JSON.stringify(expectedChangedFiles)
+          ? 'pass'
+          : 'fail',
+      changed_files: changedFiles,
+      expected_files: expectedChangedFiles
+    },
+    source_changed: sourceHashBefore !== sourceHashAfter,
+    visible_test_unchanged: visibleHashBefore === visibleHashAfter,
+    source_repo_integrity: {
+      status: sourceRepoIntegrity ? 'pass' : 'fail',
+      head_unchanged:
+        sourceHeadBefore.stdout.trim() === sourceHeadAfter.stdout.trim(),
+      status_unchanged: sourceStatusBefore.stdout === sourceStatusAfter.stdout
+    },
+    diff_check_status: diffCheck.code === 0 ? 'pass' : 'fail',
+    codex: {
+      status: codex.code === 0 && !codex.timedOut ? 'pass' : 'fail',
+      exit_code: codex.code,
+      timed_out: codex.timedOut,
+      stdout_file: codex.stdout_file,
+      stderr_file: codex.stderr_file,
+      output_file: codex.output_file
+    },
+    evidence_files: {
+      final_source: sourcePath,
+      visible_test: visibleTestPath,
+      hidden_verifier: hiddenVerifierFile,
+      base_visible_log: baseVisibleLog,
+      base_hidden_log: baseHiddenLog,
+      final_visible_log: finalVisibleLog,
+      final_hidden_log: finalHiddenLog
     },
     failures
   };
@@ -617,7 +1029,8 @@ async function analyzeRepo(repoPath, index, options = {}) {
   if (files.length < 5) failures.push('too_few_tracked_files');
   if (markers.length === 0) failures.push('no_project_markers_detected');
   if (languages.length === 0) failures.push('no_source_languages_detected');
-  if (checks.some((check) => check.status !== 'pass')) failures.push('metadata_smoke_failed');
+  if (checks.some((check) => check.status !== 'pass'))
+    failures.push('metadata_smoke_failed');
 
   const discover = await runCommand(
     process.execPath,
@@ -637,7 +1050,8 @@ async function analyzeRepo(repoPath, index, options = {}) {
     : null;
   if (discover.code !== 0) failures.push('discover_command_failed');
   if (!discoverJson) failures.push('discover_json_missing');
-  if (candidateCount !== 0) failures.push('discover_smoke_expected_zero_candidates');
+  if (candidateCount !== 0)
+    failures.push('discover_smoke_expected_zero_candidates');
   const modifiableCopy = options.modifiableCopySmoke
     ? await runModifiableCopySmoke(resolved, `${index}-${id}`, options.tmpRoot)
     : null;
@@ -645,10 +1059,26 @@ async function analyzeRepo(repoPath, index, options = {}) {
     failures.push('modifiable_copy_smoke_failed');
   }
   const codexCopy = options.codexCopySmoke
-    ? await runCodexCopySmoke(resolved, `${index}-${id}`, options.tmpRoot, options)
+    ? await runCodexCopySmoke(
+        resolved,
+        `${index}-${id}`,
+        options.tmpRoot,
+        options
+      )
     : null;
   if (codexCopy && codexCopy.status !== 'pass') {
     failures.push('codex_copy_smoke_failed');
+  }
+  const codexRepair = options.codexRepairSmoke
+    ? await runCodexRepairSmoke(
+        resolved,
+        `${index}-${id}`,
+        options.tmpRoot,
+        options
+      )
+    : null;
+  if (codexRepair && codexRepair.status !== 'pass') {
+    failures.push('codex_repair_smoke_failed');
   }
 
   const remoteLines = remotes.stdout
@@ -663,10 +1093,14 @@ async function analyzeRepo(repoPath, index, options = {}) {
   const corpusAxis = [
     ...languages,
     markers.includes('package.json') ? 'node-project' : null,
-    markers.includes('pyproject.toml') || markers.includes('requirements.txt') ? 'python-project' : null,
+    markers.includes('pyproject.toml') || markers.includes('requirements.txt')
+      ? 'python-project'
+      : null,
     markers.includes('Cargo.toml') ? 'rust-project' : null,
     markers.includes('go.mod') ? 'go-project' : null,
-    markers.includes('build.gradle') || markers.includes('build.gradle.kts') ? 'gradle-project' : null,
+    markers.includes('build.gradle') || markers.includes('build.gradle.kts')
+      ? 'gradle-project'
+      : null,
     markers.includes('tests/') ? 'has-tests' : null,
     dirtyEntries.length > 0 ? 'dirty-readonly' : 'clean'
   ].filter(Boolean);
@@ -697,6 +1131,7 @@ async function analyzeRepo(repoPath, index, options = {}) {
     },
     ...(modifiableCopy ? { modifiable_copy: modifiableCopy } : {}),
     ...(codexCopy ? { codex_copy: codexCopy } : {}),
+    ...(codexRepair ? { codex_repair: codexRepair } : {}),
     failures
   };
 }
@@ -708,6 +1143,8 @@ function parseArgs(argv, env = process.env) {
     env.VIBELOOP_REAL_PROJECT_CORPUS_MODIFIABLE_COPY_SMOKE === '1';
   let codexCopySmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_CODEX_COPY_SMOKE === '1';
+  let codexRepairSmoke =
+    env.VIBELOOP_REAL_PROJECT_CORPUS_CODEX_REPAIR_SMOKE === '1';
   let codexModel = env.VIBELOOP_REAL_PROJECT_CODEX_MODEL || 'gpt-5.5';
   let codexTimeoutMs = Number(
     env.VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS || DEFAULT_CODEX_TIMEOUT_MS
@@ -739,6 +1176,10 @@ function parseArgs(argv, env = process.env) {
       codexCopySmoke = true;
       continue;
     }
+    if (arg === '--codex-repair-smoke') {
+      codexRepairSmoke = true;
+      continue;
+    }
     if (arg === '--codex-model') {
       const value = argv[index + 1];
       if (!value) throw new Error('--codex-model requires a value');
@@ -766,6 +1207,7 @@ function parseArgs(argv, env = process.env) {
     minRepos: Number.isFinite(minRepos) && minRepos > 0 ? minRepos : 2,
     modifiableCopySmoke,
     codexCopySmoke,
+    codexRepairSmoke,
     codexModel,
     codexTimeoutMs
   };
@@ -818,23 +1260,78 @@ async function codexCopyPreflight(options) {
   };
 }
 
+function cellExtraFiles(cell) {
+  const files = [];
+  if (cell.codex_copy?.codex) {
+    files.push(
+      {
+        label: `${cell.id}_codex_stdout`,
+        path: cell.codex_copy.codex.stdout_file
+      },
+      {
+        label: `${cell.id}_codex_stderr`,
+        path: cell.codex_copy.codex.stderr_file
+      },
+      {
+        label: `${cell.id}_codex_last_message`,
+        path: cell.codex_copy.codex.output_file
+      }
+    );
+  }
+  if (cell.codex_repair?.codex) {
+    files.push(
+      {
+        label: `${cell.id}_codex_repair_stdout`,
+        path: cell.codex_repair.codex.stdout_file
+      },
+      {
+        label: `${cell.id}_codex_repair_stderr`,
+        path: cell.codex_repair.codex.stderr_file
+      },
+      {
+        label: `${cell.id}_codex_repair_last_message`,
+        path: cell.codex_repair.codex.output_file
+      }
+    );
+  }
+  const evidenceFiles = cell.codex_repair?.evidence_files ?? {};
+  for (const [key, filePath] of Object.entries(evidenceFiles)) {
+    files.push({
+      label: `${cell.id}_codex_repair_${key}`,
+      path: filePath
+    });
+  }
+  return files;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const scenario = options.codexCopySmoke
-    ? CODEX_COPY_SCENARIO
-    : options.modifiableCopySmoke
-    ? MODIFIABLE_COPY_SCENARIO
-    : READ_ONLY_SCENARIO;
-  const passStatus = options.codexCopySmoke
-    ? CODEX_COPY_PASS_STATUS
-    : options.modifiableCopySmoke
-    ? MODIFIABLE_COPY_PASS_STATUS
-    : READ_ONLY_PASS_STATUS;
-  const failStatus = options.codexCopySmoke
-    ? CODEX_COPY_FAIL_STATUS
-    : options.modifiableCopySmoke
-    ? MODIFIABLE_COPY_FAIL_STATUS
-    : READ_ONLY_FAIL_STATUS;
+  if (options.codexCopySmoke && options.codexRepairSmoke) {
+    throw new Error(
+      '--codex-copy-smoke cannot be combined with --codex-repair-smoke'
+    );
+  }
+  const scenario = options.codexRepairSmoke
+    ? CODEX_REPAIR_SCENARIO
+    : options.codexCopySmoke
+      ? CODEX_COPY_SCENARIO
+      : options.modifiableCopySmoke
+        ? MODIFIABLE_COPY_SCENARIO
+        : READ_ONLY_SCENARIO;
+  const passStatus = options.codexRepairSmoke
+    ? CODEX_REPAIR_PASS_STATUS
+    : options.codexCopySmoke
+      ? CODEX_COPY_PASS_STATUS
+      : options.modifiableCopySmoke
+        ? MODIFIABLE_COPY_PASS_STATUS
+        : READ_ONLY_PASS_STATUS;
+  const failStatus = options.codexRepairSmoke
+    ? CODEX_REPAIR_FAIL_STATUS
+    : options.codexCopySmoke
+      ? CODEX_COPY_FAIL_STATUS
+      : options.modifiableCopySmoke
+        ? MODIFIABLE_COPY_FAIL_STATUS
+        : READ_ONLY_FAIL_STATUS;
   if (options.repos.length < options.minRepos) {
     const report = {
       status: 'blocked',
@@ -849,7 +1346,7 @@ async function main() {
     process.exit(BLOCKED_EXIT);
   }
   let codexPreflight = null;
-  if (options.codexCopySmoke) {
+  if (options.codexCopySmoke || options.codexRepairSmoke) {
     codexPreflight = await codexCopyPreflight(options);
     if (codexPreflight.ok !== true) {
       const report = {
@@ -874,6 +1371,7 @@ async function main() {
       await analyzeRepo(repo, index + 1, {
         modifiableCopySmoke: options.modifiableCopySmoke,
         codexCopySmoke: options.codexCopySmoke,
+        codexRepairSmoke: options.codexRepairSmoke,
         codexModel: options.codexModel,
         codexTimeoutMs: options.codexTimeoutMs,
         tmpRoot
@@ -883,35 +1381,47 @@ async function main() {
   const passCount = cells.filter((cell) => cell.status === 'pass').length;
   const failCount = cells.filter((cell) => cell.status === 'fail').length;
   const ledger = {
-    status: failCount === 0 && passCount >= options.minRepos ? passStatus : failStatus,
+    status:
+      failCount === 0 && passCount >= options.minRepos
+        ? passStatus
+        : failStatus,
     scenario,
     run_id: runId,
-    mode: options.codexCopySmoke
-      ? 'real Codex temp-clone broad real project corpus smoke'
-      : options.modifiableCopySmoke
-      ? 'safe modifiable-copy broad real project corpus smoke'
-      : 'read-only broad real project corpus smoke',
-    scope:
-      options.codexCopySmoke
+    mode: options.codexRepairSmoke
+      ? 'real Codex temp-clone broad real project source-code repair smoke'
+      : options.codexCopySmoke
+        ? 'real Codex temp-clone broad real project corpus smoke'
+        : options.modifiableCopySmoke
+          ? 'safe modifiable-copy broad real project corpus smoke'
+          : 'read-only broad real project corpus smoke',
+    scope: options.codexRepairSmoke
+      ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+      : options.codexCopySmoke
         ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
         : options.modifiableCopySmoke
-        ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
-        : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
-    read_only: !options.modifiableCopySmoke && !options.codexCopySmoke,
+          ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
+          : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
+    read_only:
+      !options.modifiableCopySmoke &&
+      !options.codexCopySmoke &&
+      !options.codexRepairSmoke,
     source_repos_read_only: true,
     modifiable_copy_smoke: options.modifiableCopySmoke,
     codex_copy_smoke: options.codexCopySmoke,
-    llm_modification: options.codexCopySmoke,
-    hidden_acceptance: options.codexCopySmoke,
+    codex_repair_smoke: options.codexRepairSmoke,
+    source_code_repair: options.codexRepairSmoke,
+    llm_modification: options.codexCopySmoke || options.codexRepairSmoke,
+    hidden_acceptance: options.codexCopySmoke || options.codexRepairSmoke,
     draft_pr: false,
-    builder: options.codexCopySmoke
-      ? {
-          real_llm: true,
-          provider: 'codex',
-          model: options.codexModel,
-          via: 'codex-cli'
-        }
-      : null,
+    builder:
+      options.codexCopySmoke || options.codexRepairSmoke
+        ? {
+            real_llm: true,
+            provider: 'codex',
+            model: options.codexModel,
+            via: 'codex-cli'
+          }
+        : null,
     ...(codexPreflight ? { codex_preflight: codexPreflight } : {}),
     min_repo_count: options.minRepos,
     cell_count: cells.length,
@@ -925,24 +1435,7 @@ async function main() {
     runId,
     tmpRoot,
     outputs: [],
-    extraFiles: cells.flatMap((cell) =>
-      cell.codex_copy
-        ? [
-            {
-              label: `${cell.id}_codex_stdout`,
-              path: cell.codex_copy.codex.stdout_file
-            },
-            {
-              label: `${cell.id}_codex_stderr`,
-              path: cell.codex_copy.codex.stderr_file
-            },
-            {
-              label: `${cell.id}_codex_last_message`,
-              path: cell.codex_copy.codex.output_file
-            }
-          ]
-        : []
-    ),
+    extraFiles: cells.flatMap((cell) => cellExtraFiles(cell)),
     extraJson: {
       'real-project-corpus-cells': cells,
       'real-project-corpus-summary': {
@@ -950,6 +1443,7 @@ async function main() {
         fail_count: failCount,
         min_repo_count: options.minRepos,
         codex_copy_smoke: options.codexCopySmoke,
+        codex_repair_smoke: options.codexRepairSmoke,
         modifiable_copy_smoke: options.modifiableCopySmoke
       }
     }
@@ -969,7 +1463,11 @@ async function main() {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((error) => {
-    console.error(redact(error instanceof Error ? error.stack ?? error.message : String(error)));
+    console.error(
+      redact(
+        error instanceof Error ? (error.stack ?? error.message) : String(error)
+      )
+    );
     process.exit(1);
   });
 }

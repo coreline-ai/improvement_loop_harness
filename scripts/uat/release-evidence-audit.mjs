@@ -9,6 +9,7 @@ import {
   EVIDENCE_SCENARIOS,
   PRODUCT_100_EVIDENCE_SCENARIO,
   REAL_PROJECT_CODEX_COPY_CORPUS_EVIDENCE_SCENARIO,
+  REAL_PROJECT_CODEX_REPAIR_CORPUS_EVIDENCE_SCENARIO,
   REAL_PROJECT_MODIFIABLE_CORPUS_EVIDENCE_SCENARIO,
   REAL_PROJECT_CORPUS_EVIDENCE_SCENARIO,
   latestEvidenceBundle
@@ -32,6 +33,7 @@ export const SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS = [
   REAL_PROJECT_CORPUS_EVIDENCE_SCENARIO,
   REAL_PROJECT_MODIFIABLE_CORPUS_EVIDENCE_SCENARIO,
   REAL_PROJECT_CODEX_COPY_CORPUS_EVIDENCE_SCENARIO,
+  REAL_PROJECT_CODEX_REPAIR_CORPUS_EVIDENCE_SCENARIO,
   PRODUCT_100_EVIDENCE_SCENARIO
 ];
 
@@ -51,12 +53,17 @@ export function selectReleaseEvidenceAuditScenarios(options = {}) {
   }
 
   const scenarioByName = new Map(
-    SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((scenario) => [scenario.scenario, scenario])
+    SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((scenario) => [
+      scenario.scenario,
+      scenario
+    ])
   );
   return options.scenarioNames.map((scenarioName) => {
     const scenario = scenarioByName.get(scenarioName);
     if (!scenario) {
-      const known = SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario).join(', ');
+      const known = SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map(
+        (item) => item.scenario
+      ).join(', ');
       throw new Error(`unknown scenario: ${scenarioName}; known: ${known}`);
     }
     return scenario;
