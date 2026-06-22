@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,9 +14,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../..');
 const CLI = path.join(REPO_ROOT, 'packages/cli/bin/vibeloop');
-const SCENARIO = 'repo-matrix-real-project-corpus-uat';
-const PASS_STATUS = 'REAL_PROJECT_CORPUS_PASS';
-const FAIL_STATUS = 'REAL_PROJECT_CORPUS_FAIL';
+const READ_ONLY_SCENARIO = 'repo-matrix-real-project-corpus-uat';
+const MODIFIABLE_COPY_SCENARIO =
+  'repo-matrix-real-project-modifiable-corpus-uat';
+const READ_ONLY_PASS_STATUS = 'REAL_PROJECT_CORPUS_PASS';
+const READ_ONLY_FAIL_STATUS = 'REAL_PROJECT_CORPUS_FAIL';
+const MODIFIABLE_COPY_PASS_STATUS = 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS';
+const MODIFIABLE_COPY_FAIL_STATUS = 'REAL_PROJECT_MODIFIABLE_CORPUS_FAIL';
 const BLOCKED_EXIT = 20;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
@@ -230,7 +234,102 @@ async function smokeChecks(repoPath, files) {
   return checks;
 }
 
-async function analyzeRepo(repoPath, index) {
+async function runModifiableCopySmoke(sourceRepoPath, cellId, tmpRoot) {
+  const cloneRoot = path.join(tmpRoot, 'modifiable-copies');
+  const clonePath = path.join(cloneRoot, cellId);
+  const probeFile = '.vibeloop-real-project-modification-probe.txt';
+  const failures = [];
+  await mkdir(cloneRoot, { recursive: true });
+
+  const clone = await git(
+    REPO_ROOT,
+    ['clone', '--quiet', '--no-hardlinks', '--', sourceRepoPath, clonePath],
+    { timeoutMs: 120_000 }
+  );
+  if (clone.code !== 0) {
+    return {
+      status: 'fail',
+      failures: ['clone_failed'],
+      clone_exit_code: clone.code,
+      clone_stderr: redact(clone.stderr).slice(0, 800)
+    };
+  }
+
+  await writeFile(
+    path.join(clonePath, probeFile),
+    [
+      'VibeLoop real project modifiable-copy smoke.',
+      `source_path_hash=${pathHash(sourceRepoPath)}`,
+      ''
+    ].join('\n')
+  );
+  const statusAfterWrite = await git(clonePath, [
+    'status',
+    '--porcelain=v1',
+    '--',
+    probeFile
+  ]);
+  const add = await git(clonePath, ['add', '--', probeFile]);
+  const diffCheck = await git(clonePath, ['diff', '--cached', '--check']);
+  const reset = await git(clonePath, ['reset', '--hard', 'HEAD']);
+  const clean = await git(clonePath, ['clean', '-fd', '--', probeFile]);
+  const finalStatus = await git(clonePath, ['status', '--porcelain=v1']);
+  const discover = await runCommand(
+    process.execPath,
+    [
+      CLI,
+      'discover',
+      '--repo',
+      clonePath,
+      '--test-command',
+      'git ls-files > /dev/null'
+    ],
+    { cwd: REPO_ROOT, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const discoverJson = parseJsonTail(discover.stdout);
+
+  if (statusAfterWrite.code !== 0 || !statusAfterWrite.stdout.trim()) {
+    failures.push('write_probe_not_detected');
+  }
+  if (add.code !== 0) failures.push('write_probe_stage_failed');
+  if (diffCheck.code !== 0) failures.push('diff_check_failed');
+  if (reset.code !== 0 || clean.code !== 0 || finalStatus.stdout.trim()) {
+    failures.push('cleanup_failed');
+  }
+  if (discover.code !== 0 || !discoverJson) {
+    failures.push('clone_discover_failed');
+  }
+
+  return {
+    status: failures.length === 0 ? 'pass' : 'fail',
+    source_repo_path_hash: pathHash(sourceRepoPath),
+    clone_path_hash: pathHash(clonePath),
+    write_probe_detected: statusAfterWrite.code === 0 && Boolean(statusAfterWrite.stdout.trim()),
+    staged_diff_check_status: diffCheck.code === 0 ? 'pass' : 'fail',
+    cleanup_status:
+      reset.code === 0 && clean.code === 0 && !finalStatus.stdout.trim()
+        ? 'pass'
+        : 'fail',
+    discover: {
+      status: discover.code === 0 && discoverJson ? 'pass' : 'fail',
+      exit_code: discover.code,
+      candidate_count: Array.isArray(discoverJson?.candidates)
+        ? discoverJson.candidates.length
+        : null,
+      stderr: redact(discover.stderr).slice(0, 800),
+      timed_out: discover.timedOut
+    },
+    failures,
+    stderr: {
+      add: redact(add.stderr).slice(0, 400),
+      diff_check: redact(diffCheck.stderr).slice(0, 400),
+      reset: redact(reset.stderr).slice(0, 400),
+      clean: redact(clean.stderr).slice(0, 400)
+    }
+  };
+}
+
+async function analyzeRepo(repoPath, index, options = {}) {
   const resolved = path.resolve(repoPath);
   const id = `${slug(path.basename(resolved))}-${pathHash(resolved)}`;
   const failures = [];
@@ -299,6 +398,12 @@ async function analyzeRepo(repoPath, index) {
   if (discover.code !== 0) failures.push('discover_command_failed');
   if (!discoverJson) failures.push('discover_json_missing');
   if (candidateCount !== 0) failures.push('discover_smoke_expected_zero_candidates');
+  const modifiableCopy = options.modifiableCopySmoke
+    ? await runModifiableCopySmoke(resolved, `${index}-${id}`, options.tmpRoot)
+    : null;
+  if (modifiableCopy && modifiableCopy.status !== 'pass') {
+    failures.push('modifiable_copy_smoke_failed');
+  }
 
   const remoteLines = remotes.stdout
     .split(/\r?\n/)
@@ -344,6 +449,7 @@ async function analyzeRepo(repoPath, index) {
       stderr: redact(discover.stderr).slice(0, 800),
       timed_out: discover.timedOut
     },
+    ...(modifiableCopy ? { modifiable_copy: modifiableCopy } : {}),
     failures
   };
 }
@@ -351,6 +457,8 @@ async function analyzeRepo(repoPath, index) {
 function parseArgs(argv, env = process.env) {
   const repos = [];
   let minRepos = Number(env.VIBELOOP_REAL_PROJECT_CORPUS_MIN_REPOS ?? 2);
+  let modifiableCopySmoke =
+    env.VIBELOOP_REAL_PROJECT_CORPUS_MODIFIABLE_COPY_SMOKE === '1';
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--') {
@@ -370,6 +478,10 @@ function parseArgs(argv, env = process.env) {
       index += 1;
       continue;
     }
+    if (arg === '--modifiable-copy-smoke') {
+      modifiableCopySmoke = true;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
   const envRepos = (env.VIBELOOP_REAL_PROJECT_CORPUS_REPOS ?? '')
@@ -378,16 +490,26 @@ function parseArgs(argv, env = process.env) {
     .filter(Boolean);
   return {
     repos: [...repos, ...envRepos],
-    minRepos: Number.isFinite(minRepos) && minRepos > 0 ? minRepos : 2
+    minRepos: Number.isFinite(minRepos) && minRepos > 0 ? minRepos : 2,
+    modifiableCopySmoke
   };
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const scenario = options.modifiableCopySmoke
+    ? MODIFIABLE_COPY_SCENARIO
+    : READ_ONLY_SCENARIO;
+  const passStatus = options.modifiableCopySmoke
+    ? MODIFIABLE_COPY_PASS_STATUS
+    : READ_ONLY_PASS_STATUS;
+  const failStatus = options.modifiableCopySmoke
+    ? MODIFIABLE_COPY_FAIL_STATUS
+    : READ_ONLY_FAIL_STATUS;
   if (options.repos.length < options.minRepos) {
     const report = {
       status: 'blocked',
-      scenario: SCENARIO,
+      scenario,
       reason: 'REAL_PROJECT_CORPUS_REPOS_REQUIRED',
       required_repo_count: options.minRepos,
       provided_repo_count: options.repos.length,
@@ -403,18 +525,31 @@ async function main() {
   await mkdir(tmpRoot, { recursive: true });
   const cells = [];
   for (const [index, repo] of options.repos.entries()) {
-    cells.push(await analyzeRepo(repo, index + 1));
+    cells.push(
+      await analyzeRepo(repo, index + 1, {
+        modifiableCopySmoke: options.modifiableCopySmoke,
+        tmpRoot
+      })
+    );
   }
   const passCount = cells.filter((cell) => cell.status === 'pass').length;
   const failCount = cells.filter((cell) => cell.status === 'fail').length;
   const ledger = {
-    status: failCount === 0 && passCount >= options.minRepos ? PASS_STATUS : FAIL_STATUS,
-    scenario: SCENARIO,
+    status: failCount === 0 && passCount >= options.minRepos ? passStatus : failStatus,
+    scenario,
     run_id: runId,
-    mode: 'read-only broad real project corpus smoke',
+    mode: options.modifiableCopySmoke
+      ? 'safe modifiable-copy broad real project corpus smoke'
+      : 'read-only broad real project corpus smoke',
     scope:
-      'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
-    read_only: true,
+      options.modifiableCopySmoke
+        ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
+        : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
+    read_only: !options.modifiableCopySmoke,
+    source_repos_read_only: true,
+    modifiable_copy_smoke: options.modifiableCopySmoke,
+    llm_modification: false,
+    draft_pr: false,
     min_repo_count: options.minRepos,
     cell_count: cells.length,
     pass_count: passCount,
@@ -423,7 +558,7 @@ async function main() {
     evidence_missing_count: 0
   };
   const bundle = await writeUatEvidenceBundle({
-    scenario: SCENARIO,
+    scenario,
     runId,
     tmpRoot,
     outputs: [],
@@ -446,7 +581,7 @@ async function main() {
   ledger.evidence_missing_count = bundle.missing_count;
   ledger.ledger = await writeUatEvidenceLedger(bundle, ledger);
   console.log(JSON.stringify(ledger, null, 2));
-  process.exit(ledger.status === PASS_STATUS ? 0 : 1);
+  process.exit(ledger.status === passStatus ? 0 : 1);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

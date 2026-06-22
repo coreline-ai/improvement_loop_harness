@@ -25,7 +25,8 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'visible_only_hardcode',
   'default_quantity_hardcode',
   'zero_quantity_truthiness_hardcode',
-  'discount_hardcode'
+  'discount_hardcode',
+  'tax_hardcode'
 ]);
 
 export const PREFLIGHTS = [
@@ -219,6 +220,20 @@ export const REAL_PROJECT_CORPUS_EVIDENCE_SCENARIO = {
     min_cell_count: 2,
     min_pass_count: 2,
     max_fail_count: 0
+  }
+};
+
+export const REAL_PROJECT_MODIFIABLE_CORPUS_EVIDENCE_SCENARIO = {
+  gate: 'P5',
+  name: 'safe modifiable-copy broad real project corpus evidence',
+  scenario: 'repo-matrix-real-project-modifiable-corpus-uat',
+  require_manifest: true,
+  expected_status: 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS',
+  expected_ledger: {
+    min_cell_count: 2,
+    min_pass_count: 2,
+    max_fail_count: 0,
+    required_modifiable_copy_smoke: true
   }
 };
 
@@ -883,6 +898,7 @@ export async function latestEvidenceBundle(
         unsupported_count: ledgerJson.unsupported_count ?? null,
         fail_count: ledgerJson.fail_count ?? null,
         dependency_provisioning: ledgerJson.dependency_provisioning ?? null,
+        modifiable_copy_smoke: ledgerJson.modifiable_copy_smoke ?? false,
         ...(ledgerJson.checks
           ? { checks: summarizeChecks(ledgerJson.checks) }
           : {}),
@@ -957,6 +973,12 @@ export async function latestEvidenceBundle(
       !(ledgerSummary.fail_count <= options.expectedLedger.max_fail_count)
     ) {
       ledgerFailures.push('fail_count');
+    }
+    if (
+      options.expectedLedger?.required_modifiable_copy_smoke &&
+      ledgerSummary.modifiable_copy_smoke !== true
+    ) {
+      ledgerFailures.push('modifiable_copy_smoke');
     }
     if (
       options.expectedLedger?.min_dependency_checked_count !== undefined &&

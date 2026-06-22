@@ -121,7 +121,8 @@ function attackScenarios() {
     'visible_only_hardcode',
     'default_quantity_hardcode',
     'zero_quantity_truthiness_hardcode',
-    'discount_hardcode'
+    'discount_hardcode',
+    'tax_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -130,6 +131,7 @@ function attackScenarios() {
     zero_quantity_truthiness_hardcode:
       'rulepack_semantic:zero_quantity_truthiness',
     discount_hardcode: 'rulepack_semantic:discount_semantic',
+    tax_hardcode: 'rulepack_semantic:tax_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -778,6 +780,118 @@ describe('release evidence audit', () => {
         })
       })
     ]);
+  });
+
+  it('keeps modifiable-copy real project corpus audit explicit and requires the write probe flag', async () => {
+    const selected = selectReleaseEvidenceAuditScenarios({
+      scenarioNames: ['repo-matrix-real-project-modifiable-corpus-uat']
+    });
+    expect(selected).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        scenario: 'repo-matrix-real-project-modifiable-corpus-uat',
+        expected_status: 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS',
+        expected_ledger: {
+          min_cell_count: 2,
+          min_pass_count: 2,
+          max_fail_count: 0,
+          required_modifiable_copy_smoke: true
+        }
+      })
+    ]);
+    expect(
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).toContain('repo-matrix-real-project-modifiable-corpus-uat');
+    expect(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).not.toContain('repo-matrix-real-project-modifiable-corpus-uat');
+
+    const root = await tempRoot();
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-modifiable-corpus-uat',
+      'real-project-modifiable-run',
+      {
+        status: 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS',
+        evidence_missing_count: 0,
+        modifiable_copy_smoke: true,
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'node-real-project',
+            status: 'pass',
+            modifiable_copy: { status: 'pass' }
+          },
+          {
+            id: 'python-real-project',
+            status: 'pass',
+            modifiable_copy: { status: 'pass' }
+          }
+        ]
+      }
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-modifiable-corpus-uat',
+      'real-project-modifiable-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['repo-matrix-real-project-modifiable-corpus-uat']
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.scope).toBe('custom');
+    expect(report.evidence).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        ok: true,
+        scenario: 'repo-matrix-real-project-modifiable-corpus-uat',
+        ledger_summary: expect.objectContaining({
+          status: 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS',
+          modifiable_copy_smoke: true,
+          cell_count: 2,
+          pass_count: 2,
+          fail_count: 0
+        })
+      })
+    ]);
+
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-modifiable-corpus-uat',
+      'real-project-readonly-run',
+      {
+        status: 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS',
+        evidence_missing_count: 0,
+        modifiable_copy_smoke: false,
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          { id: 'node-real-project', status: 'pass' },
+          { id: 'python-real-project', status: 'pass' }
+        ]
+      }
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-modifiable-corpus-uat',
+      'real-project-readonly-run'
+    );
+
+    const weakenedReport = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['repo-matrix-real-project-modifiable-corpus-uat']
+    });
+
+    expect(weakenedReport.status).toBe('fail');
+    expect(weakenedReport.evidence[0].ledger_failures).toContain(
+      'modifiable_copy_smoke'
+    );
   });
 
   it('audits explicit Product-100 evidence with every fixed requirement and Phase7 proof', async () => {

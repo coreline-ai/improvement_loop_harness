@@ -331,7 +331,7 @@ corepack pnpm uat:adversary-live:real-reviewer
 corepack pnpm uat:release-evidence-audit -- --scenario adversary-live-real-reviewer-uat
 ```
 
-2026-06-22 local run `adversary-live-real-reviewer-14014-1782097278557`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex reviewer proposal과 supplemental discount semantic rule을 M2/M4/freeze/N+1로 고정했다. Evidence는 `real_llm=true`, `provider=codex`, M2 confirmed 2, M4 replay-safe 2/2, 7/7 attack scenario PASS를 포함한다. `adversary-live-real-reviewer-uat`는 이 lane의 CI artifact 감사를 위한 별도 scenario이며, `release-evidence-audit --scenario adversary-live-real-reviewer-uat`는 real LLM reviewer provenance를 필수로 요구한다. 이 증거는 P4 cart quantity+discount local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
+2026-06-22 local run `adversary-live-real-reviewer-58753-1782103394688`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex reviewer proposal과 supplemental discount/tax semantic rule을 M2/M4/freeze/N+1로 고정했다. Evidence는 `real_llm=true`, `provider=codex`, M2 confirmed 3, M4 replay-safe 3/3, 8/8 attack scenario PASS를 포함한다. `adversary-live-real-reviewer-uat`는 이 lane의 CI artifact 감사를 위한 별도 scenario이며, `release-evidence-audit --scenario adversary-live-real-reviewer-uat`는 real LLM reviewer provenance를 필수로 요구한다. 이 증거는 P4 cart quantity+discount+tax local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
 
 ---
 
@@ -421,6 +421,33 @@ corepack pnpm uat:release-evidence-audit -- \
 ```
 
 2026-06-22 R19 real project corpus smoke는 기존 로컬 repo 4개에서 `REAL_PROJECT_CORPUS_PASS`, `cell_count=4`, `pass_count=4`, `fail_count=0`을 남겼다. 각 repo는 read-only git metadata, source/language markers, package/source marker smoke, `vibeloop discover` smoke를 통과했고, `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-corpus-uat`도 manifest-backed evidence를 PASS로 감사했다.
+
+기존 실제 로컬 repo를 원본 read-only로 유지하면서 임시 clone 수정 가능성까지 확인할 때는 safe modifiable-copy smoke를 사용한다. 이 lane은 각 repo를 `/tmp` 아래로 clone하고 probe 파일 write/stage/diff-check/cleanup을 수행한 뒤 `vibeloop discover` smoke를 실행한다.
+
+```bash
+corepack pnpm uat:repo-matrix:real-project-modifiable-corpus -- \
+  --repo /path/to/real/repo-a \
+  --repo /path/to/real/repo-b \
+  --min-repos 2
+
+corepack pnpm uat:release-evidence-audit -- \
+  --scenario repo-matrix-real-project-modifiable-corpus-uat
+```
+
+기대:
+
+- `status=REAL_PROJECT_MODIFIABLE_CORPUS_PASS`
+- `cell_count>=2`, `pass_count>=2`, `fail_count=0`
+- 각 cell은 실제 git worktree, tracked source marker, language marker, temp-clone write probe, staged diff check, cleanup, discover smoke를 통과해야 한다.
+- 이 lane도 아직 LLM 수정, hidden acceptance, draft PR 생성, 임의/대형 repo 전체 PASS를 의미하지 않는다.
+
+최근 확인 evidence:
+
+```text
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-modifiable-corpus-uat/real-project-corpus-55869-1782103100279/ledger.json
+```
+
+2026-06-22 R20 real project modifiable-copy smoke는 기존 로컬 repo 3개에서 `REAL_PROJECT_MODIFIABLE_CORPUS_PASS`, `cell_count=3`, `pass_count=3`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke와 temp-clone write/stage/diff-check/cleanup/discover smoke를 통과했고, `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-modifiable-corpus-uat`도 manifest-backed evidence를 PASS로 감사했다.
 
 ---
 
