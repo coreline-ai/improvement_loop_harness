@@ -14,7 +14,10 @@ import {
   REQUIRED_ATTACK_SCENARIOS,
   buildAdversaryLiveAttackScenarios
 } from './adversary-live-safety.mjs';
-import { validateAdversaryReviewerProvenance } from './adversary-live-contract.mjs';
+import {
+  validateAdversaryReviewerProvenance,
+  validateCommandAdversaryReviewerProvenance
+} from './adversary-live-contract.mjs';
 
 export const BLOCKED_EXIT = 20;
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -186,6 +189,21 @@ export const PRODUCT_100_EVIDENCE_SCENARIO = {
   expected_status: PRODUCT_100_PASS_STATUS,
   expected_ledger: {
     required_product_100: true
+  }
+};
+
+export const ADVERSARY_REAL_REVIEWER_EVIDENCE_SCENARIO = {
+  gate: 'P4',
+  name: 'adversary live real reviewer evidence bundle',
+  scenario: 'adversary-live-real-reviewer-uat',
+  require_manifest: true,
+  expected_status: 'ADVERSARY_LIVE_PASS',
+  require_when_preflight_gate_passes: 'P4',
+  expected_ledger: {
+    required_attack_scenarios: REQUIRED_ATTACK_SCENARIOS,
+    required_adversary_safety: true,
+    required_adversary_reviewer_provenance: true,
+    required_adversary_real_reviewer: true
   }
 };
 
@@ -517,6 +535,11 @@ function requiredAttackScenarioFailures(
 function requiredAdversaryReviewerFailures(reviewer, required = false) {
   if (!required) return [];
   return validateAdversaryReviewerProvenance(reviewer).failures;
+}
+
+function requiredAdversaryRealReviewerFailures(reviewer, required = false) {
+  if (!required) return [];
+  return validateCommandAdversaryReviewerProvenance(reviewer).failures;
 }
 
 function requiredAdversarySafetyFailures(adversarySafety, required = false) {
@@ -973,6 +996,12 @@ export async function latestEvidenceBundle(
       ...requiredAdversaryReviewerFailures(
         ledgerSummary.adversary_reviewer,
         options.expectedLedger?.required_adversary_reviewer_provenance
+      )
+    );
+    ledgerFailures.push(
+      ...requiredAdversaryRealReviewerFailures(
+        ledgerSummary.adversary_reviewer,
+        options.expectedLedger?.required_adversary_real_reviewer
       )
     );
     ledgerFailures.push(

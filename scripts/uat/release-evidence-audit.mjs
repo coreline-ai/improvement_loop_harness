@@ -5,6 +5,7 @@ import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import {
+  ADVERSARY_REAL_REVIEWER_EVIDENCE_SCENARIO,
   EVIDENCE_SCENARIOS,
   PRODUCT_100_EVIDENCE_SCENARIO,
   latestEvidenceBundle
@@ -24,6 +25,7 @@ export const RELEASE_EVIDENCE_AUDIT_SCENARIOS = EVIDENCE_SCENARIOS.filter(
 
 export const SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS = [
   ...EVIDENCE_SCENARIOS,
+  ADVERSARY_REAL_REVIEWER_EVIDENCE_SCENARIO,
   PRODUCT_100_EVIDENCE_SCENARIO
 ];
 

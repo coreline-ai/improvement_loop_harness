@@ -22,11 +22,11 @@
 | **P1** | ✅ 구현·검증 완료 | 090746 Phase 1~6 전부 [x]. 잔여는 커밋 규율(`fix(ops-gate-phase-N)`) 마무리뿐 |
 | **P2** | ✅ 완료 | PrismaStore Postgres contract와 release evidence audit이 capable 환경에서 PASS. CI artifact replay도 `postgres-contract-evidence-*`를 감사한다. |
 | **P3** | ✅ 완료 | 091537 Phase 1 — R14 live rerun + CI artifact + retention GC 회귀 |
-| **P4** | ✅/⚠️ core + live evidence PASS | Rulepack semantic core, controlled Docker/R1 adversary lane, CI controlled artifact audit, local real Codex reviewer command lane이 PASS. Local real reviewer evidence: `adversary-live-39896-1782094414571`. 단 더 큰 project-specific semantic/M4 corpus와 real reviewer lane의 CI artifact PASS는 후속 |
+| **P4** | ✅/⚠️ core + live evidence PASS | Rulepack semantic core, controlled Docker/R1 adversary lane, CI controlled artifact audit, local real Codex reviewer command lane이 PASS. Local real reviewer evidence: `adversary-live-39896-1782094414571`. `adversary-live-real-reviewer-uat` 명시 audit scenario와 `P4 Real Reviewer Live Evidence` workflow가 추가됐다. 단 더 큰 project-specific semantic/M4 corpus와 credentialed real reviewer CI artifact PASS는 후속 |
 | **P5** | ✅/⚠️ 완료 | 091537 Phase 2·4 — controlled 매트릭스 + R15/R16/R17 대표 live evidence. 단 controlled representative corpus이며 임의/대형 사용자 repo 전체 PASS는 아님 |
 | **P6/Product-100 overlay** | ✅/⚠️ controlled corpus PASS | `implement_20260617_211537.md` — 20개 fixed requirement 계약, 10이슈 corpus, hidden/adversary eval generator, strict-best, Phase6 explicit audit 구현. 2026-06-22 local finalization에서 `PRODUCT_100_CODEX_LIVE_PASS`가 controlled 5-repo/10-issue corpus 범위로 통과. default release gate에는 포함하지 않고 명시 `--scenario product-100-codex-live-uat`에서만 감사. 임의/대형 사용자 repo 전체 PASS는 아님 |
 
-남은 작업 = (1) **CI artifact 재현성**: 새 변경 커밋 후 CI 전체 그린과 `release-evidence-audit:gh` replay 확인, 특히 real reviewer command lane은 CI에서 env를 켠 별도 artifact PASS가 아직 없다. (2) **broad real project corpus**: Product-100/representative controlled corpus 밖의 임의·대형 실제 repo 검증. (3) **semantic/M4 corpus 확장**: cart quantity 중심 단일 P4 lane을 넘어 project-specific adversary semantic/M4 replay corpus를 늘린다.
+남은 작업 = (1) **CI artifact 재현성**: `P4 Real Reviewer Live Evidence` workflow를 Codex login이 있는 runner에서 실행하고 `release-evidence-audit:gh -- --scenario adversary-live-real-reviewer-uat` replay PASS를 확보한다. (2) **broad real project corpus**: Product-100/representative controlled corpus 밖의 임의·대형 실제 repo 검증. (3) **semantic/M4 corpus 확장**: cart quantity 중심 단일 P4 lane을 넘어 project-specific adversary semantic/M4 replay corpus를 늘린다.
 
 현 계획 **Non-goal(별도 backlog)**: A-6 학습/메모리 자산 계층(Prisma `Learning`/`SkillVersion` dead schema 연결), A-9 제품 모듈 분리.
 

@@ -32,8 +32,16 @@ import {
   validateAdversaryLiveAttackScenarioResults
 } from './adversary-live-contract.mjs';
 
-const SCENARIO = 'adversary-live-uat';
-const RUN_ID = `adversary-live-${process.pid}-${Date.now()}`;
+export function resolveAdversaryLiveScenario(env = process.env) {
+  const scenario = env.VIBELOOP_ADVERSARY_LIVE_SCENARIO || 'adversary-live-uat';
+  if (!/^[A-Za-z0-9_.-]+$/.test(scenario)) {
+    throw new Error(`invalid adversary live scenario: ${scenario}`);
+  }
+  return scenario;
+}
+
+const SCENARIO = resolveAdversaryLiveScenario();
+const RUN_ID = `${SCENARIO.replace(/-uat$/, '')}-${process.pid}-${Date.now()}`;
 const IMAGE = process.env.VIBELOOP_ADVERSARY_LIVE_IMAGE || 'node:22-alpine';
 const TIMEOUT_MS = Number(
   process.env.VIBELOOP_ADVERSARY_LIVE_TIMEOUT_MS || '30000'

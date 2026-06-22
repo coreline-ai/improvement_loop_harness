@@ -609,6 +609,99 @@ describe('release evidence audit', () => {
     expect(ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)).not.toContain('product-100-codex-live-uat');
   });
 
+  it('keeps real reviewer P4 audit explicit and requires real LLM provenance', async () => {
+    const selected = selectReleaseEvidenceAuditScenarios({
+      scenarioNames: ['adversary-live-real-reviewer-uat']
+    });
+    expect(selected).toEqual([
+      expect.objectContaining({
+        gate: 'P4',
+        scenario: 'adversary-live-real-reviewer-uat',
+        expected_status: 'ADVERSARY_LIVE_PASS',
+        expected_ledger: expect.objectContaining({
+          required_adversary_real_reviewer: true
+        })
+      })
+    ]);
+    expect(SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)).toContain('adversary-live-real-reviewer-uat');
+    expect(ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)).not.toContain('adversary-live-real-reviewer-uat');
+
+    const root = await tempRoot();
+    await writeLedger(
+      root,
+      'adversary-live-real-reviewer-uat',
+      'controlled-run',
+      adversaryLedger()
+    );
+    await writeManifest(root, 'adversary-live-real-reviewer-uat', 'controlled-run');
+
+    const controlledReport = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['adversary-live-real-reviewer-uat']
+    });
+
+    expect(controlledReport.status).toBe('fail');
+    expect(controlledReport.failed_gates).toEqual(['P4']);
+    expect(controlledReport.evidence).toEqual([
+      expect.objectContaining({
+        ok: false,
+        status: 'invalid_ledger',
+        ledger_failures: expect.arrayContaining([
+          'adversary_reviewer.kind',
+          'adversary_reviewer.real_llm',
+          'adversary_reviewer.provider',
+          'adversary_reviewer.proposal_source'
+        ])
+      })
+    ]);
+
+    await writeLedger(
+      root,
+      'adversary-live-real-reviewer-uat',
+      'real-reviewer-run',
+      adversaryLedger({
+        adversary_reviewer: buildCommandAdversaryReviewerProvenance({
+          realLlm: true,
+          reviewReport: {
+            reviewer_provider: 'codex',
+            same_model_review: false,
+            prompt_version: 'adversary-review-v1',
+            prompt_hash: 'sha256:reviewer',
+            accepted_proposal_count: 1
+          }
+        })
+      }),
+      new Date('2030-01-01T00:00:00.000Z')
+    );
+    await writeManifest(
+      root,
+      'adversary-live-real-reviewer-uat',
+      'real-reviewer-run'
+    );
+
+    const realReviewerReport = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['adversary-live-real-reviewer-uat']
+    });
+
+    expect(realReviewerReport.status).toBe('pass');
+    expect(realReviewerReport.evidence).toEqual([
+      expect.objectContaining({
+        gate: 'P4',
+        ok: true,
+        scenario: 'adversary-live-real-reviewer-uat',
+        ledger_summary: expect.objectContaining({
+          adversary_reviewer: expect.objectContaining({
+            kind: 'adversary_review_command',
+            real_llm: true,
+            provider: 'codex',
+            accepted_proposal_count: 1
+          })
+        })
+      })
+    ]);
+  });
+
   it('audits explicit Product-100 evidence with every fixed requirement and Phase7 proof', async () => {
     const root = await tempRoot();
     await writeLedger(

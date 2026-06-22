@@ -325,9 +325,13 @@ export VIBELOOP_ADVERSARY_REVIEWER_COMMAND='node scripts/uat/adversary-live-code
 export VIBELOOP_ADVERSARY_REVIEWER_PROVIDER=codex
 export VIBELOOP_ADVERSARY_REVIEWER_REAL_LLM=1
 corepack pnpm uat:adversary-live
+
+# 별도 evidence scenario로 보존하려면:
+corepack pnpm uat:adversary-live:real-reviewer
+corepack pnpm uat:release-evidence-audit -- --scenario adversary-live-real-reviewer-uat
 ```
 
-2026-06-22 local run `adversary-live-39896-1782094414571`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex proposal `cart-line-total-quantity-semantics`를 M2/M4/freeze/N+1과 6/6 attack scenario까지 통과시켰다. 이 증거는 단일 P4 cart semantic local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
+2026-06-22 local run `adversary-live-39896-1782094414571`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex proposal `cart-line-total-quantity-semantics`를 M2/M4/freeze/N+1과 6/6 attack scenario까지 통과시켰다. `adversary-live-real-reviewer-uat`는 이 lane의 CI artifact 감사를 위한 별도 scenario이며, `release-evidence-audit --scenario adversary-live-real-reviewer-uat`는 real LLM reviewer provenance를 필수로 요구한다. 이 증거는 단일 P4 cart semantic local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
 
 ---
 
@@ -497,13 +501,35 @@ corepack pnpm uat:product-100:preflight
 
 ### CI artifact 재현성
 
-실제 GitHub Actions artifact까지 재현하려면 `Product-100 Live Evidence` workflow를 수동 실행한다. 이 workflow는 opt-in일 때만 live Codex/GitHub run을 수행하고, 같은 run에서 업로드된 `product-100-evidence-<run_id>-<attempt>` artifact를 다시 다운로드해 `release-evidence-audit --scenario product-100-codex-live-uat`로 감사한다.
+실제 GitHub Actions artifact까지 재현하려면 `Product-100 Live Evidence` 또는 `P4 Real Reviewer Live Evidence` workflow를 수동 실행한다. 두 workflow는 opt-in일 때만 live Codex/GitHub 또는 live Codex reviewer run을 수행하고, 같은 run에서 업로드된 artifact를 다시 다운로드해 명시 scenario로 감사한다.
 
 사전 조건:
 
 - repository secret `PRODUCT100_GH_TOKEN`: private corpus repo 생성, branch push, draft PR 생성을 할 수 있는 PAT.
 - Codex CLI/OAuth 또는 해당 환경의 live Codex 인증. 이 인증이 없으면 preflight 또는 live runner가 fail-closed한다.
 - Docker runtime with `node:22-alpine` and `python:3.12-alpine`.
+
+P4 real reviewer CI artifact는 Codex ChatGPT login이 있는 runner가 필요하다. 기본 `ubuntu-latest`에 로그인 상태가 없다면 `runner_label`을 self-hosted runner로 지정한다.
+
+```bash
+gh workflow run adversary-real-reviewer-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=true \
+  -f runner_label=self-hosted \
+  -f reviewer_model=gpt-5.5 \
+  -f reviewer_timeout_ms=240000
+```
+
+기존 P4 real reviewer artifact를 재감사할 때는 replay input만 지정한다.
+
+```bash
+gh workflow run adversary-real-reviewer-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=false \
+  -f replay_run_id=<run_id> \
+  -f replay_run_attempt=1 \
+  -f replay_repo=coreline-ai/improvement_loop_harness
+```
 
 ```bash
 gh workflow run product-100-live.yml \
