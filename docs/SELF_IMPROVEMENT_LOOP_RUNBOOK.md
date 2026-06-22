@@ -318,6 +318,17 @@ corepack pnpm uat:adversary-live
 - Docker-compatible runtime이 있으면 preflight는 `status=pass`, `uat:adversary-live`는 controlled command adversary proposal을 M2 격리 confirm → M4 replay → freeze → N+1 `builtin:rulepack-semantic` good/pass, bad/fail, visible-only hardcode/fail, default-quantity hardcode/fail, zero-quantity truthiness hardcode/fail까지 실행한다.
 - `docker`가 없으면 둘 다 `status=blocked`, `reason=CONTAINER_RUNTIME_UNAVAILABLE`, exit 20. 이 경우 P4 live adversary PASS를 선언하지 않는다.
 
+real Codex adversary reviewer command lane을 의도적으로 켤 때는 P4 전용 wrapper를 사용한다. 이 lane은 current-loop accept/selection에 영향을 주지 않는 advisory-only proposal만 만들고, release gate는 reviewer provenance(`real_llm=true`, `provider=codex`, `proposal_source=accepted_review_proposal`, `same_model_review=false`, fixed prompt hash/version)를 확인한다.
+
+```bash
+export VIBELOOP_ADVERSARY_REVIEWER_COMMAND='node scripts/uat/adversary-live-codex-reviewer.mjs --live'
+export VIBELOOP_ADVERSARY_REVIEWER_PROVIDER=codex
+export VIBELOOP_ADVERSARY_REVIEWER_REAL_LLM=1
+corepack pnpm uat:adversary-live
+```
+
+2026-06-22 local run `adversary-live-39896-1782094414571`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex proposal `cart-line-total-quantity-semantics`를 M2/M4/freeze/N+1과 6/6 attack scenario까지 통과시켰다. 이 증거는 단일 P4 cart semantic local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
+
 ---
 
 ## L6. Controlled Repo Matrix 확인
@@ -444,7 +455,7 @@ vibeloop improve \
 
 Product-100은 fixture PASS나 representative PASS를 제품 전체 PASS로 부르는 것을 막기 위한 최상위 UAT 계약이다. 현재 구현 상태는 **2026-06-22 local finalization 기준 controlled Product-100 corpus `PRODUCT_100_CODEX_LIVE_PASS`**다. 이 PASS는 5개 controlled repo/10개 seeded issue, real Codex Builder/Challenger/Reviewer, Phase4 strict-best, Phase5 M2/M4/freeze/N+1 aggregate, Phase6 GitHub draft PR/evidence/audit, Phase7 docs truth checker 범위에 한정된다. 임의의 모든 사용자 repo에 대한 제품 전체 100% PASS가 아니다.
 
-### real Codex adversary reviewer 기본 wrapper
+### Product-100 real Codex adversary reviewer 기본 wrapper
 
 `uat:product-100:preflight`와 Phase5 runner는 별도 설정이 없으면 기본으로 `node scripts/uat/product-100-codex-reviewer.mjs --live`를 사용한다. 이 wrapper는 Codex CLI를 `exec --ephemeral --ignore-rules --sandbox read-only`로 호출해 Builder 세션과 분리된 advisory reviewer JSON만 받는다. 필요하면 아래 env로 명시 override한다.
 

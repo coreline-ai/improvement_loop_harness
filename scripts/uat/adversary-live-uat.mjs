@@ -47,7 +47,8 @@ const REVIEWER_TIMEOUT_MS = Number(
   process.env.VIBELOOP_ADVERSARY_REVIEWER_TIMEOUT_MS || '120000'
 );
 const BUILDER_AGENT_SPEC =
-  process.env.VIBELOOP_ADVERSARY_BUILDER_AGENT_SPEC || 'mock';
+  process.env.VIBELOOP_ADVERSARY_BUILDER_AGENT_SPEC ||
+  'mock:adversary-live-controlled';
 const KEEP_TMP = process.env.VIBELOOP_UAT_KEEP_TMP === '1';
 
 const safetyPlan = buildAdversaryLiveSafetyPlan({

@@ -30,6 +30,7 @@
     "uat:postgres-contract:docker": "node scripts/uat/postgres-contract-docker.mjs",
     "uat:adversary-live-preflight": "node scripts/uat/adversary-live-preflight.mjs",
     "uat:adversary-live": "corepack pnpm build && node scripts/uat/adversary-live-uat.mjs",
+    "uat:adversary-live:reviewer-dry-run": "node scripts/uat/adversary-live-codex-reviewer.mjs --dry-run",
     "uat:repo-matrix": "corepack pnpm build && node scripts/uat/repo-matrix-uat.mjs",
     "uat:repo-matrix:codex-broad-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-broad-codex-live-uat.mjs",
     "uat:repo-matrix:codex-monorepo-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-monorepo-codex-live-uat.mjs",
