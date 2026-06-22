@@ -290,6 +290,9 @@ export function buildAdversaryLiveAttackScenarioResults({
   const defaultQuantityHardcodePassed =
     gates?.good === 'pass' &&
     gates?.defaultQuantityHardcoded === 'fail';
+  const zeroQuantityTruthinessHardcodePassed =
+    gates?.good === 'pass' &&
+    gates?.zeroQuantityTruthinessHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -367,6 +370,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       default_quantity_hardcoded_gate_status:
         gates?.defaultQuantityHardcoded ?? null
+    },
+    {
+      id: 'zero_quantity_truthiness_hardcode',
+      ...common('zero_quantity_truthiness_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:zero_quantity_truthiness',
+      executed: true,
+      blocked: zeroQuantityTruthinessHardcodePassed,
+      passed: zeroQuantityTruthinessHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      zero_quantity_truthiness_hardcoded_gate_status:
+        gates?.zeroQuantityTruthinessHardcoded ?? null
     }
   ];
 }

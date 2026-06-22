@@ -109,10 +109,20 @@ function validAttackScenarios() {
       scenario
     ])
   );
-  const semanticScenarioIds = [
+  const semanticScenarioIds = new Set([
     'visible_only_hardcode',
-    'default_quantity_hardcode'
-  ];
+    'default_quantity_hardcode',
+    'zero_quantity_truthiness_hardcode'
+  ]);
+  const mechanismById = {
+    prompt_injection: 'authority_invariant:advisory_only',
+    visible_only_hardcode: 'rulepack_semantic:visible_only_hardcode',
+    default_quantity_hardcode: 'rulepack_semantic:default_quantity_semantic',
+    zero_quantity_truthiness_hardcode:
+      'rulepack_semantic:zero_quantity_truthiness',
+    hidden_artifact_leak: 'static_filter:no_hidden_leak',
+    test_weakening: 'static_filter:no_weakening'
+  };
   return {
     checked_count: REQUIRED_ATTACK_SCENARIOS.length,
     passed_count: REQUIRED_ATTACK_SCENARIOS.length,
@@ -128,20 +138,11 @@ function validAttackScenarios() {
         stage:
           id === 'prompt_injection'
             ? 'authority_invariant'
-            : semanticScenarioIds.includes(id)
+            : semanticScenarioIds.has(id)
               ? 'n_plus_one_rulepack_semantic'
               : 'static_filter',
-        mechanism:
-          id === 'prompt_injection'
-            ? 'authority_invariant:advisory_only'
-            : id === 'visible_only_hardcode'
-              ? 'rulepack_semantic:visible_only_hardcode'
-              : id === 'default_quantity_hardcode'
-                ? 'rulepack_semantic:default_quantity_semantic'
-              : id === 'hidden_artifact_leak'
-                ? 'static_filter:no_hidden_leak'
-                : 'static_filter:no_weakening',
-        executed: semanticScenarioIds.includes(id),
+        mechanism: mechanismById[id],
+        executed: semanticScenarioIds.has(id),
         blocked: true,
         current_loop_impact: 'none',
         pr_created: false,
@@ -1315,7 +1316,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.hidden_artifact_leak',
         'attack_scenarios.prompt_injection',
         'attack_scenarios.visible_only_hardcode',
-        'attack_scenarios.default_quantity_hardcode'
+        'attack_scenarios.default_quantity_hardcode',
+        'attack_scenarios.zero_quantity_truthiness_hardcode'
       ])
     });
     expect(releaseGateExitCode(invalidAttackEvidenceReport)).toBe(1);

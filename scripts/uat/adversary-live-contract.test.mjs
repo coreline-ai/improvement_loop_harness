@@ -66,7 +66,8 @@ describe('adversary live contract', () => {
         good: 'pass',
         bad: 'fail',
         hardcoded: 'fail',
-        defaultQuantityHardcoded: 'fail'
+        defaultQuantityHardcoded: 'fail',
+        zeroQuantityTruthinessHardcoded: 'fail'
       }
     });
 
@@ -108,6 +109,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:default_quantity_semantic'
+        }),
+        expect.objectContaining({
+          id: 'zero_quantity_truthiness_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:zero_quantity_truthiness'
         })
       ])
     );
@@ -146,7 +153,8 @@ describe('adversary live contract', () => {
         'attack_scenario_hidden_artifact_leak_missing',
         'attack_scenario_prompt_injection_missing',
         'attack_scenario_visible_only_hardcode_missing',
-        'attack_scenario_default_quantity_hardcode_missing'
+        'attack_scenario_default_quantity_hardcode_missing',
+        'attack_scenario_zero_quantity_truthiness_hardcode_missing'
       ])
     );
   });
@@ -165,7 +173,8 @@ describe('adversary live contract', () => {
         good: 'pass',
         bad: 'fail',
         hardcoded: 'fail',
-        defaultQuantityHardcoded: 'fail'
+        defaultQuantityHardcoded: 'fail',
+        zeroQuantityTruthinessHardcoded: 'fail'
       }
     });
 

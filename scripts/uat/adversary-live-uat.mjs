@@ -195,6 +195,10 @@ async function main() {
       workRoot,
       'loop-n-plus-one-default-quantity-hardcode'
     );
+    const zeroQuantityTruthinessHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-zero-quantity-truthiness-hardcode'
+    );
     const buggyCart = [
       'function lineTotal(item) {',
       '  return item.price;',
@@ -223,6 +227,13 @@ async function main() {
       'module.exports = { lineTotal };',
       ''
     ].join('\n');
+    const zeroQuantityTruthinessHardcodedCart = [
+      'function lineTotal(item) {',
+      '  return item.price * (item.quantity || 1);',
+      '}',
+      'module.exports = { lineTotal };',
+      ''
+    ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
@@ -231,6 +242,10 @@ async function main() {
     await writeCartFixture(
       defaultQuantityHardcodedWorktree,
       defaultQuantityHardcodedCart
+    );
+    await writeCartFixture(
+      zeroQuantityTruthinessHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedCart
     );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
@@ -403,6 +418,13 @@ async function main() {
         'adversary-live-default-quantity-hardcode'
       )
     );
+    const zeroQuantityTruthinessHardcoded = await runGates(
+      await gateContext(
+        zeroQuantityTruthinessHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-zero-quantity-truthiness-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -416,18 +438,25 @@ async function main() {
       defaultQuantityHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const zeroQuantityTruthinessHardcodedGate =
+      zeroQuantityTruthinessHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
       hardcodedGate?.status !== 'fail' ||
-      defaultQuantityHardcodedGate?.status !== 'fail'
+      defaultQuantityHardcodedGate?.status !== 'fail' ||
+      zeroQuantityTruthinessHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
           good: goodGate,
           bad: badGate,
           hardcoded: hardcodedGate,
-          defaultQuantityHardcoded: defaultQuantityHardcodedGate
+          defaultQuantityHardcoded: defaultQuantityHardcodedGate,
+          zeroQuantityTruthinessHardcoded:
+            zeroQuantityTruthinessHardcodedGate
         })}`
       );
     }
@@ -440,7 +469,9 @@ async function main() {
         good: goodGate.status,
         bad: badGate.status,
         hardcoded: hardcodedGate.status,
-        defaultQuantityHardcoded: defaultQuantityHardcodedGate.status
+        defaultQuantityHardcoded: defaultQuantityHardcodedGate.status,
+        zeroQuantityTruthinessHardcoded:
+          zeroQuantityTruthinessHardcodedGate.status
       }
     });
     const attackScenarioCheck =
@@ -510,10 +541,14 @@ async function main() {
         hardcoded_gate_status: hardcodedGate.status,
         default_quantity_hardcoded_gate_status:
           defaultQuantityHardcodedGate.status,
+        zero_quantity_truthiness_hardcoded_gate_status:
+          zeroQuantityTruthinessHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
-          defaultQuantityHardcodedGate.status === 'fail'
+          defaultQuantityHardcodedGate.status === 'fail',
+        zero_quantity_truthiness_hardcode_rejected:
+          zeroQuantityTruthinessHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

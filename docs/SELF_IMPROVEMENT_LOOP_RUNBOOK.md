@@ -315,7 +315,7 @@ corepack pnpm uat:adversary-live
 
 기대:
 
-- Docker-compatible runtime이 있으면 preflight는 `status=pass`, `uat:adversary-live`는 controlled command adversary proposal을 M2 격리 confirm → M4 replay → freeze → N+1 `builtin:rulepack-semantic` good/pass, bad/fail, visible-only hardcode/fail, default-quantity hardcode/fail까지 실행한다.
+- Docker-compatible runtime이 있으면 preflight는 `status=pass`, `uat:adversary-live`는 controlled command adversary proposal을 M2 격리 confirm → M4 replay → freeze → N+1 `builtin:rulepack-semantic` good/pass, bad/fail, visible-only hardcode/fail, default-quantity hardcode/fail, zero-quantity truthiness hardcode/fail까지 실행한다.
 - `docker`가 없으면 둘 다 `status=blocked`, `reason=CONTAINER_RUNTIME_UNAVAILABLE`, exit 20. 이 경우 P4 live adversary PASS를 선언하지 않는다.
 
 ---

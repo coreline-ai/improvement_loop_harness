@@ -18,6 +18,11 @@ import { validateAdversaryReviewerProvenance } from './adversary-live-contract.m
 
 export const BLOCKED_EXIT = 20;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const SEMANTIC_ATTACK_SCENARIOS = new Set([
+  'visible_only_hardcode',
+  'default_quantity_hardcode',
+  'zero_quantity_truthiness_hardcode'
+]);
 
 export const PREFLIGHTS = [
   {
@@ -499,12 +504,7 @@ function requiredAttackScenarioFailures(
     if (expected?.expected_outcome === 'reject_or_no_pr' && scenario.blocked !== true) {
       failures.push(`attack_scenarios.${required}.blocked`);
     }
-    if (
-      ['visible_only_hardcode', 'default_quantity_hardcode'].includes(
-        required
-      ) &&
-      scenario.executed !== true
-    ) {
+    if (SEMANTIC_ATTACK_SCENARIOS.has(required) && scenario.executed !== true) {
       failures.push(`attack_scenarios.${required}.executed`);
     }
   }
