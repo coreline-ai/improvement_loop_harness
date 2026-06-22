@@ -296,6 +296,27 @@ export const REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
   }
 };
 
+export const REAL_PROJECT_EXISTING_SOURCE_REPAIR_PR_CORPUS_EVIDENCE_SCENARIO = {
+  gate: 'P5',
+  name: 'real Codex temp-clone broad real project existing source repair GitHub draft PR evidence',
+  scenario: 'repo-matrix-real-project-existing-source-repair-pr-uat',
+  require_manifest: true,
+  expected_status: 'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PR_PASS',
+  expected_ledger: {
+    min_cell_count: 2,
+    min_pass_count: 2,
+    max_fail_count: 0,
+    required_codex_repair_smoke: true,
+    required_existing_source_repair: true,
+    required_source_code_repair: true,
+    required_real_llm_modification: true,
+    required_hidden_acceptance: true,
+    required_source_repos_read_only: true,
+    required_draft_pr: true,
+    required_github_draft_pr: true
+  }
+};
+
 export function defaultEvidenceRoot(env = process.env) {
   return (
     env.VIBELOOP_UAT_EVIDENCE_DIR ??
@@ -440,6 +461,11 @@ function summarizeMatrixCells(cells) {
     codex_repair_existing_source: cell.codex_repair?.existing_source ?? null,
     codex_repair_existing_source_language:
       cell.codex_repair?.existing_source_language ?? null,
+    codex_repair_github_draft_pr_verified:
+      cell.codex_repair?.github?.draft_pr_verified ?? null,
+    codex_repair_github_main_unchanged:
+      cell.codex_repair?.github?.main_unchanged ?? null,
+    codex_repair_github_pr_url: cell.codex_repair?.github?.pr_url ?? null,
     codex_repair_visible_test_unchanged:
       cell.codex_repair?.visible_test_unchanged ?? null,
     codex_repair_source_repo_integrity_status:
@@ -856,7 +882,8 @@ function requiredCodexCopyCellFailures(cellSummaries, required = false) {
 function requiredCodexRepairCellFailures(
   cellSummaries,
   required = false,
-  requireExistingSource = false
+  requireExistingSource = false,
+  requireGithubDraftPr = false
 ) {
   if (!required) return [];
   const failures = [];
@@ -891,6 +918,27 @@ function requiredCodexRepairCellFailures(
       )
     ) {
       failures.push(`cells.${id}.codex_repair.repair_source`);
+    }
+    if (
+      requireGithubDraftPr &&
+      cell.codex_repair_github_draft_pr_verified !== true
+    ) {
+      failures.push(`cells.${id}.codex_repair.github.draft_pr_verified`);
+    }
+    if (
+      requireGithubDraftPr &&
+      cell.codex_repair_github_main_unchanged !== true
+    ) {
+      failures.push(`cells.${id}.codex_repair.github.main_unchanged`);
+    }
+    if (
+      requireGithubDraftPr &&
+      !(
+        typeof cell.codex_repair_github_pr_url === 'string' &&
+        cell.codex_repair_github_pr_url.startsWith('https://github.com/')
+      )
+    ) {
+      failures.push(`cells.${id}.codex_repair.github.pr_url`);
     }
     if (cell.codex_repair_visible_test_unchanged !== true) {
       failures.push(`cells.${id}.codex_repair.visible_test_unchanged`);
@@ -1060,6 +1108,8 @@ export async function latestEvidenceBundle(
         hidden_acceptance: ledgerJson.hidden_acceptance ?? false,
         source_repos_read_only: ledgerJson.source_repos_read_only ?? null,
         draft_pr: ledgerJson.draft_pr ?? null,
+        github_draft_pr: ledgerJson.github_draft_pr ?? false,
+        github_draft_pr_verified: ledgerJson.github_draft_pr_verified ?? false,
         builder: ledgerJson.builder
           ? {
               real_llm: ledgerJson.builder.real_llm ?? null,
@@ -1201,6 +1251,19 @@ export async function latestEvidenceBundle(
       ledgerFailures.push('draft_pr');
     }
     if (
+      options.expectedLedger?.required_draft_pr &&
+      ledgerSummary.draft_pr !== true
+    ) {
+      ledgerFailures.push('draft_pr');
+    }
+    if (
+      options.expectedLedger?.required_github_draft_pr &&
+      (ledgerSummary.github_draft_pr !== true ||
+        ledgerSummary.github_draft_pr_verified !== true)
+    ) {
+      ledgerFailures.push('github_draft_pr');
+    }
+    if (
       options.expectedLedger?.min_dependency_checked_count !== undefined &&
       !(
         ledgerSummary.dependency_provisioning?.checked_count >=
@@ -1234,7 +1297,8 @@ export async function latestEvidenceBundle(
       ...requiredCodexRepairCellFailures(
         ledgerSummary.cells,
         options.expectedLedger?.required_codex_repair_smoke,
-        options.expectedLedger?.required_existing_source_repair
+        options.expectedLedger?.required_existing_source_repair,
+        options.expectedLedger?.required_github_draft_pr
       )
     );
     ledgerFailures.push(

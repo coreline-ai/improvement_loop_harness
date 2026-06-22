@@ -533,6 +533,37 @@ corepack pnpm uat:release-evidence-audit -- \
 
 2026-06-22 R27 real project Codex existing-source repair는 기존 로컬 repo 2개(`improvement_loop_harness`, `build-server-cli`)에서 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`, `cell_count=2`, `pass_count=2`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 기존 tracked source file(`apps/server/scripts/postgres-connection-check.mjs`, `web/help-content.js`)만 수정했으며, original parse pass, regressed visible/hidden expected fail, final visible/hidden pass, existing-source-only diff, 원본 repo integrity를 검증했다. `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-uat`도 manifest-backed evidence를 PASS로 감사했다.
 
+기존 source repair 결과를 GitHub private evidence repo + draft PR까지 publish하려면 existing-source repair PR smoke lane을 사용한다. 이 lane은 원본 repo를 수정하지 않고 temp clone의 regressed base를 GitHub private repo `main`으로 push한 뒤, 실제 Codex가 복구한 기존 source file만 candidate branch에 commit하고 draft PR을 만든다. Shallow source clone은 publish 전에 upstream `fetch --unshallow`로 보강한다.
+
+```bash
+corepack pnpm uat:repo-matrix:real-project-existing-source-repair-pr -- \
+  --repo /path/to/real/repo-a \
+  --repo /path/to/real/repo-b \
+  --min-repos 2 \
+  --github-owner coreline-ai \
+  --github-repo-prefix vibeloop-real-pr \
+  --keep-remote
+
+corepack pnpm uat:release-evidence-audit -- \
+  --scenario repo-matrix-real-project-existing-source-repair-pr-uat
+```
+
+기대:
+
+- `status=REAL_PROJECT_EXISTING_SOURCE_REPAIR_PR_PASS`
+- `cell_count>=2`, `pass_count>=2`, `fail_count=0`
+- ledger가 `existing_source_repair_pr_smoke=true`, `github_draft_pr=true`, `github_draft_pr_verified=true`, `draft_pr=true`, `source_repos_read_only=true`, `builder.real_llm=true`, `builder.provider=codex`를 남긴다.
+- 각 cell은 `codex_repair.status=pass`, `codex_repair.github.draft_pr_verified=true`, `codex_repair.github.main_unchanged=true`, `codex_repair.github.pr_url`을 남겨야 한다.
+- 이 lane은 syntactic regression repair + GitHub draft PR smoke이며, 임의 업무 bug repair나 임의/대형 repo 전체 PASS를 의미하지 않는다.
+
+최근 확인 evidence:
+
+```text
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-existing-source-repair-pr-uat/real-project-corpus-44206-1782116705806/ledger.json
+```
+
+2026-06-22 R28 real project existing-source repair PR smoke는 기존 git repo 2개(`improvement_loop_harness`, public `pypa/sampleproject`)에서 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PR_PASS`, `cell_count=2`, `pass_count=2`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 기존 tracked source file(`apps/server/scripts/postgres-connection-check.mjs`, `noxfile.py`)만 수정했으며, original parse pass, regressed visible/hidden expected fail, final visible/hidden pass, existing-source-only diff, 원본 repo integrity를 검증했다. GitHub private evidence repo 2개와 open draft PR 2개도 생성/검증됐고, `main_unchanged=true`였다. `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-pr-uat`도 manifest-backed evidence를 PASS로 감사했다.
+
 ---
 
 ## 검증 체크리스트 (claim → 확인 → 기대)
@@ -745,4 +776,4 @@ cat ~/.vibeloop/product-100-real-loop-*/product-100-progress.json
 
 ### 현재 로컬 기준 기대 결과
 
-현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-22 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 Phase4 full report `/Users/iriver/.vibeloop/product-100-phase4-full-20260619165620.json`, Phase5 aggregate report `/Users/iriver/.vibeloop/product-100-phase5-full-rerun-20260621231906.json`, Phase6 draft PR report `/Users/iriver/.vibeloop/product-100-phase6-20260622-001250/phase6-draft-pr-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-phase6-20260622-001250`다. P4 semantic/M4 lane은 R25에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-67051-1782109648286`와 local real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-67359-1782109671844`로 cart+profile visibility 5-rule corpus, M2 confirmed 5, M4 replay-safe 5/5, 10/10 attack scenario PASS를 남겼고, R26 credentialed CI run `27935528811`도 real reviewer artifact audit PASS를 남겼다. Broad real project corpus는 R27에서 실제 로컬 repo temp-clone existing-source repair + hidden verifier까지 확장됐지만, 이 결과는 syntactic regression repair smoke이며 임의 업무 bug repair/GitHub draft PR/임의 사용자 repo 전체에 대한 제품 전체 100% PASS가 아니다.
+현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-22 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 Phase4 full report `/Users/iriver/.vibeloop/product-100-phase4-full-20260619165620.json`, Phase5 aggregate report `/Users/iriver/.vibeloop/product-100-phase5-full-rerun-20260621231906.json`, Phase6 draft PR report `/Users/iriver/.vibeloop/product-100-phase6-20260622-001250/phase6-draft-pr-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-phase6-20260622-001250`다. P4 semantic/M4 lane은 R25에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-67051-1782109648286`와 local real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-67359-1782109671844`로 cart+profile visibility 5-rule corpus, M2 confirmed 5, M4 replay-safe 5/5, 10/10 attack scenario PASS를 남겼고, R26 credentialed CI run `27935528811`도 real reviewer artifact audit PASS를 남겼다. Broad real project corpus는 R28에서 실제 repo temp-clone existing-source repair + hidden verifier + GitHub draft PR smoke까지 확장됐지만, 이 결과는 syntactic regression repair smoke이며 임의 업무 bug repair/임의 사용자 repo 전체에 대한 제품 전체 100% PASS가 아니다.

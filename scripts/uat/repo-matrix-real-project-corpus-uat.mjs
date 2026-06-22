@@ -21,6 +21,8 @@ const CODEX_COPY_SCENARIO = 'repo-matrix-real-project-codex-copy-uat';
 const CODEX_REPAIR_SCENARIO = 'repo-matrix-real-project-codex-repair-uat';
 const EXISTING_SOURCE_REPAIR_SCENARIO =
   'repo-matrix-real-project-existing-source-repair-uat';
+const EXISTING_SOURCE_REPAIR_PR_SCENARIO =
+  'repo-matrix-real-project-existing-source-repair-pr-uat';
 const READ_ONLY_PASS_STATUS = 'REAL_PROJECT_CORPUS_PASS';
 const READ_ONLY_FAIL_STATUS = 'REAL_PROJECT_CORPUS_FAIL';
 const MODIFIABLE_COPY_PASS_STATUS = 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS';
@@ -33,6 +35,10 @@ const EXISTING_SOURCE_REPAIR_PASS_STATUS =
   'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS';
 const EXISTING_SOURCE_REPAIR_FAIL_STATUS =
   'REAL_PROJECT_EXISTING_SOURCE_REPAIR_FAIL';
+const EXISTING_SOURCE_REPAIR_PR_PASS_STATUS =
+  'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PR_PASS';
+const EXISTING_SOURCE_REPAIR_PR_FAIL_STATUS =
+  'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PR_FAIL';
 const BLOCKED_EXIT = 20;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_CODEX_TIMEOUT_MS = 180_000;
@@ -42,6 +48,10 @@ const REPAIR_SOURCE_FILE = `${REPAIR_DIR}/invoice-total.mjs`;
 const REPAIR_VISIBLE_TEST_FILE = `${REPAIR_DIR}/visible-repair.test.mjs`;
 const EXISTING_SOURCE_REGRESSION_SENTINEL =
   'VIBELOOP_EXISTING_SOURCE_REGRESSION';
+const DEFAULT_REAL_PROJECT_GITHUB_OWNER =
+  process.env.VIBELOOP_REAL_PROJECT_GITHUB_OWNER ||
+  process.env.VIBELOOP_UAT_GITHUB_OWNER ||
+  'coreline-ai';
 
 function redact(text) {
   return String(text)
@@ -259,7 +269,17 @@ async function smokeChecks(repoPath, files) {
     const command = [
       'python3',
       '-c',
-      "import pathlib, tomllib; tomllib.loads(pathlib.Path('pyproject.toml').read_text()); print('pyproject-ok')"
+      [
+        'import pathlib, sys',
+        "text = pathlib.Path('pyproject.toml').read_text()",
+        'try:',
+        '    import tomllib',
+        'except ModuleNotFoundError:',
+        "    print('pyproject-present-no-tomllib')",
+        '    sys.exit(0)',
+        'tomllib.loads(text)',
+        "print('pyproject-ok')"
+      ].join('\n')
     ];
     const result = await runCommand(command[0], command.slice(1), {
       cwd: repoPath
@@ -621,6 +641,349 @@ function parseCodexProbe(text) {
   } catch {
     return null;
   }
+}
+
+async function githubDraftPrPreflight(options = {}) {
+  const auth = await runCommand('gh', ['auth', 'status'], {
+    timeoutMs: 30_000,
+    env: {
+      ...process.env,
+      ...(process.env.GH_TOKEN ? { GH_TOKEN: process.env.GH_TOKEN } : {})
+    }
+  });
+  if (auth.code !== 0) {
+    return {
+      ok: false,
+      reason: 'GH_NOT_AUTHENTICATED',
+      auth: {
+        exit_code: auth.code,
+        output: redact(`${auth.stdout}${auth.stderr}`).trim().slice(0, 800)
+      }
+    };
+  }
+  return {
+    ok: true,
+    owner: options.githubOwner,
+    keep_remote: options.keepRemote
+  };
+}
+
+function isDirectFetchUrl(value) {
+  return /^(https?:\/\/|ssh:\/\/|git@)/i.test(String(value).trim());
+}
+
+async function resolvePublishFetchUrl({ clonePath, sourceRepoPath }) {
+  const cloneOrigin = await git(clonePath, ['remote', 'get-url', 'origin']);
+  const cloneOriginUrl =
+    cloneOrigin.code === 0 ? cloneOrigin.stdout.trim() : '';
+  if (isDirectFetchUrl(cloneOriginUrl)) return cloneOriginUrl;
+
+  const sourceOrigin = await git(sourceRepoPath, [
+    'remote',
+    'get-url',
+    'origin'
+  ]);
+  const sourceOriginUrl =
+    sourceOrigin.code === 0 ? sourceOrigin.stdout.trim() : '';
+  if (sourceOriginUrl) return sourceOriginUrl;
+  return cloneOriginUrl || null;
+}
+
+async function preparePublishableHistory({ clonePath, sourceRepoPath }) {
+  const shallowBefore = await git(clonePath, [
+    'rev-parse',
+    '--is-shallow-repository'
+  ]);
+  const shallowBeforeValue = shallowBefore.stdout.trim();
+  const report = {
+    status: 'pass',
+    shallow_before: shallowBeforeValue === 'true',
+    unshallow_attempted: false,
+    fetch_url: null,
+    unshallow_exit_code: null,
+    shallow_after: shallowBeforeValue === 'true'
+  };
+
+  if (shallowBefore.code !== 0 || shallowBeforeValue !== 'true') {
+    return report;
+  }
+
+  const fetchUrl = await resolvePublishFetchUrl({ clonePath, sourceRepoPath });
+  report.unshallow_attempted = true;
+  report.fetch_url = fetchUrl ? redact(fetchUrl) : null;
+  if (!fetchUrl) {
+    report.status = 'fail';
+    return report;
+  }
+
+  const unshallow = await git(clonePath, ['fetch', '--unshallow', fetchUrl], {
+    timeoutMs: 120_000
+  });
+  report.unshallow_exit_code = unshallow.code;
+  const shallowAfter = await git(clonePath, [
+    'rev-parse',
+    '--is-shallow-repository'
+  ]);
+  report.shallow_after = shallowAfter.stdout.trim() === 'true';
+  if (unshallow.code !== 0 || report.shallow_after) {
+    report.status = 'fail';
+    report.stderr = redact(unshallow.stderr).trim().slice(0, 800);
+  }
+  return report;
+}
+
+async function verifyDraftPr({
+  fullRepo,
+  prUrl,
+  branch,
+  baseBranch,
+  expectedFiles
+}) {
+  if (!prUrl || prUrl.startsWith('pr_create_failed:')) {
+    return { confirmed: false, reason: prUrl ?? 'missing_pr_url' };
+  }
+  const view = await runCommand('gh', [
+    'pr',
+    'view',
+    prUrl,
+    '--repo',
+    fullRepo,
+    '--json',
+    'url,state,isDraft,headRefName,baseRefName,files'
+  ]);
+  if (view.code !== 0) {
+    return {
+      confirmed: false,
+      reason: redact(view.stderr).trim().slice(0, 800)
+    };
+  }
+  const parsed = JSON.parse(view.stdout);
+  const files = Array.isArray(parsed.files)
+    ? parsed.files.map((file) => file.path).sort()
+    : [];
+  const expected = [...expectedFiles].sort();
+  const filesMatch = JSON.stringify(files) === JSON.stringify(expected);
+  const confirmed =
+    parsed.url === prUrl &&
+    parsed.state === 'OPEN' &&
+    parsed.isDraft === true &&
+    parsed.headRefName === branch &&
+    parsed.baseRefName === baseBranch &&
+    filesMatch;
+  return {
+    confirmed,
+    url: parsed.url,
+    state: parsed.state,
+    is_draft: parsed.isDraft,
+    head_ref: parsed.headRefName,
+    base_ref: parsed.baseRefName,
+    files,
+    files_match: filesMatch,
+    expected_files: expected
+  };
+}
+
+async function publishExistingSourceRepairDraftPr({
+  clonePath,
+  sourceRepoPath,
+  cellId,
+  runId,
+  targetFile,
+  baseCommit,
+  options = {}
+}) {
+  const failures = [];
+  const repoName = slug(
+    `${options.githubRepoPrefix}-${cellId.slice(0, 36)}-${pathHash(`${runId}:${cellId}`)}`
+  );
+  const fullRepo = `${options.githubOwner}/${repoName}`;
+  const baseBranch = 'main';
+  const branch = `pr-candidate/existing-source-${pathHash(`${cellId}:${targetFile}`)}`;
+  let created = null;
+  let repoExists = false;
+  let publishHistory = null;
+  let basePush = null;
+  let prUrl = null;
+  let prVerification = null;
+  let mainUnchanged = false;
+  let cleanup = null;
+
+  const renameBase = await git(clonePath, ['branch', '-M', baseBranch]);
+  if (renameBase.code !== 0) {
+    failures.push('github_base_branch_rename_failed');
+  }
+  if (failures.length === 0) {
+    publishHistory = await preparePublishableHistory({
+      clonePath,
+      sourceRepoPath
+    });
+    if (publishHistory.status !== 'pass') {
+      failures.push('github_publish_history_prepare_failed');
+    }
+  }
+  if (failures.length === 0) {
+    created = await runCommand(
+      'gh',
+      ['repo', 'create', fullRepo, '--private'],
+      { timeoutMs: 120_000 }
+    );
+    if (created.code !== 0) {
+      failures.push('github_repo_create_failed');
+    } else {
+      repoExists = true;
+    }
+  }
+  if (failures.length === 0) {
+    const remoteUrl = `https://github.com/${fullRepo}.git`;
+    const remoteRemove = await git(clonePath, [
+      'remote',
+      'remove',
+      'vibeloop-pr'
+    ]);
+    const remoteAdd = await git(clonePath, [
+      'remote',
+      'add',
+      'vibeloop-pr',
+      remoteUrl
+    ]);
+    basePush = await git(
+      clonePath,
+      ['push', '--no-thin', '-u', 'vibeloop-pr', `${baseBranch}:${baseBranch}`],
+      { timeoutMs: 120_000 }
+    );
+    if (remoteRemove.code !== 0) {
+      const message = `${remoteRemove.stdout}${remoteRemove.stderr}`;
+      if (!/No such remote|No such remote:/i.test(message)) {
+        failures.push('github_remote_remove_failed');
+      }
+    }
+    if (remoteAdd.code !== 0) failures.push('github_remote_add_failed');
+    if (basePush.code !== 0) failures.push('github_base_push_failed');
+    if (failures.length === 0) repoExists = true;
+  }
+  if (failures.length === 0) {
+    const checkout = await git(clonePath, ['checkout', '-b', branch]);
+    const add = await git(clonePath, ['add', '--', targetFile]);
+    const commit = await git(clonePath, [
+      '-c',
+      'user.name=VibeLoop UAT',
+      '-c',
+      'user.email=vibeloop-uat@example.invalid',
+      '-c',
+      'commit.gpgsign=false',
+      'commit',
+      '--no-verify',
+      '-m',
+      'vibeloop: real-codex existing source repair'
+    ]);
+    const push = await git(
+      clonePath,
+      ['push', '--no-thin', '-u', 'vibeloop-pr', branch],
+      {
+        timeoutMs: 120_000
+      }
+    );
+    if (checkout.code !== 0) failures.push('github_candidate_checkout_failed');
+    if (add.code !== 0) failures.push('github_candidate_add_failed');
+    if (commit.code !== 0) failures.push('github_candidate_commit_failed');
+    if (push.code !== 0) failures.push('github_candidate_push_failed');
+  }
+  if (failures.length === 0) {
+    const pr = await runCommand(
+      'gh',
+      [
+        'pr',
+        'create',
+        '--repo',
+        fullRepo,
+        '--draft',
+        '--base',
+        baseBranch,
+        '--head',
+        branch,
+        '--title',
+        '[VibeLoop] real-codex existing source repair',
+        '--body',
+        [
+          'Generated by real Codex in a temp clone of an operator-supplied real project.',
+          `Verified existing source repair: ${targetFile}`,
+          'Scope: syntactic regression repair smoke with hidden verifier; not arbitrary business bug repair or product-wide PASS.'
+        ].join('\n')
+      ],
+      { timeoutMs: 120_000 }
+    );
+    prUrl =
+      pr.code === 0
+        ? pr.stdout.trim()
+        : `pr_create_failed: ${redact(pr.stderr).trim().slice(0, 800)}`;
+    if (pr.code !== 0) failures.push('github_pr_create_failed');
+  }
+  if (failures.length === 0) {
+    prVerification = await verifyDraftPr({
+      fullRepo,
+      prUrl,
+      branch,
+      baseBranch,
+      expectedFiles: [targetFile]
+    });
+    if (prVerification.confirmed !== true) {
+      failures.push('github_draft_pr_unverified');
+    }
+    const mainHead = await git(clonePath, [
+      'ls-remote',
+      'vibeloop-pr',
+      `refs/heads/${baseBranch}`
+    ]);
+    const remoteMainHead = mainHead.stdout.trim().split(/\s+/)[0] ?? null;
+    mainUnchanged = mainHead.code === 0 && remoteMainHead === baseCommit;
+    if (!mainUnchanged) failures.push('github_main_changed');
+  }
+  if (!options.keepRemote && repoExists) {
+    const deleted = await runCommand(
+      'gh',
+      ['repo', 'delete', fullRepo, '--yes'],
+      {
+        timeoutMs: 120_000
+      }
+    );
+    if (deleted.code !== 0) {
+      const archived = await runCommand(
+        'gh',
+        ['repo', 'archive', fullRepo, '--yes'],
+        { timeoutMs: 120_000 }
+      );
+      cleanup = {
+        retained: true,
+        archived: archived.code === 0,
+        delete_exit_code: deleted.code,
+        archive_exit_code: archived.code
+      };
+    } else {
+      cleanup = { retained: false, delete_exit_code: deleted.code };
+    }
+  } else if (repoExists) {
+    cleanup = { retained: true };
+  }
+
+  return {
+    status: failures.length === 0 ? 'pass' : 'fail',
+    repo: fullRepo,
+    url: `https://github.com/${fullRepo}`,
+    private_repo_created: repoExists,
+    publish_history: publishHistory,
+    create_exit_code: created?.code ?? null,
+    base_push_exit_code: basePush?.code ?? null,
+    base_branch: baseBranch,
+    base_commit: baseCommit,
+    branch,
+    pr_url: prUrl,
+    draft_pr_verified: prVerification?.confirmed === true,
+    main_unchanged: mainUnchanged,
+    expected_files: [targetFile],
+    pr_view: prVerification,
+    cleanup,
+    failures
+  };
 }
 
 async function writeTextFile(filePath, text) {
@@ -1239,6 +1602,11 @@ async function runCodexExistingSourceRepairSmoke(
   if (seedStatus.code !== 0 || seedStatus.stdout.trim()) {
     failures.push('seed_regression_dirty');
   }
+  const regressedCommitResult = await git(clonePath, ['rev-parse', 'HEAD']);
+  const regressedCommit = regressedCommitResult.stdout.trim();
+  if (regressedCommitResult.code !== 0 || !regressedCommit) {
+    failures.push('seed_regression_head_unavailable');
+  }
   if (failures.length > 0) {
     return {
       status: 'fail',
@@ -1350,6 +1718,22 @@ async function runCodexExistingSourceRepairSmoke(
     sourceStatusBefore.stdout === sourceStatusAfter.stdout;
   if (!sourceRepoIntegrity) failures.push('source_repo_integrity_failed');
 
+  let github = null;
+  if (options.existingSourceRepairPrSmoke && failures.length === 0) {
+    github = await publishExistingSourceRepairDraftPr({
+      clonePath,
+      sourceRepoPath,
+      cellId,
+      runId: options.runId,
+      targetFile: target.relativePath,
+      baseCommit: regressedCommit,
+      options
+    });
+    if (github.status !== 'pass') {
+      failures.push('github_draft_pr_failed');
+    }
+  }
+
   return {
     status: failures.length === 0 ? 'pass' : 'fail',
     source_repo_path_hash: pathHash(sourceRepoPath),
@@ -1360,6 +1744,7 @@ async function runCodexExistingSourceRepairSmoke(
     repair_source: target.relativePath,
     existing_source: true,
     existing_source_language: target.language,
+    ...(github ? { github } : {}),
     visible_check_command: [target.check.command, ...target.check.args],
     regression_sentinel: EXISTING_SOURCE_REGRESSION_SENTINEL,
     base_acceptance: {
@@ -1518,7 +1903,7 @@ async function analyzeRepo(repoPath, index, options = {}) {
         options.tmpRoot,
         options
       )
-    : options.existingSourceRepairSmoke
+    : options.existingSourceRepairSmoke || options.existingSourceRepairPrSmoke
       ? await runCodexExistingSourceRepairSmoke(
           resolved,
           `${index}-${id}`,
@@ -1596,10 +1981,22 @@ function parseArgs(argv, env = process.env) {
     env.VIBELOOP_REAL_PROJECT_CORPUS_CODEX_REPAIR_SMOKE === '1';
   let existingSourceRepairSmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_EXISTING_SOURCE_REPAIR_SMOKE === '1';
+  let existingSourceRepairPrSmoke =
+    env.VIBELOOP_REAL_PROJECT_CORPUS_EXISTING_SOURCE_REPAIR_PR_SMOKE === '1';
   let codexModel = env.VIBELOOP_REAL_PROJECT_CODEX_MODEL || 'gpt-5.5';
   let codexTimeoutMs = Number(
     env.VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS || DEFAULT_CODEX_TIMEOUT_MS
   );
+  let githubOwner =
+    env.VIBELOOP_REAL_PROJECT_GITHUB_OWNER ||
+    env.VIBELOOP_UAT_GITHUB_OWNER ||
+    DEFAULT_REAL_PROJECT_GITHUB_OWNER;
+  let githubRepoPrefix =
+    env.VIBELOOP_REAL_PROJECT_GITHUB_REPO_PREFIX ||
+    'vibeloop-real-project-repair';
+  let keepRemote =
+    env.VIBELOOP_REAL_PROJECT_KEEP_REMOTE === '1' ||
+    env.VIBELOOP_UAT_KEEP_REMOTE === '1';
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--') {
@@ -1635,11 +2032,33 @@ function parseArgs(argv, env = process.env) {
       existingSourceRepairSmoke = true;
       continue;
     }
+    if (arg === '--existing-source-repair-pr-smoke') {
+      existingSourceRepairPrSmoke = true;
+      continue;
+    }
     if (arg === '--codex-model') {
       const value = argv[index + 1];
       if (!value) throw new Error('--codex-model requires a value');
       codexModel = value;
       index += 1;
+      continue;
+    }
+    if (arg === '--github-owner') {
+      const value = argv[index + 1];
+      if (!value) throw new Error('--github-owner requires a value');
+      githubOwner = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--github-repo-prefix') {
+      const value = argv[index + 1];
+      if (!value) throw new Error('--github-repo-prefix requires a value');
+      githubRepoPrefix = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--keep-remote') {
+      keepRemote = true;
       continue;
     }
     if (arg === '--codex-timeout-ms') {
@@ -1664,8 +2083,12 @@ function parseArgs(argv, env = process.env) {
     codexCopySmoke,
     codexRepairSmoke,
     existingSourceRepairSmoke,
+    existingSourceRepairPrSmoke,
     codexModel,
-    codexTimeoutMs
+    codexTimeoutMs,
+    githubOwner,
+    githubRepoPrefix,
+    keepRemote
   };
 }
 
@@ -1765,40 +2188,47 @@ async function main() {
   const codexModeCount = [
     options.codexCopySmoke,
     options.codexRepairSmoke,
-    options.existingSourceRepairSmoke
+    options.existingSourceRepairSmoke,
+    options.existingSourceRepairPrSmoke
   ].filter(Boolean).length;
   if (codexModeCount > 1) {
     throw new Error(
-      '--codex-copy-smoke, --codex-repair-smoke, and --existing-source-repair-smoke are mutually exclusive'
+      '--codex-copy-smoke, --codex-repair-smoke, --existing-source-repair-smoke, and --existing-source-repair-pr-smoke are mutually exclusive'
     );
   }
-  const scenario = options.existingSourceRepairSmoke
-    ? EXISTING_SOURCE_REPAIR_SCENARIO
-    : options.codexRepairSmoke
-      ? CODEX_REPAIR_SCENARIO
-      : options.codexCopySmoke
-        ? CODEX_COPY_SCENARIO
-        : options.modifiableCopySmoke
-          ? MODIFIABLE_COPY_SCENARIO
-          : READ_ONLY_SCENARIO;
-  const passStatus = options.existingSourceRepairSmoke
-    ? EXISTING_SOURCE_REPAIR_PASS_STATUS
-    : options.codexRepairSmoke
-      ? CODEX_REPAIR_PASS_STATUS
-      : options.codexCopySmoke
-        ? CODEX_COPY_PASS_STATUS
-        : options.modifiableCopySmoke
-          ? MODIFIABLE_COPY_PASS_STATUS
-          : READ_ONLY_PASS_STATUS;
-  const failStatus = options.existingSourceRepairSmoke
-    ? EXISTING_SOURCE_REPAIR_FAIL_STATUS
-    : options.codexRepairSmoke
-      ? CODEX_REPAIR_FAIL_STATUS
-      : options.codexCopySmoke
-        ? CODEX_COPY_FAIL_STATUS
-        : options.modifiableCopySmoke
-          ? MODIFIABLE_COPY_FAIL_STATUS
-          : READ_ONLY_FAIL_STATUS;
+  const scenario = options.existingSourceRepairPrSmoke
+    ? EXISTING_SOURCE_REPAIR_PR_SCENARIO
+    : options.existingSourceRepairSmoke
+      ? EXISTING_SOURCE_REPAIR_SCENARIO
+      : options.codexRepairSmoke
+        ? CODEX_REPAIR_SCENARIO
+        : options.codexCopySmoke
+          ? CODEX_COPY_SCENARIO
+          : options.modifiableCopySmoke
+            ? MODIFIABLE_COPY_SCENARIO
+            : READ_ONLY_SCENARIO;
+  const passStatus = options.existingSourceRepairPrSmoke
+    ? EXISTING_SOURCE_REPAIR_PR_PASS_STATUS
+    : options.existingSourceRepairSmoke
+      ? EXISTING_SOURCE_REPAIR_PASS_STATUS
+      : options.codexRepairSmoke
+        ? CODEX_REPAIR_PASS_STATUS
+        : options.codexCopySmoke
+          ? CODEX_COPY_PASS_STATUS
+          : options.modifiableCopySmoke
+            ? MODIFIABLE_COPY_PASS_STATUS
+            : READ_ONLY_PASS_STATUS;
+  const failStatus = options.existingSourceRepairPrSmoke
+    ? EXISTING_SOURCE_REPAIR_PR_FAIL_STATUS
+    : options.existingSourceRepairSmoke
+      ? EXISTING_SOURCE_REPAIR_FAIL_STATUS
+      : options.codexRepairSmoke
+        ? CODEX_REPAIR_FAIL_STATUS
+        : options.codexCopySmoke
+          ? CODEX_COPY_FAIL_STATUS
+          : options.modifiableCopySmoke
+            ? MODIFIABLE_COPY_FAIL_STATUS
+            : READ_ONLY_FAIL_STATUS;
   if (options.repos.length < options.minRepos) {
     const report = {
       status: 'blocked',
@@ -1816,7 +2246,8 @@ async function main() {
   if (
     options.codexCopySmoke ||
     options.codexRepairSmoke ||
-    options.existingSourceRepairSmoke
+    options.existingSourceRepairSmoke ||
+    options.existingSourceRepairPrSmoke
   ) {
     codexPreflight = await codexCopyPreflight(options);
     if (codexPreflight.ok !== true) {
@@ -1827,6 +2258,22 @@ async function main() {
         preflight: codexPreflight,
         next_step:
           'Run this lane on a machine with Codex CLI and ChatGPT login, or point VIBELOOP_REAL_PROJECT_CODEX_HOME at an authenticated CODEX_HOME.'
+      };
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(BLOCKED_EXIT);
+    }
+  }
+  let githubDraftPrPreflightReport = null;
+  if (options.existingSourceRepairPrSmoke) {
+    githubDraftPrPreflightReport = await githubDraftPrPreflight(options);
+    if (githubDraftPrPreflightReport.ok !== true) {
+      const report = {
+        status: 'blocked',
+        scenario,
+        reason: githubDraftPrPreflightReport.reason,
+        preflight: githubDraftPrPreflightReport,
+        next_step:
+          'Run this lane with gh auth for a GitHub owner where temporary private repos and draft PRs can be created, or set GH_TOKEN/REAL_PROJECT_CORPUS_GH_TOKEN.'
       };
       console.log(JSON.stringify(report, null, 2));
       process.exit(BLOCKED_EXIT);
@@ -1843,15 +2290,29 @@ async function main() {
         modifiableCopySmoke: options.modifiableCopySmoke,
         codexCopySmoke: options.codexCopySmoke,
         codexRepairSmoke: options.codexRepairSmoke,
-        existingSourceRepairSmoke: options.existingSourceRepairSmoke,
+        existingSourceRepairSmoke:
+          options.existingSourceRepairSmoke ||
+          options.existingSourceRepairPrSmoke,
+        existingSourceRepairPrSmoke: options.existingSourceRepairPrSmoke,
         codexModel: options.codexModel,
         codexTimeoutMs: options.codexTimeoutMs,
-        tmpRoot
+        tmpRoot,
+        runId,
+        githubOwner: options.githubOwner,
+        githubRepoPrefix: options.githubRepoPrefix,
+        keepRemote: options.keepRemote
       })
     );
   }
   const passCount = cells.filter((cell) => cell.status === 'pass').length;
   const failCount = cells.filter((cell) => cell.status === 'fail').length;
+  const githubDraftPrVerified =
+    options.existingSourceRepairPrSmoke &&
+    cells.every(
+      (cell) =>
+        cell.codex_repair?.github?.draft_pr_verified === true &&
+        cell.codex_repair?.github?.main_unchanged === true
+    );
   const ledger = {
     status:
       failCount === 0 && passCount >= options.minRepos
@@ -1859,51 +2320,68 @@ async function main() {
         : failStatus,
     scenario,
     run_id: runId,
-    mode: options.existingSourceRepairSmoke
-      ? 'real Codex temp-clone broad real project existing source-code repair smoke'
-      : options.codexRepairSmoke
-        ? 'real Codex temp-clone broad real project source-code repair smoke'
-        : options.codexCopySmoke
-          ? 'real Codex temp-clone broad real project corpus smoke'
-          : options.modifiableCopySmoke
-            ? 'safe modifiable-copy broad real project corpus smoke'
-            : 'read-only broad real project corpus smoke',
-    scope: options.existingSourceRepairSmoke
-      ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
-      : options.codexRepairSmoke
-        ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
-        : options.codexCopySmoke
-          ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
-          : options.modifiableCopySmoke
-            ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
-            : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
+    mode: options.existingSourceRepairPrSmoke
+      ? 'real Codex temp-clone broad real project existing source-code repair + GitHub draft PR smoke'
+      : options.existingSourceRepairSmoke
+        ? 'real Codex temp-clone broad real project existing source-code repair smoke'
+        : options.codexRepairSmoke
+          ? 'real Codex temp-clone broad real project source-code repair smoke'
+          : options.codexCopySmoke
+            ? 'real Codex temp-clone broad real project corpus smoke'
+            : options.modifiableCopySmoke
+              ? 'safe modifiable-copy broad real project corpus smoke'
+              : 'read-only broad real project corpus smoke',
+    scope: options.existingSourceRepairPrSmoke
+      ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, source repo integrity, and GitHub draft PR publication to temporary private repos; not arbitrary business bug repair or arbitrary-repo product PASS'
+      : options.existingSourceRepairSmoke
+        ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+        : options.codexRepairSmoke
+          ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+          : options.codexCopySmoke
+            ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
+            : options.modifiableCopySmoke
+              ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
+              : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
     read_only:
       !options.modifiableCopySmoke &&
       !options.codexCopySmoke &&
       !options.codexRepairSmoke &&
-      !options.existingSourceRepairSmoke,
+      !options.existingSourceRepairSmoke &&
+      !options.existingSourceRepairPrSmoke,
     source_repos_read_only: true,
     modifiable_copy_smoke: options.modifiableCopySmoke,
     codex_copy_smoke: options.codexCopySmoke,
     codex_repair_smoke:
-      options.codexRepairSmoke || options.existingSourceRepairSmoke,
-    existing_source_repair_smoke: options.existingSourceRepairSmoke,
+      options.codexRepairSmoke ||
+      options.existingSourceRepairSmoke ||
+      options.existingSourceRepairPrSmoke,
+    existing_source_repair_smoke:
+      options.existingSourceRepairSmoke || options.existingSourceRepairPrSmoke,
+    existing_source_repair_pr_smoke: options.existingSourceRepairPrSmoke,
     source_code_repair:
-      options.codexRepairSmoke || options.existingSourceRepairSmoke,
-    existing_source_repair: options.existingSourceRepairSmoke,
+      options.codexRepairSmoke ||
+      options.existingSourceRepairSmoke ||
+      options.existingSourceRepairPrSmoke,
+    existing_source_repair:
+      options.existingSourceRepairSmoke || options.existingSourceRepairPrSmoke,
     llm_modification:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
-      options.existingSourceRepairSmoke,
+      options.existingSourceRepairSmoke ||
+      options.existingSourceRepairPrSmoke,
     hidden_acceptance:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
-      options.existingSourceRepairSmoke,
-    draft_pr: false,
+      options.existingSourceRepairSmoke ||
+      options.existingSourceRepairPrSmoke,
+    draft_pr: options.existingSourceRepairPrSmoke,
+    github_draft_pr: options.existingSourceRepairPrSmoke,
+    github_draft_pr_verified: githubDraftPrVerified,
     builder:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
-      options.existingSourceRepairSmoke
+      options.existingSourceRepairSmoke ||
+      options.existingSourceRepairPrSmoke
         ? {
             real_llm: true,
             provider: 'codex',
@@ -1912,6 +2390,9 @@ async function main() {
           }
         : null,
     ...(codexPreflight ? { codex_preflight: codexPreflight } : {}),
+    ...(githubDraftPrPreflightReport
+      ? { github_preflight: githubDraftPrPreflightReport }
+      : {}),
     min_repo_count: options.minRepos,
     cell_count: cells.length,
     pass_count: passCount,
@@ -1932,8 +2413,14 @@ async function main() {
         fail_count: failCount,
         min_repo_count: options.minRepos,
         codex_copy_smoke: options.codexCopySmoke,
-        codex_repair_smoke: options.codexRepairSmoke,
-        existing_source_repair_smoke: options.existingSourceRepairSmoke,
+        codex_repair_smoke:
+          options.codexRepairSmoke ||
+          options.existingSourceRepairSmoke ||
+          options.existingSourceRepairPrSmoke,
+        existing_source_repair_smoke:
+          options.existingSourceRepairSmoke ||
+          options.existingSourceRepairPrSmoke,
+        existing_source_repair_pr_smoke: options.existingSourceRepairPrSmoke,
         modifiable_copy_smoke: options.modifiableCopySmoke
       }
     }
