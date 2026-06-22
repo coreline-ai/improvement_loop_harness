@@ -1220,8 +1220,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         source_repos_read_only: true,
         draft_pr: false,
         builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
-        cell_count: 9,
-        pass_count: 9,
+        cell_count: 10,
+        pass_count: 10,
         fail_count: 0,
         cells: [
           {
@@ -1358,6 +1358,25 @@ ELIFECYCLE Command failed with exit code 20.`);
             }
           },
           {
+            id: 'packaging',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/packaging/utils.py',
+              existing_source: true,
+              existing_source_language: 'python',
+              semantic_source_repair: true,
+              semantic_bug_repair: true,
+              semantic_domain: 'python_package_name_normalization',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
             id: 'express',
             status: 'pass',
             codex_repair: {
@@ -1479,6 +1498,14 @@ ELIFECYCLE Command failed with exit code 20.`);
             codex_repair_semantic_source_repair: true,
             codex_repair_semantic_bug_repair: true,
             codex_repair_semantic_domain: 'url_safe_base64_padding',
+            codex_repair_existing_source: true
+          },
+          {
+            id: 'packaging',
+            codex_repair_status: 'pass',
+            codex_repair_semantic_source_repair: true,
+            codex_repair_semantic_bug_repair: true,
+            codex_repair_semantic_domain: 'python_package_name_normalization',
             codex_repair_existing_source: true
           },
           {

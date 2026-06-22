@@ -851,6 +851,37 @@ function buildItsdangerousBase64Verifier(cases) {
   ].join('\n');
 }
 
+function buildPackagingCanonicalizeNameVerifier(cases) {
+  return [
+    'import json',
+    'import pathlib',
+    'import sys',
+    '',
+    'root = pathlib.Path.cwd()',
+    'sys.path.insert(0, str(root / "src"))',
+    'from packaging.utils import InvalidName, canonicalize_name, is_normalized_name',
+    '',
+    `cases = json.loads(${JSON.stringify(JSON.stringify(cases))})`,
+    'for item in cases:',
+    '    value = item["value"]',
+    '    if item.get("expect_invalid"):',
+    '        try:',
+    '            canonicalize_name(value, validate=True)',
+    '        except InvalidName:',
+    '            continue',
+    '        raise AssertionError(f"{value!r}: expected InvalidName")',
+    '    actual = canonicalize_name(value, validate=item.get("validate", False))',
+    '    expected = item["expected"]',
+    '    if str(actual) != expected:',
+    '        raise AssertionError(f"{value!r}: expected {expected!r}, got {str(actual)!r}")',
+    '    if "normalized" in item:',
+    '        normalized = is_normalized_name(str(actual))',
+    '        if normalized != item["normalized"]:',
+    '            raise AssertionError(f"{value!r}: normalized expected {item[\'normalized\']!r}, got {normalized!r}")',
+    ''
+  ].join('\n');
+}
+
 function buildProduct100CorpusVerifier(expectedSummary) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1279,6 +1310,46 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
           value: 'pad!',
           encoded: 'cGFkIQ',
           decoded: 'pad!'
+        }
+      ])
+  },
+  {
+    id: 'packaging-canonicalize-name',
+    semantic_domain: 'python_package_name_normalization',
+    relativePath: 'src/packaging/utils.py',
+    language: 'python',
+    originalNeedle: '    value = name.lower().replace("_", "-").replace(".", "-")',
+    regressionText: '    value = name.lower()',
+    visibleCommand: (filePath) => ({ command: 'python3', args: [filePath] }),
+    buildVisibleVerifier: () =>
+      buildPackagingCanonicalizeNameVerifier([
+        {
+          value: 'Friendly_Bard',
+          expected: 'friendly-bard',
+          normalized: true
+        },
+        {
+          value: 'oslo.concurrency',
+          expected: 'oslo-concurrency',
+          normalized: true
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildPackagingCanonicalizeNameVerifier([
+        {
+          value: 'My.Package_Name',
+          validate: true,
+          expected: 'my-package-name',
+          normalized: true
+        },
+        {
+          value: 'a__b..c--D',
+          expected: 'a-b-c-d',
+          normalized: true
+        },
+        {
+          value: '-bad',
+          expect_invalid: true
         }
       ])
   },
