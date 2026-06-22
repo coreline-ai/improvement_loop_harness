@@ -620,16 +620,25 @@ export async function runKernel(
       'creating isolated worktree',
       logToStdout
     );
-    const worktree = await cancellable(
-      createWorktree({
-        repoPath: options.repoPath,
-        dataDir: options.dataDir,
-        projectId,
-        loopId,
-        baseCommit
-      }),
-      options.signal
-    );
+    const createWorktreePromise = createWorktree({
+      repoPath: options.repoPath,
+      dataDir: options.dataDir,
+      projectId,
+      loopId,
+      baseCommit
+    });
+    let worktree: WorktreeRef;
+    try {
+      worktree = await cancellable(createWorktreePromise, options.signal);
+    } catch (error) {
+      const createdWorktree = await createWorktreePromise.catch(
+        () => undefined
+      );
+      if (createdWorktree) {
+        cleanupRefs.push(createdWorktree);
+      }
+      throw error;
+    }
     cleanupRefs.push(worktree);
 
     const dependencyProvisioning = options.skipDependencyInstall
