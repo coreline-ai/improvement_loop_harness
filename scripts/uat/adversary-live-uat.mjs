@@ -22,6 +22,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
+  buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
   buildCartRoundingSemanticProposal,
   buildCartSemanticProposal,
@@ -247,6 +248,10 @@ async function main() {
       workRoot,
       'loop-n-plus-one-profile-visibility-hardcode'
     );
+    const profileSuspensionHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-profile-suspension-hardcode'
+    );
     const buggyCart = [
       'function lineTotal(item) {',
       '  return item.price;',
@@ -315,6 +320,19 @@ async function main() {
     ].join('\n');
     const fixedProfile = [
       'function canViewProfile(viewer, profile) {',
+      '  if (profile.suspended === true) return false;',
+      "  if (profile.visibility === 'public') return true;",
+      "  if (profile.visibility === 'adminOnly') return viewer.role === 'admin';",
+      "  if (profile.visibility === 'private') {",
+      "    return viewer.role === 'admin' || viewer.id === profile.ownerId;",
+      '  }',
+      '  return false;',
+      '}',
+      'module.exports = { canViewProfile };',
+      ''
+    ].join('\n');
+    const noSuspensionProfile = [
+      'function canViewProfile(viewer, profile) {',
       "  if (profile.visibility === 'public') return true;",
       "  if (profile.visibility === 'adminOnly') return viewer.role === 'admin';",
       "  if (profile.visibility === 'private') {",
@@ -349,6 +367,7 @@ async function main() {
     await writeCartFixture(taxHardcodedWorktree, taxHardcodedCart);
     await writeCartFixture(roundingHardcodedWorktree, roundingHardcodedCart);
     await writeCartFixture(profileVisibilityHardcodedWorktree, fixedCart);
+    await writeCartFixture(profileSuspensionHardcodedWorktree, fixedCart);
     await writeProfileFixture(baseWorktree, buggyProfile);
     await writeProfileFixture(candidateWorktree, fixedProfile);
     await writeProfileFixture(goodWorktree, fixedProfile);
@@ -366,6 +385,10 @@ async function main() {
       profileVisibilityHardcodedWorktree,
       publicOnlyProfile
     );
+    await writeProfileFixture(
+      profileSuspensionHardcodedWorktree,
+      noSuspensionProfile
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -375,6 +398,9 @@ async function main() {
       buildCartRoundingSemanticProposal(),
       buildProfileVisibilitySemanticProposal({
         targetPath: 'tests/adversary/profile-visibility-supplemental.test.cjs'
+      }),
+      buildProfileSuspensionSemanticProposal({
+        targetPath: 'tests/adversary/profile-suspension-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -425,6 +451,9 @@ async function main() {
         buildCartRoundingSemanticProposal(),
         buildProfileVisibilitySemanticProposal({
           targetPath: 'tests/adversary/profile-visibility-supplemental.test.cjs'
+        }),
+        buildProfileSuspensionSemanticProposal({
+          targetPath: 'tests/adversary/profile-suspension-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -597,6 +626,13 @@ async function main() {
         'adversary-live-profile-visibility-hardcode'
       )
     );
+    const profileSuspensionHardcoded = await runGates(
+      await gateContext(
+        profileSuspensionHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-profile-suspension-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -627,6 +663,10 @@ async function main() {
       profileVisibilityHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const profileSuspensionHardcodedGate =
+      profileSuspensionHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -636,7 +676,8 @@ async function main() {
       discountHardcodedGate?.status !== 'fail' ||
       taxHardcodedGate?.status !== 'fail' ||
       roundingHardcodedGate?.status !== 'fail' ||
-      profileVisibilityHardcodedGate?.status !== 'fail'
+      profileVisibilityHardcodedGate?.status !== 'fail' ||
+      profileSuspensionHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -648,7 +689,8 @@ async function main() {
           discountHardcoded: discountHardcodedGate,
           taxHardcoded: taxHardcodedGate,
           roundingHardcoded: roundingHardcodedGate,
-          profileVisibilityHardcoded: profileVisibilityHardcodedGate
+          profileVisibilityHardcoded: profileVisibilityHardcodedGate,
+          profileSuspensionHardcoded: profileSuspensionHardcodedGate
         })}`
       );
     }
@@ -667,7 +709,8 @@ async function main() {
         discountHardcoded: discountHardcodedGate.status,
         taxHardcoded: taxHardcodedGate.status,
         roundingHardcoded: roundingHardcodedGate.status,
-        profileVisibilityHardcoded: profileVisibilityHardcodedGate.status
+        profileVisibilityHardcoded: profileVisibilityHardcodedGate.status,
+        profileSuspensionHardcoded: profileSuspensionHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -746,6 +789,8 @@ async function main() {
         rounding_hardcoded_gate_status: roundingHardcodedGate.status,
         profile_visibility_hardcoded_gate_status:
           profileVisibilityHardcodedGate.status,
+        profile_suspension_hardcoded_gate_status:
+          profileSuspensionHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -756,7 +801,9 @@ async function main() {
         tax_hardcode_rejected: taxHardcodedGate.status === 'fail',
         rounding_hardcode_rejected: roundingHardcodedGate.status === 'fail',
         profile_visibility_hardcode_rejected:
-          profileVisibilityHardcodedGate.status === 'fail'
+          profileVisibilityHardcodedGate.status === 'fail',
+        profile_suspension_hardcode_rejected:
+          profileSuspensionHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

@@ -124,7 +124,8 @@ function attackScenarios() {
     'discount_hardcode',
     'tax_hardcode',
     'rounding_hardcode',
-    'profile_visibility_hardcode'
+    'profile_visibility_hardcode',
+    'profile_suspension_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -137,6 +138,8 @@ function attackScenarios() {
     rounding_hardcode: 'rulepack_semantic:rounding_semantic',
     profile_visibility_hardcode:
       'rulepack_semantic:profile_visibility_semantic',
+    profile_suspension_hardcode:
+      'rulepack_semantic:profile_suspension_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -1905,7 +1908,7 @@ describe('release evidence audit', () => {
     const notExecutedAttackScenarios = attackScenarios();
     notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
       (scenario) =>
-        scenario.id === 'profile_visibility_hardcode'
+        scenario.id === 'profile_suspension_hardcode'
           ? { ...scenario, executed: false }
           : scenario
     );
@@ -1937,7 +1940,7 @@ describe('release evidence audit', () => {
           ok: false,
           status: 'invalid_ledger',
           ledger_failures: expect.arrayContaining([
-            'attack_scenarios.profile_visibility_hardcode.executed'
+            'attack_scenarios.profile_suspension_hardcode.executed'
           ])
         })
       ])

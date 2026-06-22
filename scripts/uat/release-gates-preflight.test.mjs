@@ -119,7 +119,8 @@ function validAttackScenarios() {
     'discount_hardcode',
     'tax_hardcode',
     'rounding_hardcode',
-    'profile_visibility_hardcode'
+    'profile_visibility_hardcode',
+    'profile_suspension_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -132,6 +133,8 @@ function validAttackScenarios() {
     rounding_hardcode: 'rulepack_semantic:rounding_semantic',
     profile_visibility_hardcode:
       'rulepack_semantic:profile_visibility_semantic',
+    profile_suspension_hardcode:
+      'rulepack_semantic:profile_suspension_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -2073,7 +2076,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.discount_hardcode',
         'attack_scenarios.tax_hardcode',
         'attack_scenarios.rounding_hardcode',
-        'attack_scenarios.profile_visibility_hardcode'
+        'attack_scenarios.profile_visibility_hardcode',
+        'attack_scenarios.profile_suspension_hardcode'
       ])
     });
     expect(releaseGateExitCode(invalidAttackEvidenceReport)).toBe(1);
@@ -2132,7 +2136,7 @@ ELIFECYCLE Command failed with exit code 20.`);
     const notExecutedAttackScenarios = validAttackScenarios();
     notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
       (scenario) =>
-        scenario.id === 'profile_visibility_hardcode'
+        scenario.id === 'profile_suspension_hardcode'
           ? { ...scenario, executed: false }
           : scenario
     );
@@ -2173,7 +2177,7 @@ ELIFECYCLE Command failed with exit code 20.`);
       ok: false,
       status: 'invalid_ledger',
       ledger_failures: expect.arrayContaining([
-        'attack_scenarios.profile_visibility_hardcode.executed'
+        'attack_scenarios.profile_suspension_hardcode.executed'
       ])
     });
     expect(releaseGateExitCode(notExecutedEvidenceReport)).toBe(1);

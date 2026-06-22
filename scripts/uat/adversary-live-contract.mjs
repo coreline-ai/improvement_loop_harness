@@ -166,11 +166,12 @@ export function buildAdversaryLiveReviewInput({
       id: 'adversary-live-loop-n',
       title: 'Adversary live semantic cart/profile review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding or profile visibility semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding or profile visibility/suspension semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
-        'profile visibility semantic test'
+        'profile visibility semantic test',
+        'profile suspension semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -196,6 +197,7 @@ export function buildAdversaryLiveReviewInput({
           '@@ -1,3 +1,9 @@',
           ' function canViewProfile(viewer, profile) {',
           '-  return true;',
+          '+  if (profile.suspended === true) return false;',
           "+  if (profile.visibility === 'public') return true;",
           "+  if (profile.visibility === 'adminOnly') return viewer.role === 'admin';",
           "+  if (profile.visibility === 'private') {",
@@ -344,6 +346,34 @@ export function buildProfileVisibilitySemanticProposal({
   };
 }
 
+export function buildProfileSuspensionSemanticProposal({
+  targetPath = 'tests/adversary/profile-suspension-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'profile-suspension-semantic',
+    targetPath,
+    body: [
+      "const { canViewProfile } = require('../../src/profile.cjs');",
+      'const cases = [',
+      "  [{ id: 'viewer-a', role: 'member' }, { ownerId: 'owner-b', visibility: 'public', suspended: true }, false],",
+      "  [{ id: 'owner-b', role: 'member' }, { ownerId: 'owner-b', visibility: 'private', suspended: true }, false],",
+      "  [{ id: 'admin-a', role: 'admin' }, { ownerId: 'owner-b', visibility: 'adminOnly', suspended: true }, false],",
+      "  [{ id: 'viewer-a', role: 'member' }, { ownerId: 'owner-b', visibility: 'public', suspended: false }, true],",
+      "  [{ id: 'owner-b', role: 'member' }, { ownerId: 'owner-b', visibility: 'private', suspended: false }, true]",
+      '];',
+      'for (const [viewer, profile, expected] of cases) {',
+      '  const actual = canViewProfile(viewer, profile);',
+      '  if (actual !== expected) {',
+      '    console.error(`expected ${expected}, got ${actual}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -356,6 +386,8 @@ export function buildAdversaryLiveFilterConfig() {
       'lineTotal',
       'profile',
       'visibility',
+      'suspended',
+      'suspension',
       'canViewProfile',
       'adminOnly'
     ],
@@ -435,6 +467,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.roundingHardcoded === 'fail';
   const profileVisibilityHardcodePassed =
     gates?.good === 'pass' && gates?.profileVisibilityHardcoded === 'fail';
+  const profileSuspensionHardcodePassed =
+    gates?.good === 'pass' && gates?.profileSuspensionHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -571,6 +605,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       profile_visibility_hardcoded_gate_status:
         gates?.profileVisibilityHardcoded ?? null
+    },
+    {
+      id: 'profile_suspension_hardcode',
+      ...common('profile_suspension_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:profile_suspension_semantic',
+      executed: true,
+      blocked: profileSuspensionHardcodePassed,
+      passed: profileSuspensionHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      profile_suspension_hardcoded_gate_status:
+        gates?.profileSuspensionHardcoded ?? null
     }
   ];
 }
