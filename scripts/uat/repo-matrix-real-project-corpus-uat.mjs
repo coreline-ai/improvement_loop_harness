@@ -710,6 +710,33 @@ function buildMarkupSafeEscapeSilentVerifier(cases) {
   ].join('\n');
 }
 
+function buildClickStripAnsiVerifier(cases) {
+  return [
+    'import importlib.util',
+    'import json',
+    'import pathlib',
+    '',
+    'root = pathlib.Path.cwd()',
+    'source_path = root / "src" / "click" / "_compat.py"',
+    'spec = importlib.util.spec_from_file_location("_vibeloop_click_compat", source_path)',
+    'module = importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(module)',
+    '',
+    `cases = json.loads(${JSON.stringify(JSON.stringify(cases))})`,
+    'for item in cases:',
+    '    value = item["value"]',
+    '    expected = item["expected"]',
+    '    actual = module.strip_ansi(value)',
+    '    if actual != expected:',
+    '        raise AssertionError(f"strip_ansi({value!r}) expected {expected!r}, got {actual!r}")',
+    '    if "expected_len" in item:',
+    '        actual_len = module.term_len(value)',
+    '        if actual_len != item["expected_len"]:',
+    '            raise AssertionError(f"term_len({value!r}) expected {item[\'expected_len\']}, got {actual_len}")',
+    ''
+  ].join('\n');
+}
+
 function buildProduct100CorpusVerifier(expectedSummary) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -952,6 +979,41 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
           right: '<i>',
           expected: '<b>x</b>&lt;i&gt;',
           expect_markup: true
+        }
+      ])
+  },
+  {
+    id: 'click-strip-ansi',
+    semantic_domain: 'terminal_ansi_stripping',
+    relativePath: 'src/click/_compat.py',
+    language: 'python',
+    originalNeedle: '    return _ansi_re.sub("", value)',
+    regressionText: '    return value',
+    visibleCommand: (filePath) => ({ command: 'python3', args: [filePath] }),
+    buildVisibleVerifier: () =>
+      buildClickStripAnsiVerifier([
+        {
+          value: '\u001b[31mred\u001b[0m',
+          expected: 'red',
+          expected_len: 3
+        },
+        {
+          value: 'plain',
+          expected: 'plain',
+          expected_len: 5
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildClickStripAnsiVerifier([
+        {
+          value: '\u001b[?25lhidden\u001b[?25h',
+          expected: 'hidden',
+          expected_len: 6
+        },
+        {
+          value: '\u001b[1;32mgreen\u001b[39m!',
+          expected: 'green!',
+          expected_len: 6
         }
       ])
   },

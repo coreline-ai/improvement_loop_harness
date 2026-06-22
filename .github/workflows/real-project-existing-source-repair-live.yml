@@ -260,8 +260,8 @@ jobs:
               echo "publish_draft_prs=true is only supported with repair_mode=existing-source" >&2
               exit 20
             fi
-            if [ "${MIN_REPOS}" -lt 5 ]; then
-              echo "repair_mode=semantic-source requires min_repos >= 5 for broad semantic corpus evidence" >&2
+            if [ "${MIN_REPOS}" -lt 6 ]; then
+              echo "repair_mode=semantic-source requires min_repos >= 6 for broad semantic corpus evidence" >&2
               exit 20
             fi
             scenario="repo-matrix-real-project-semantic-source-repair-uat"
