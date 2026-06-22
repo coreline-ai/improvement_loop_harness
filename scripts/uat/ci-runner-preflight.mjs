@@ -104,15 +104,21 @@ function buildRunnerPreflightReport({
     };
   }
   if (fetchError) {
+    const tokenUnavailable =
+      /HTTP (401|403)|Requires authentication|Resource not accessible by integration/i.test(
+        fetchError
+      );
     return {
       status: 'blocked',
       can_run_live: false,
       runner_label: label,
       runner_kind: 'self-hosted-or-custom',
-      reason: 'RUNNER_QUERY_FAILED',
+      reason: tokenUnavailable
+        ? 'RUNNER_QUERY_TOKEN_UNAVAILABLE'
+        : 'RUNNER_QUERY_FAILED',
       error: fetchError,
       next_step:
-        'Grant actions:read access or rerun with a GitHub-hosted label before claiming CI live artifact reproducibility.'
+        'Provide a token that can list repository self-hosted runners, register an online runner for this label, or rerun with a GitHub-hosted label before claiming CI live artifact reproducibility.'
     };
   }
   const matches = matchingOnlineRunners(runners, label);

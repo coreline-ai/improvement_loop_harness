@@ -71,6 +71,21 @@ describe('CI live runner preflight', () => {
     });
   });
 
+  it('separates missing runner query token from generic query failures', () => {
+    const report = buildRunnerPreflightReport({
+      runnerLabel: 'codex-live',
+      repo: 'coreline-ai/improvement_loop_harness',
+      fetchError:
+        'GitHub runner query failed with HTTP 403: Resource not accessible by integration'
+    });
+
+    expect(report).toMatchObject({
+      status: 'blocked',
+      can_run_live: false,
+      reason: 'RUNNER_QUERY_TOKEN_UNAVAILABLE'
+    });
+  });
+
   it('parses workflow arguments', () => {
     expect(
       parseArgs([

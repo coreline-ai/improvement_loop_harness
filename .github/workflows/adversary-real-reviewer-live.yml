@@ -53,7 +53,7 @@ jobs:
       status: ${{ steps.check.outputs.runner_preflight_status }}
       reason: ${{ steps.check.outputs.runner_preflight_reason }}
     env:
-      GH_TOKEN: ${{ github.token }}
+      GH_TOKEN: ${{ secrets.REAL_PROJECT_CORPUS_GH_TOKEN || github.token }}
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
