@@ -547,7 +547,13 @@ corepack pnpm uat:release-evidence-audit -- \
 corepack pnpm uat:repo-matrix:real-project-existing-source-repair -- \
   --repo /path/to/real/repo-a \
   --repo /path/to/real/repo-b \
-  --min-repos 2
+  --repo /path/to/real/repo-c \
+  --repo /path/to/real/repo-d \
+  --repo /path/to/real/repo-e \
+  --repo /path/to/real/repo-f \
+  --repo /path/to/real/repo-g \
+  --repo /path/to/real/repo-h \
+  --min-repos 8
 
 corepack pnpm uat:release-evidence-audit -- \
   --scenario repo-matrix-real-project-existing-source-repair-uat
@@ -556,7 +562,7 @@ corepack pnpm uat:release-evidence-audit -- \
 기대:
 
 - `status=REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`
-- `cell_count>=2`, `pass_count>=2`, `fail_count=0`
+- `cell_count>=8`, `pass_count>=8`, `fail_count=0`
 - ledger가 `codex_repair_smoke=true`, `existing_source_repair=true`, `source_code_repair=true`, `llm_modification=true`, `hidden_acceptance=true`, `source_repos_read_only=true`, `draft_pr=false`, `builder.real_llm=true`, `builder.provider=codex`를 남긴다.
 - 각 cell은 `codex_repair.status=pass`, `codex_repair.existing_source=true`, `codex_repair.visible_acceptance.status=pass`, `codex_repair.hidden_acceptance.status=pass`, `codex_repair.diff_scope.status=pass`, `codex_repair.source_changed=true`, `codex_repair.source_repo_integrity.status=pass`여야 한다.
 - 이 lane은 기존 tracked source file repair 증거이며, 아직 임의 업무 bug repair, GitHub draft PR, 임의/대형 repo 전체 PASS를 의미하지 않는다.
@@ -564,12 +570,14 @@ corepack pnpm uat:release-evidence-audit -- \
 최근 확인 evidence:
 
 ```text
-/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-existing-source-repair-uat/real-project-corpus-53414-1782118179984/ledger.json
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-existing-source-repair-uat/real-project-corpus-91734-1782166010157/ledger.json
 ```
 
 2026-06-22 R27 real project Codex existing-source repair는 기존 로컬 repo 2개(`improvement_loop_harness`, `build-server-cli`)에서 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`, `cell_count=2`, `pass_count=2`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 기존 tracked source file(`apps/server/scripts/postgres-connection-check.mjs`, `web/help-content.js`)만 수정했으며, original parse pass, regressed visible/hidden expected fail, final visible/hidden pass, existing-source-only diff, 원본 repo integrity를 검증했다. `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-uat`도 manifest-backed evidence를 PASS로 감사했다.
 
 2026-06-22 R29 public broad real project existing-source repair는 public 실제 repo 4개(`pypa/sampleproject`, `pallets/click`, `expressjs/express`, `nodeca/js-yaml`)에서 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`, `cell_count=4`, `pass_count=4`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 기존 tracked source file(`noxfile.py`, `docs/conf.py`, `examples/auth/index.js`, `benchmark/benchmark.mjs`)만 수정했으며, original parse pass, regressed visible/hidden expected fail, final visible/hidden pass, existing-source-only diff, 원본 repo integrity를 검증했다. Evidence는 `/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-existing-source-repair-uat/real-project-corpus-53414-1782118179984`에 copied 42/missing 0(manifest copied 43)으로 보존됐고, `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-uat`도 manifest-backed evidence를 PASS로 감사했다. 단 이 증거는 syntactic regression repair smoke이며, GitHub draft PR·임의 업무 bug repair·임의/대형 repo 전체 PASS를 의미하지 않는다.
+
+2026-06-23 R49 public broad real project existing-source repair는 public 실제 repo 8개(`pypa/sampleproject`, `pallets/click`, `expressjs/express`, `nodeca/js-yaml`, `psf/requests`, `urllib3/urllib3`, `pallets/itsdangerous`, `pypa/packaging`)에서 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`, `cell_count=8`, `pass_count=8`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 기존 tracked source file(`noxfile.py`, `docs/conf.py`, `examples/auth/index.js`, `benchmark/benchmark.mjs`, `docs/_themes/flask_theme_support.py`, `src/urllib3/contrib/emscripten/emscripten_fetch_worker.js`, `docs/conf.py`, `benchmarks/__init__.py`)만 수정했으며, original parse pass, regressed visible/hidden expected fail, final visible/hidden pass, existing-source-only diff, 원본 repo integrity를 검증했다. Evidence는 `/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-existing-source-repair-uat/real-project-corpus-91734-1782166010157`에 copied 82/missing 0(manifest copied 83)으로 보존됐고, `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-uat`도 manifest-backed evidence를 PASS로 감사했다. Release-grade non-PR existing-source audit 기준은 8셀로 상향됐다. 단 이 증거는 syntactic regression repair smoke이며, GitHub draft PR·임의 업무 bug repair·임의/대형 repo 전체 PASS를 의미하지 않는다.
 
 기존 source의 curated semantic behavior regression을 실제 Codex가 고치는지 확인하려면 semantic source repair lane을 사용한다. 이 lane은 원본 repo를 수정하지 않고 temp clone에서 registry에 등록된 기존 tracked source target만 고른다. 원본 visible/hidden verifier가 먼저 PASS해야 하며, behavioral regression 주입 뒤 visible/hidden이 expected fail이어야 한다. 이후 실제 Codex는 해당 기존 source file만 수정해야 하고, final visible/hidden acceptance, existing-source-only diff, source repo integrity가 모두 PASS해야 한다.
 
@@ -785,7 +793,7 @@ corepack pnpm uat:release-evidence-audit:gh -- \
   --scenario adversary-live-real-reviewer-uat
 ```
 
-R27/R28/R29/R32/R48 real-project repair CI artifact는 Codex ChatGPT login이 있는 runner와 실제 git repo corpus가 필요하다. `secondary_repo`와 `additional_repos`는 `OWNER/REPO` 또는 URL을 받으며, private repo면 `REAL_PROJECT_CORPUS_GH_TOKEN` secret이 그 repo를 읽을 수 있어야 한다. 기본 `repair_mode=existing-source` 설정은 current repo를 포함해 R27 `repo-matrix-real-project-existing-source-repair-uat` artifact를 만들고 즉시 다운로드 감사한다. `publish_draft_prs=true`를 주면 R28 `repo-matrix-real-project-existing-source-repair-pr-uat` artifact로 전환하고, private evidence repo 생성 + branch push + draft PR verification까지 포함한다. `include_current_repo=false`, `additional_repos`, `min_repos=4`를 쓰면 R29 public broad corpus처럼 current repo 없이 public repo 4개 이상으로 non-PR existing-source repair artifact를 만들 수 있다. `repair_mode=business-fixture`를 쓰면 R32 `repo-matrix-real-project-business-repair-uat` artifact와 downloaded artifact audit을 만든다. `repair_mode=semantic-source`는 현재 release-grade audit에서 `min_repos>=12`를 요구하며 R48 `repo-matrix-real-project-semantic-source-repair-uat` artifact와 downloaded artifact audit을 만든다. 최신 credentialed PASS artifact는 R29 non-PR public broad workflow run `27947984264`, R28 draft PR workflow run `27949790976`, R33 business fixture workflow run `27946183282`다. semantic-source 12셀 credentialed artifact는 2026-06-23 현재 repo self-hosted runner 등록 0개라 후속 runner 가동 후 재실행/감사가 필요하다. 단 이 CI evidence도 syntactic regression repair, dedicated business fixture repair, 또는 curated semantic target repair 범위이며, 기존 애플리케이션 업무 source 임의 bug repair PASS는 아니다.
+R27/R28/R29/R32/R48/R49 real-project repair CI artifact는 Codex ChatGPT login이 있는 runner와 실제 git repo corpus가 필요하다. `secondary_repo`와 `additional_repos`는 `OWNER/REPO` 또는 URL을 받으며, private repo면 `REAL_PROJECT_CORPUS_GH_TOKEN` secret이 그 repo를 읽을 수 있어야 한다. 기본 `repair_mode=existing-source` non-PR 설정은 release-grade audit에서 `min_repos>=8`을 요구한다. `publish_draft_prs=true`를 주면 R28 `repo-matrix-real-project-existing-source-repair-pr-uat` artifact로 전환하고, private evidence repo 생성 + branch push + draft PR verification까지 포함한다. `include_current_repo=false`, `additional_repos`, `min_repos=8`을 쓰면 R49 public broad corpus처럼 current repo 없이 public repo 8개 이상으로 non-PR existing-source repair artifact를 만들 수 있다. `repair_mode=business-fixture`를 쓰면 R32 `repo-matrix-real-project-business-repair-uat` artifact와 downloaded artifact audit을 만든다. `repair_mode=semantic-source`는 현재 release-grade audit에서 `min_repos>=12`를 요구하며 R48 `repo-matrix-real-project-semantic-source-repair-uat` artifact와 downloaded artifact audit을 만든다. 최신 credentialed PASS artifact는 R29 non-PR public broad workflow run `27947984264`, R28 draft PR workflow run `27949790976`, R33 business fixture workflow run `27946183282`다. R49 8셀 existing-source와 semantic-source 12셀 credentialed artifact는 2026-06-23 현재 repo self-hosted runner 등록 0개라 후속 runner 가동 후 재실행/감사가 필요하다. 단 이 CI evidence도 syntactic regression repair, dedicated business fixture repair, 또는 curated semantic target repair 범위이며, 기존 애플리케이션 업무 source 임의 bug repair PASS는 아니다.
 
 ```bash
 gh workflow run real-project-existing-source-repair-live.yml \
@@ -794,15 +802,16 @@ gh workflow run real-project-existing-source-repair-live.yml \
   -f repair_mode=existing-source \
   -f runner_label=self-hosted \
   -f include_current_repo=true \
-  -f secondary_repo=<owner>/<repo> \
+  -f secondary_repo=pypa/sampleproject \
   -f secondary_repo_ref=main \
-  -f min_repos=2 \
+  -f additional_repos='pallets/click,expressjs/express,nodeca/js-yaml,psf/requests,urllib3/urllib3,pallets/itsdangerous,pypa/packaging' \
+  -f min_repos=8 \
   -f publish_draft_prs=false \
   -f codex_model=gpt-5.5 \
   -f codex_timeout_ms=180000
 ```
 
-R29 public broad artifact를 current repo 없이 재현할 때는 public repo 4개를 `additional_repos`로 넘기고 `min_repos=4`를 강제한다.
+R49 public broad artifact를 current repo 없이 재현할 때는 public repo 8개를 `additional_repos`로 넘기고 `min_repos=8`을 강제한다.
 
 ```bash
 gh workflow run real-project-existing-source-repair-live.yml \
@@ -814,8 +823,12 @@ gh workflow run real-project-existing-source-repair-live.yml \
   -f additional_repos='pypa/sampleproject
 pallets/click
 expressjs/express
-nodeca/js-yaml' \
-  -f min_repos=4 \
+nodeca/js-yaml
+psf/requests
+urllib3/urllib3
+pallets/itsdangerous
+pypa/packaging' \
+  -f min_repos=8 \
   -f publish_draft_prs=false \
   -f codex_model=gpt-5.5 \
   -f codex_timeout_ms=180000
@@ -895,7 +908,7 @@ corepack pnpm uat:release-evidence-audit -- \
   --scenario repo-matrix-real-project-business-repair-uat
 ```
 
-R41 semantic source repair artifact를 재현할 때는 `repair_mode=semantic-source`를 지정한다. 이 모드는 curated semantic target registry에 매칭되는 repo가 필요하며, GitHub draft PR publish를 하지 않으므로 `publish_draft_prs=false`를 사용한다. Release-grade audit은 8셀 broad semantic corpus를 요구하므로 current repo + public `pypa/sampleproject`, `pallets/markupsafe`, `pallets/click`, `psf/requests`, `tartley/colorama`, `expressjs/express`, `nodeca/js-yaml` 예시처럼 `min_repos=8`와 `additional_repos`를 같이 지정한다.
+R48 semantic source repair artifact를 재현할 때는 `repair_mode=semantic-source`를 지정한다. 이 모드는 curated semantic target registry에 매칭되는 repo가 필요하며, GitHub draft PR publish를 하지 않으므로 `publish_draft_prs=false`를 사용한다. Release-grade audit은 12셀 broad semantic corpus를 요구하므로 current repo + public `pypa/sampleproject`, `pallets/markupsafe`, `pallets/click`, `psf/requests`, `urllib3/urllib3`, `tartley/colorama`, `pallets/itsdangerous`, `pypa/packaging`, `expressjs/express`, `nodeca/js-yaml`, `sindresorhus/escape-string-regexp` 예시처럼 `min_repos=12`와 `additional_repos`를 같이 지정한다.
 
 ```bash
 gh workflow run real-project-existing-source-repair-live.yml \
@@ -996,4 +1009,4 @@ cat ~/.vibeloop/product-100-real-loop-*/product-100-progress.json
 
 ### 현재 로컬 기준 기대 결과
 
-현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-23 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 final report `/Users/iriver/.vibeloop/product-100-real-loop-St3cnO/product-100-live-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-83865-1782157755473`, GitHub draft PR 10개 `coreline-ai/vibeloop-p100-product-100-83865-1782157755473-*`다. P4 semantic/M4 lane은 R47에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-18877-1782162130004`와 local real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-25129-1782162843680`로 cart+profile+order approval+inventory reservation+shipping eligibility+payment authorization+refund eligibility 11-rule corpus, M2 confirmed 11, M4 replay-safe 11/11, 16/16 attack scenario PASS를 남겼다. R31 credentialed CI run `27943361464`는 이전 6-rule corpus의 real reviewer artifact + downloaded artifact audit PASS를 남겼고, R47 11-rule corpus의 credentialed CI artifact 재현성은 아직 없다. Broad real project corpus는 R29에서 public 실제 repo 4개 existing-source repair + hidden verifier, R28에서 GitHub draft PR smoke, R32에서 실제 로컬 repo 2개 business fixture repair + hidden verifier, R48에서 public 실제 repo 12개 curated semantic existing-source repair + hidden verifier까지 통과했다. R33은 R32 business fixture repair를 credentialed self-hosted Codex runner의 GitHub Actions artifact로 재현해 run `27946183282`, ledger `real-project-corpus-53536-1782124914699`, downloaded artifact audit PASS를 남겼다. R34는 R29 public broad existing-source repair를 workflow run `27947984264`, R28 GitHub draft PR smoke를 workflow run `27949790976`에서 credentialed CI artifact + downloaded audit으로 재현했다. semantic-source 12셀 artifact와 R47 11-rule P4 corpus는 self-hosted runner 부재로 아직 CI artifact PASS가 아니다. 다만 R28/R29/R34는 syntactic regression repair smoke, R32/R33은 dedicated business fixture repair, R40/R41/R43/R45/R46/R48은 curated semantic target repair이므로, 기존 애플리케이션 업무 source의 임의 bug repair나 임의 사용자 repo 전체에 대한 제품 전체 100% PASS는 아니다.
+현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-23 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 final report `/Users/iriver/.vibeloop/product-100-real-loop-St3cnO/product-100-live-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-83865-1782157755473`, GitHub draft PR 10개 `coreline-ai/vibeloop-p100-product-100-83865-1782157755473-*`다. P4 semantic/M4 lane은 R47에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-18877-1782162130004`와 local real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-25129-1782162843680`로 cart+profile+order approval+inventory reservation+shipping eligibility+payment authorization+refund eligibility 11-rule corpus, M2 confirmed 11, M4 replay-safe 11/11, 16/16 attack scenario PASS를 남겼다. R31 credentialed CI run `27943361464`는 이전 6-rule corpus의 real reviewer artifact + downloaded artifact audit PASS를 남겼고, R47 11-rule corpus의 credentialed CI artifact 재현성은 아직 없다. Broad real project corpus는 R49에서 public 실제 repo 8개 existing-source repair + hidden verifier, R28에서 GitHub draft PR smoke, R32에서 실제 로컬 repo 2개 business fixture repair + hidden verifier, R48에서 public 실제 repo 12개 curated semantic existing-source repair + hidden verifier까지 통과했다. R33은 R32 business fixture repair를 credentialed self-hosted Codex runner의 GitHub Actions artifact로 재현해 run `27946183282`, ledger `real-project-corpus-53536-1782124914699`, downloaded artifact audit PASS를 남겼다. R34는 historical R29 public broad existing-source repair를 workflow run `27947984264`, R28 GitHub draft PR smoke를 workflow run `27949790976`에서 credentialed CI artifact + downloaded audit으로 재현했다. R49 8셀 existing-source, semantic-source 12셀 artifact와 R47 11-rule P4 corpus는 self-hosted runner 부재로 아직 CI artifact PASS가 아니다. 다만 R28/R29/R34/R49는 syntactic regression repair smoke, R32/R33은 dedicated business fixture repair, R40/R41/R43/R45/R46/R48은 curated semantic target repair이므로, 기존 애플리케이션 업무 source의 임의 bug repair나 임의 사용자 repo 전체에 대한 제품 전체 100% PASS는 아니다.

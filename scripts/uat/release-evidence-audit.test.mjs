@@ -1468,8 +1468,8 @@ describe('release evidence audit', () => {
         scenario: 'repo-matrix-real-project-existing-source-repair-uat',
         expected_status: 'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 2,
-          min_pass_count: 2,
+          min_cell_count: 8,
+          min_pass_count: 8,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_existing_source_repair: true,
@@ -1489,6 +1489,33 @@ describe('release evidence audit', () => {
     ).not.toContain('repo-matrix-real-project-existing-source-repair-uat');
 
     const root = await tempRoot();
+    const existingSourceRepairCells = [
+      ['sampleproject', 'noxfile.py'],
+      ['click', 'docs/conf.py'],
+      ['express', 'examples/auth/index.js'],
+      ['js-yaml', 'benchmark/benchmark.mjs'],
+      ['requests', 'docs/conf.py'],
+      [
+        'urllib3',
+        'src/urllib3/contrib/emscripten/emscripten_fetch_worker.js'
+      ],
+      ['itsdangerous', 'docs/conf.py'],
+      ['packaging', 'benchmarks/__init__.py']
+    ].map(([id, repairSource]) => ({
+      id,
+      status: 'pass',
+      codex_repair: {
+        status: 'pass',
+        repair_source: repairSource,
+        existing_source: true,
+        visible_acceptance: { status: 'pass' },
+        hidden_acceptance: { status: 'pass' },
+        diff_scope: { status: 'pass' },
+        source_changed: true,
+        visible_test_unchanged: true,
+        source_repo_integrity: { status: 'pass' }
+      }
+    }));
     await writeLedger(
       root,
       'repo-matrix-real-project-existing-source-repair-uat',
@@ -1509,41 +1536,10 @@ describe('release evidence audit', () => {
           provider: 'codex',
           model: 'gpt-5.5'
         },
-        cell_count: 2,
-        pass_count: 2,
+        cell_count: existingSourceRepairCells.length,
+        pass_count: existingSourceRepairCells.length,
         fail_count: 0,
-        cells: [
-          {
-            id: 'node-real-project',
-            status: 'pass',
-            codex_repair: {
-              status: 'pass',
-              repair_source: 'src/cart-total.js',
-              existing_source: true,
-              visible_acceptance: { status: 'pass' },
-              hidden_acceptance: { status: 'pass' },
-              diff_scope: { status: 'pass' },
-              source_changed: true,
-              visible_test_unchanged: true,
-              source_repo_integrity: { status: 'pass' }
-            }
-          },
-          {
-            id: 'python-real-project',
-            status: 'pass',
-            codex_repair: {
-              status: 'pass',
-              repair_source: 'src/cart_total.py',
-              existing_source: true,
-              visible_acceptance: { status: 'pass' },
-              hidden_acceptance: { status: 'pass' },
-              diff_scope: { status: 'pass' },
-              source_changed: true,
-              visible_test_unchanged: true,
-              source_repo_integrity: { status: 'pass' }
-            }
-          }
-        ]
+        cells: existingSourceRepairCells
       }
     );
     await writeManifest(
@@ -1596,40 +1592,21 @@ describe('release evidence audit', () => {
           provider: 'codex',
           model: 'gpt-5.5'
         },
-        cell_count: 2,
-        pass_count: 2,
+        cell_count: existingSourceRepairCells.length,
+        pass_count: existingSourceRepairCells.length,
         fail_count: 0,
-        cells: [
-          {
-            id: 'node-real-project',
-            status: 'pass',
-            codex_repair: {
-              status: 'pass',
-              existing_source: false,
-              visible_acceptance: { status: 'pass' },
-              hidden_acceptance: { status: 'pass' },
-              diff_scope: { status: 'pass' },
-              source_changed: true,
-              visible_test_unchanged: true,
-              source_repo_integrity: { status: 'pass' }
-            }
-          },
-          {
-            id: 'python-real-project',
-            status: 'pass',
-            codex_repair: {
-              status: 'pass',
-              repair_source: 'src/cart_total.py',
-              existing_source: true,
-              visible_acceptance: { status: 'pass' },
-              hidden_acceptance: { status: 'pass' },
-              diff_scope: { status: 'pass' },
-              source_changed: true,
-              visible_test_unchanged: true,
-              source_repo_integrity: { status: 'pass' }
-            }
-          }
-        ]
+        cells: existingSourceRepairCells.map((cell, index) =>
+          index === 0
+            ? {
+                ...cell,
+                codex_repair: {
+                  ...cell.codex_repair,
+                  repair_source: undefined,
+                  existing_source: false
+                }
+              }
+            : cell
+        )
       },
       new Date(Date.now() + 1000)
     );
@@ -1648,8 +1625,8 @@ describe('release evidence audit', () => {
     expect(weakenedReport.evidence[0].ledger_failures).toEqual(
       expect.arrayContaining([
         'existing_source_repair',
-        'cells.node-real-project.codex_repair.existing_source',
-        'cells.node-real-project.codex_repair.repair_source'
+        'cells.sampleproject.codex_repair.existing_source',
+        'cells.sampleproject.codex_repair.repair_source'
       ])
     );
   });

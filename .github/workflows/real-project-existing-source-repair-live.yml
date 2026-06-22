@@ -46,7 +46,7 @@ on:
         description: Minimum corpus repo count required by the live UAT.
         required: true
         type: string
-        default: '2'
+        default: '8'
       publish_draft_prs:
         description: Publish each repaired temp clone to a private GitHub evidence repo and verify draft PRs.
         required: true
@@ -275,6 +275,10 @@ jobs:
               extra_args+=(--keep-remote)
             fi
           else
+            if [ "${MIN_REPOS}" -lt 8 ]; then
+              echo "repair_mode=existing-source requires min_repos >= 8 for broad existing-source corpus evidence" >&2
+              exit 20
+            fi
             scenario="repo-matrix-real-project-existing-source-repair-uat"
             script="uat:repo-matrix:real-project-existing-source-repair"
             extra_args=()
