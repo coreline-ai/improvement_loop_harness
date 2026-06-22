@@ -116,7 +116,8 @@ function validAttackScenarios() {
     'zero_quantity_truthiness_hardcode',
     'discount_hardcode',
     'tax_hardcode',
-    'rounding_hardcode'
+    'rounding_hardcode',
+    'profile_visibility_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -127,6 +128,8 @@ function validAttackScenarios() {
     discount_hardcode: 'rulepack_semantic:discount_semantic',
     tax_hardcode: 'rulepack_semantic:tax_semantic',
     rounding_hardcode: 'rulepack_semantic:rounding_semantic',
+    profile_visibility_hardcode:
+      'rulepack_semantic:profile_visibility_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -1656,7 +1659,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.zero_quantity_truthiness_hardcode',
         'attack_scenarios.discount_hardcode',
         'attack_scenarios.tax_hardcode',
-        'attack_scenarios.rounding_hardcode'
+        'attack_scenarios.rounding_hardcode',
+        'attack_scenarios.profile_visibility_hardcode'
       ])
     });
     expect(releaseGateExitCode(invalidAttackEvidenceReport)).toBe(1);
@@ -1711,6 +1715,55 @@ ELIFECYCLE Command failed with exit code 20.`);
       ])
     });
     expect(releaseGateExitCode(impactEvidenceReport)).toBe(1);
+
+    const notExecutedAttackScenarios = validAttackScenarios();
+    notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
+      (scenario) =>
+        scenario.id === 'profile_visibility_hardcode'
+          ? { ...scenario, executed: false }
+          : scenario
+    );
+    await writeLedger(
+      root,
+      'adversary-live-uat',
+      'adversary-run-not-executed',
+      new Date('2026-06-15T00:43:00.000Z'),
+      {
+        status: 'ADVERSARY_LIVE_PASS',
+        evidence_missing_count: 0,
+        attack_scenarios: notExecutedAttackScenarios,
+        ...validAdversarySafetyLedger()
+      }
+    );
+    await writeManifest(
+      root,
+      'adversary-live-uat',
+      'adversary-run-not-executed'
+    );
+
+    const notExecutedEvidenceReport = await buildReleaseGatePreflightReport({
+      evidenceRoot: root,
+      preflights: [
+        { gate: 'P4', name: 'adversary live runtime', command: ['p4'] }
+      ],
+      evidenceScenarios,
+      runCommand: async () => ({
+        status: 'pass',
+        exit_code: 0,
+        report: { status: 'pass' }
+      })
+    });
+
+    expect(notExecutedEvidenceReport.status).toBe('fail');
+    expect(notExecutedEvidenceReport.failed_gates).toEqual(['P4']);
+    expect(notExecutedEvidenceReport.evidence[0]).toMatchObject({
+      ok: false,
+      status: 'invalid_ledger',
+      ledger_failures: expect.arrayContaining([
+        'attack_scenarios.profile_visibility_hardcode.executed'
+      ])
+    });
+    expect(releaseGateExitCode(notExecutedEvidenceReport)).toBe(1);
 
     await writeLedger(
       root,

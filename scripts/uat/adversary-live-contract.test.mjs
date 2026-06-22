@@ -9,6 +9,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
+  buildProfileVisibilitySemanticProposal,
   buildCartRoundingSemanticProposal,
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
@@ -83,6 +84,21 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('lineTotal');
   });
 
+  it('adds a supplemental profile visibility semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildProfileVisibilitySemanticProposal({
+      targetPath: 'tests/adversary/profile-visibility.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'profile-visibility-semantic',
+      targetPath: 'tests/adversary/profile-visibility.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canViewProfile');
+    expect(proposal.body).toContain("visibility: 'private'");
+    expect(proposal.body).toContain("visibility: 'adminOnly'");
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -118,7 +134,8 @@ describe('adversary live contract', () => {
         zeroQuantityTruthinessHardcoded: 'fail',
         discountHardcoded: 'fail',
         taxHardcoded: 'fail',
-        roundingHardcoded: 'fail'
+        roundingHardcoded: 'fail',
+        profileVisibilityHardcoded: 'fail'
       }
     });
 
@@ -184,6 +201,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:rounding_semantic'
+        }),
+        expect.objectContaining({
+          id: 'profile_visibility_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:profile_visibility_semantic'
         })
       ])
     );
@@ -226,7 +249,8 @@ describe('adversary live contract', () => {
         'attack_scenario_zero_quantity_truthiness_hardcode_missing',
         'attack_scenario_discount_hardcode_missing',
         'attack_scenario_tax_hardcode_missing',
-        'attack_scenario_rounding_hardcode_missing'
+        'attack_scenario_rounding_hardcode_missing',
+        'attack_scenario_profile_visibility_hardcode_missing'
       ])
     );
   });
@@ -249,16 +273,19 @@ describe('adversary live contract', () => {
         zeroQuantityTruthinessHardcoded: 'fail',
         discountHardcoded: 'fail',
         taxHardcoded: 'fail',
-        roundingHardcoded: 'fail'
+        roundingHardcoded: 'fail',
+        profileVisibilityHardcoded: 'fail'
       }
     });
 
     for (const scenario of expected) {
-      expect(results.find((result) => result.id === scenario.id)).toMatchObject({
-        live_required: scenario.live_required,
-        expected_outcome: scenario.expected_outcome,
-        required_signal: scenario.required_signal
-      });
+      expect(results.find((result) => result.id === scenario.id)).toMatchObject(
+        {
+          live_required: scenario.live_required,
+          expected_outcome: scenario.expected_outcome,
+          required_signal: scenario.required_signal
+        }
+      );
     }
   });
 

@@ -123,7 +123,8 @@ function attackScenarios() {
     'zero_quantity_truthiness_hardcode',
     'discount_hardcode',
     'tax_hardcode',
-    'rounding_hardcode'
+    'rounding_hardcode',
+    'profile_visibility_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -134,6 +135,8 @@ function attackScenarios() {
     discount_hardcode: 'rulepack_semantic:discount_semantic',
     tax_hardcode: 'rulepack_semantic:tax_semantic',
     rounding_hardcode: 'rulepack_semantic:rounding_semantic',
+    profile_visibility_hardcode:
+      'rulepack_semantic:profile_visibility_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -1491,6 +1494,52 @@ describe('release evidence audit', () => {
             'attack_scenarios.test_weakening.pr_created',
             'attack_scenarios.test_weakening.promotion_allowed',
             'attack_scenarios.test_weakening.blocked'
+          ])
+        })
+      ])
+    );
+    expect(releaseEvidenceAuditExitCode(report)).toBe(1);
+  });
+
+  it('fails P4 when a downloaded semantic attack scenario was not executed', async () => {
+    const root = await tempRoot();
+    await writeValidCiEvidence(root);
+    const notExecutedAttackScenarios = attackScenarios();
+    notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
+      (scenario) =>
+        scenario.id === 'profile_visibility_hardcode'
+          ? { ...scenario, executed: false }
+          : scenario
+    );
+    await writeLedger(
+      root,
+      'adversary-live-uat',
+      'not-executed-adversary-run',
+      adversaryLedger({
+        attack_scenarios: notExecutedAttackScenarios
+      }),
+      new Date('2030-01-01T00:00:00.000Z')
+    );
+    await writeManifest(
+      root,
+      'adversary-live-uat',
+      'not-executed-adversary-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.failed_gates).toEqual(['P4']);
+    expect(report.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          gate: 'P4',
+          ok: false,
+          status: 'invalid_ledger',
+          ledger_failures: expect.arrayContaining([
+            'attack_scenarios.profile_visibility_hardcode.executed'
           ])
         })
       ])

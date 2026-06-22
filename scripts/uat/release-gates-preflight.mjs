@@ -27,7 +27,8 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'zero_quantity_truthiness_hardcode',
   'discount_hardcode',
   'tax_hardcode',
-  'rounding_hardcode'
+  'rounding_hardcode',
+  'profile_visibility_hardcode'
 ]);
 
 export const PREFLIGHTS = [

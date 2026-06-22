@@ -22,6 +22,8 @@ describe('adversary live Codex reviewer wrapper', () => {
     expect(prompt).toContain('quantity: 0');
     expect(prompt).toContain('candidate formula');
     expect(prompt).toContain('Math.round');
+    expect(prompt).toContain('canViewProfile');
+    expect(prompt).toContain('adminOnly');
     expect(prompt).toContain('simple values');
     expect(prompt).toContain('node <targetPath>');
     expect(prompt).not.toContain('SECRET_HIDDEN_EXPECTATION');

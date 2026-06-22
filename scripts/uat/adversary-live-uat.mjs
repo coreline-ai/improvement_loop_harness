@@ -1,10 +1,5 @@
 #!/usr/bin/env node
-import {
-  mkdir,
-  mkdtemp,
-  rm,
-  writeFile
-} from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -27,6 +22,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
+  buildProfileVisibilitySemanticProposal,
   buildCartRoundingSemanticProposal,
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
@@ -80,9 +76,8 @@ const {
   replayAdversaryRulepack,
   resolveAdversaryReviewIndependence
 } = await import('../../packages/sdk/dist/index.js');
-const { filterAdversaryProposal, runGates } = await import(
-  '../../packages/eval-engine/dist/index.js'
-);
+const { filterAdversaryProposal, runGates } =
+  await import('../../packages/eval-engine/dist/index.js');
 
 function exitFromPreflight(report) {
   console.log(
@@ -106,6 +101,11 @@ function exitFromPreflight(report) {
 async function writeCartFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/cart.cjs'), source);
+}
+
+async function writeProfileFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/profile.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -159,6 +159,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
     changedFiles: [
       {
         path: 'src/cart.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
+        path: 'src/profile.cjs',
         status: 'modified',
         isSymlink: false,
         addedLines: 1,
@@ -223,6 +230,10 @@ async function main() {
       workRoot,
       'loop-n-plus-one-rounding-hardcode'
     );
+    const profileVisibilityHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-profile-visibility-hardcode'
+    );
     const buggyCart = [
       'function lineTotal(item) {',
       '  return item.price;',
@@ -282,6 +293,32 @@ async function main() {
       'module.exports = { lineTotal };',
       ''
     ].join('\n');
+    const buggyProfile = [
+      'function canViewProfile(_viewer, _profile) {',
+      '  return true;',
+      '}',
+      'module.exports = { canViewProfile };',
+      ''
+    ].join('\n');
+    const fixedProfile = [
+      'function canViewProfile(viewer, profile) {',
+      "  if (profile.visibility === 'public') return true;",
+      "  if (profile.visibility === 'adminOnly') return viewer.role === 'admin';",
+      "  if (profile.visibility === 'private') {",
+      "    return viewer.role === 'admin' || viewer.id === profile.ownerId;",
+      '  }',
+      '  return false;',
+      '}',
+      'module.exports = { canViewProfile };',
+      ''
+    ].join('\n');
+    const publicOnlyProfile = [
+      'function canViewProfile(_viewer, profile) {',
+      "  return profile.visibility === 'public';",
+      '}',
+      'module.exports = { canViewProfile };',
+      ''
+    ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
@@ -298,13 +335,34 @@ async function main() {
     await writeCartFixture(discountHardcodedWorktree, discountHardcodedCart);
     await writeCartFixture(taxHardcodedWorktree, taxHardcodedCart);
     await writeCartFixture(roundingHardcodedWorktree, roundingHardcodedCart);
+    await writeCartFixture(profileVisibilityHardcodedWorktree, fixedCart);
+    await writeProfileFixture(baseWorktree, buggyProfile);
+    await writeProfileFixture(candidateWorktree, fixedProfile);
+    await writeProfileFixture(goodWorktree, fixedProfile);
+    await writeProfileFixture(badWorktree, fixedProfile);
+    await writeProfileFixture(hardcodedWorktree, fixedProfile);
+    await writeProfileFixture(defaultQuantityHardcodedWorktree, fixedProfile);
+    await writeProfileFixture(
+      zeroQuantityTruthinessHardcodedWorktree,
+      fixedProfile
+    );
+    await writeProfileFixture(discountHardcodedWorktree, fixedProfile);
+    await writeProfileFixture(taxHardcodedWorktree, fixedProfile);
+    await writeProfileFixture(roundingHardcodedWorktree, fixedProfile);
+    await writeProfileFixture(
+      profileVisibilityHardcodedWorktree,
+      publicOnlyProfile
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
     let supplementalProposals = [
       buildCartDiscountSemanticProposal(),
       buildCartTaxSemanticProposal(),
-      buildCartRoundingSemanticProposal()
+      buildCartRoundingSemanticProposal(),
+      buildProfileVisibilitySemanticProposal({
+        targetPath: 'tests/adversary/profile-visibility-supplemental.test.cjs'
+      })
     ];
     let adversaryReview = null;
     let adversaryReviewerProvenance =
@@ -351,7 +409,10 @@ async function main() {
       supplementalProposals = [
         buildCartDiscountSemanticProposal(),
         buildCartTaxSemanticProposal(),
-        buildCartRoundingSemanticProposal()
+        buildCartRoundingSemanticProposal(),
+        buildProfileVisibilitySemanticProposal({
+          targetPath: 'tests/adversary/profile-visibility-supplemental.test.cjs'
+        })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
         reviewReport: adversaryReview,
@@ -448,7 +509,9 @@ async function main() {
       outputFile: replayFile
     });
     if (!replay.replaySafe) {
-      throw new Error(`M4 replay was not replay-safe: ${JSON.stringify(replay)}`);
+      throw new Error(
+        `M4 replay was not replay-safe: ${JSON.stringify(replay)}`
+      );
     }
     const freeze = await freezeAdversaryRulepack({
       candidateFile,
@@ -514,6 +577,13 @@ async function main() {
         'adversary-live-rounding-hardcode'
       )
     );
+    const profileVisibilityHardcoded = await runGates(
+      await gateContext(
+        profileVisibilityHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-profile-visibility-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -540,6 +610,10 @@ async function main() {
     const roundingHardcodedGate = roundingHardcoded.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
+    const profileVisibilityHardcodedGate =
+      profileVisibilityHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -548,7 +622,8 @@ async function main() {
       zeroQuantityTruthinessHardcodedGate?.status !== 'fail' ||
       discountHardcodedGate?.status !== 'fail' ||
       taxHardcodedGate?.status !== 'fail' ||
-      roundingHardcodedGate?.status !== 'fail'
+      roundingHardcodedGate?.status !== 'fail' ||
+      profileVisibilityHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -556,11 +631,11 @@ async function main() {
           bad: badGate,
           hardcoded: hardcodedGate,
           defaultQuantityHardcoded: defaultQuantityHardcodedGate,
-          zeroQuantityTruthinessHardcoded:
-            zeroQuantityTruthinessHardcodedGate,
+          zeroQuantityTruthinessHardcoded: zeroQuantityTruthinessHardcodedGate,
           discountHardcoded: discountHardcodedGate,
           taxHardcoded: taxHardcodedGate,
-          roundingHardcoded: roundingHardcodedGate
+          roundingHardcoded: roundingHardcodedGate,
+          profileVisibilityHardcoded: profileVisibilityHardcodedGate
         })}`
       );
     }
@@ -578,11 +653,13 @@ async function main() {
           zeroQuantityTruthinessHardcodedGate.status,
         discountHardcoded: discountHardcodedGate.status,
         taxHardcoded: taxHardcodedGate.status,
-        roundingHardcoded: roundingHardcodedGate.status
+        roundingHardcoded: roundingHardcodedGate.status,
+        profileVisibilityHardcoded: profileVisibilityHardcodedGate.status
       }
     });
-    const attackScenarioCheck =
-      validateAdversaryLiveAttackScenarioResults(attackScenarioResults);
+    const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
+      attackScenarioResults
+    );
     if (!attackScenarioCheck.ok) {
       throw new Error(
         `adversary live attack scenarios did not pass: ${JSON.stringify(
@@ -653,6 +730,8 @@ async function main() {
         discount_hardcoded_gate_status: discountHardcodedGate.status,
         tax_hardcoded_gate_status: taxHardcodedGate.status,
         rounding_hardcoded_gate_status: roundingHardcodedGate.status,
+        profile_visibility_hardcoded_gate_status:
+          profileVisibilityHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -661,7 +740,9 @@ async function main() {
           zeroQuantityTruthinessHardcodedGate.status === 'fail',
         discount_hardcode_rejected: discountHardcodedGate.status === 'fail',
         tax_hardcode_rejected: taxHardcodedGate.status === 'fail',
-        rounding_hardcode_rejected: roundingHardcodedGate.status === 'fail'
+        rounding_hardcode_rejected: roundingHardcodedGate.status === 'fail',
+        profile_visibility_hardcode_rejected:
+          profileVisibilityHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
