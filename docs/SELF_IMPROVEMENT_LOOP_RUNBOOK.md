@@ -743,7 +743,7 @@ corepack pnpm uat:release-evidence-audit:gh -- \
   --scenario adversary-live-real-reviewer-uat
 ```
 
-R27/R28/R29/R32 real-project repair CI artifact는 Codex ChatGPT login이 있는 runner와 실제 git repo corpus가 필요하다. `secondary_repo`와 `additional_repos`는 `OWNER/REPO` 또는 URL을 받으며, private repo면 `REAL_PROJECT_CORPUS_GH_TOKEN` secret이 그 repo를 읽을 수 있어야 한다. 기본 `repair_mode=existing-source` 설정은 current repo를 포함해 R27 `repo-matrix-real-project-existing-source-repair-uat` artifact를 만들고 즉시 다운로드 감사한다. `publish_draft_prs=true`를 주면 R28 `repo-matrix-real-project-existing-source-repair-pr-uat` artifact로 전환하고, private evidence repo 생성 + branch push + draft PR verification까지 포함한다. `include_current_repo=false`, `additional_repos`, `min_repos=4`를 쓰면 R29 public broad corpus처럼 current repo 없이 public repo 4개 이상으로 non-PR existing-source repair artifact를 만들 수 있다. `repair_mode=business-fixture`를 쓰면 R32 `repo-matrix-real-project-business-repair-uat` artifact와 downloaded artifact audit을 만든다. R33 기준 최신 credentialed R32 business fixture PASS artifact는 workflow run `27946183282`, ledger `real-project-corpus-53536-1782124914699`다. R27/R28/R29 existing-source 모드는 각 모드의 credentialed live run id가 PASS로 남기 전까지 해당 모드의 CI artifact PASS로 보지 않는다.
+R27/R28/R29/R32 real-project repair CI artifact는 Codex ChatGPT login이 있는 runner와 실제 git repo corpus가 필요하다. `secondary_repo`와 `additional_repos`는 `OWNER/REPO` 또는 URL을 받으며, private repo면 `REAL_PROJECT_CORPUS_GH_TOKEN` secret이 그 repo를 읽을 수 있어야 한다. 기본 `repair_mode=existing-source` 설정은 current repo를 포함해 R27 `repo-matrix-real-project-existing-source-repair-uat` artifact를 만들고 즉시 다운로드 감사한다. `publish_draft_prs=true`를 주면 R28 `repo-matrix-real-project-existing-source-repair-pr-uat` artifact로 전환하고, private evidence repo 생성 + branch push + draft PR verification까지 포함한다. `include_current_repo=false`, `additional_repos`, `min_repos=4`를 쓰면 R29 public broad corpus처럼 current repo 없이 public repo 4개 이상으로 non-PR existing-source repair artifact를 만들 수 있다. `repair_mode=business-fixture`를 쓰면 R32 `repo-matrix-real-project-business-repair-uat` artifact와 downloaded artifact audit을 만든다. 최신 credentialed PASS artifact는 R29 non-PR public broad workflow run `27947984264`, R28 draft PR workflow run `27949790976`, R33 business fixture workflow run `27946183282`다. 단 이 CI evidence도 syntactic regression repair 또는 dedicated business fixture repair 범위이며, 기존 애플리케이션 업무 source 임의 bug repair PASS는 아니다.
 
 ```bash
 gh workflow run real-project-existing-source-repair-live.yml \
@@ -799,6 +799,18 @@ gh workflow run real-project-existing-source-repair-live.yml \
   -f codex_timeout_ms=180000
 ```
 
+2026-06-22 R34 credentialed CI 재현성에서는 R29 public broad non-PR lane과 R28 draft PR lane을 각각 self-hosted Codex runner에서 실행했다. R29 run `27947984264`는 public 실제 repo 4개(`pypa/sampleproject`, `pallets/click`, `expressjs/express`, `nodeca/js-yaml`)로 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`, `cell_count=4`, `pass_count=4`, `fail_count=0`, evidence copied 42/missing 0(manifest copied 43), downloaded artifact audit PASS를 남겼다. R28 run `27949790976`는 current repo + public `pypa/sampleproject` 2셀로 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PR_PASS`, `cell_count=2`, `pass_count=2`, `fail_count=0`, GitHub draft PR verified 2/2, `main_unchanged=true`, evidence copied 22/missing 0(manifest copied 23), downloaded artifact audit PASS를 남겼다. R28 PR URLs: [improvement_loop_harness#1](https://github.com/coreline-ai/vibeloop-real-pr-ci-r28c-1-improvement_loop_harness-11ba1471c-e2a747eef064/pull/1), [sampleproject#1](https://github.com/coreline-ai/vibeloop-real-pr-ci-r28c-2-1-sampleproject-691d2ff8e0e8-b9a40db4d5cc/pull/1).
+
+```bash
+corepack pnpm uat:release-evidence-audit -- \
+  --evidence-root /tmp/vibeloop-r29-ci-evidence-27947984264 \
+  --scenario repo-matrix-real-project-existing-source-repair-uat
+
+corepack pnpm uat:release-evidence-audit -- \
+  --evidence-root /tmp/vibeloop-r28c-ci-evidence-27949790976 \
+  --scenario repo-matrix-real-project-existing-source-repair-pr-uat
+```
+
 R32 business fixture artifact를 재현할 때는 `repair_mode=business-fixture`를 지정한다. 이 모드는 GitHub draft PR publish를 하지 않으므로 `publish_draft_prs=false`를 사용한다.
 
 ```bash
@@ -841,7 +853,7 @@ corepack pnpm uat:release-evidence-audit -- \
   --scenario repo-matrix-real-project-business-repair-uat
 ```
 
-기존 R27/R29 non-PR artifact를 재감사할 때는 replay input만 지정한다. R28 artifact는 replay에도 `repair_mode=existing-source`, `publish_draft_prs=true`를 같이 넘겨 PR scenario로 감사한다. R32 artifact는 replay에도 `repair_mode=business-fixture`를 같이 넘긴다.
+기존 non-PR artifact를 재감사할 때는 replay input만 지정한다. R28 artifact는 replay에도 `repair_mode=existing-source`, `publish_draft_prs=true`를 같이 넘겨 PR scenario로 감사한다. R32 artifact는 replay에도 `repair_mode=business-fixture`를 같이 넘긴다.
 
 ```bash
 gh workflow run real-project-existing-source-repair-live.yml \
@@ -913,4 +925,4 @@ cat ~/.vibeloop/product-100-real-loop-*/product-100-progress.json
 
 ### 현재 로컬 기준 기대 결과
 
-현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-22 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 Phase4 full report `/Users/iriver/.vibeloop/product-100-phase4-full-20260619165620.json`, Phase5 aggregate report `/Users/iriver/.vibeloop/product-100-phase5-full-rerun-20260621231906.json`, Phase6 draft PR report `/Users/iriver/.vibeloop/product-100-phase6-20260622-001250/phase6-draft-pr-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-phase6-20260622-001250`다. P4 semantic/M4 lane은 R30에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-63565-1782119747761`와 local real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-63976-1782119776592`로 cart+profile suspension 6-rule corpus, M2 confirmed 6, M4 replay-safe 6/6, 11/11 attack scenario PASS를 남겼고, R31 credentialed CI run `27943361464`도 같은 6-rule corpus의 real reviewer artifact + downloaded artifact audit PASS를 남겼다. Broad real project corpus는 R29에서 public 실제 repo 4개 existing-source repair + hidden verifier, R28에서 GitHub draft PR smoke, R32에서 실제 로컬 repo 2개 business fixture repair + hidden verifier까지 통과했다. R33은 R32 business fixture repair를 credentialed self-hosted Codex runner의 GitHub Actions artifact로 재현해 run `27946183282`, ledger `real-project-corpus-53536-1782124914699`, downloaded artifact audit PASS를 남겼다. 다만 R28/R29는 syntactic regression repair smoke이고 R32/R33은 dedicated business fixture repair이므로, 기존 애플리케이션 업무 source의 임의 bug repair나 임의 사용자 repo 전체에 대한 제품 전체 100% PASS는 아니다.
+현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-22 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 Phase4 full report `/Users/iriver/.vibeloop/product-100-phase4-full-20260619165620.json`, Phase5 aggregate report `/Users/iriver/.vibeloop/product-100-phase5-full-rerun-20260621231906.json`, Phase6 draft PR report `/Users/iriver/.vibeloop/product-100-phase6-20260622-001250/phase6-draft-pr-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-phase6-20260622-001250`다. P4 semantic/M4 lane은 R30에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-63565-1782119747761`와 local real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-63976-1782119776592`로 cart+profile suspension 6-rule corpus, M2 confirmed 6, M4 replay-safe 6/6, 11/11 attack scenario PASS를 남겼고, R31 credentialed CI run `27943361464`도 같은 6-rule corpus의 real reviewer artifact + downloaded artifact audit PASS를 남겼다. Broad real project corpus는 R29에서 public 실제 repo 4개 existing-source repair + hidden verifier, R28에서 GitHub draft PR smoke, R32에서 실제 로컬 repo 2개 business fixture repair + hidden verifier까지 통과했다. R33은 R32 business fixture repair를 credentialed self-hosted Codex runner의 GitHub Actions artifact로 재현해 run `27946183282`, ledger `real-project-corpus-53536-1782124914699`, downloaded artifact audit PASS를 남겼다. R34는 R29 public broad existing-source repair를 workflow run `27947984264`, R28 GitHub draft PR smoke를 workflow run `27949790976`에서 credentialed CI artifact + downloaded audit으로 재현했다. 다만 R28/R29/R34는 syntactic regression repair smoke이고 R32/R33은 dedicated business fixture repair이므로, 기존 애플리케이션 업무 source의 임의 bug repair나 임의 사용자 repo 전체에 대한 제품 전체 100% PASS는 아니다.
