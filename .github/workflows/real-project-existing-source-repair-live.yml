@@ -385,6 +385,8 @@ jobs:
         env:
           REPAIR_MODE: ${{ inputs.repair_mode }}
           PUBLISH_DRAFT_PRS: ${{ inputs.publish_draft_prs }}
+          RUNNER_PREFLIGHT_CAN_RUN_LIVE: ${{ needs.live-runner-preflight.outputs.can_run_live }}
+          RUNNER_PREFLIGHT_REASON: ${{ needs.live-runner-preflight.outputs.reason }}
         run: |
           if [ "${REPAIR_MODE}" = "business-fixture" ]; then
             scenario="repo-matrix-real-project-business-repair-uat"
@@ -395,9 +397,24 @@ jobs:
           else
             scenario="repo-matrix-real-project-existing-source-repair-uat"
           fi
-          if [ -f .ci-real-project-runner-preflight/runner-preflight.json ]; then
+          runner_preflight_file=".ci-real-project-runner-preflight/runner-preflight.json"
+          if [ -f "${runner_preflight_file}" ]; then
             echo "Runner preflight:"
-            cat .ci-real-project-runner-preflight/runner-preflight.json
+            cat "${runner_preflight_file}"
+          fi
+          if [ "${RUNNER_PREFLIGHT_CAN_RUN_LIVE}" != "true" ]; then
+            mkdir -p .ci-real-project-repair-audit .ci-real-project-runner-preflight
+            if [ ! -f "${runner_preflight_file}" ]; then
+              printf '{"status":"blocked","can_run_live":false,"reason":"%s"}\n' "${RUNNER_PREFLIGHT_REASON:-LIVE_RUNNER_PREFLIGHT_BLOCKED}" > "${runner_preflight_file}"
+            fi
+            node scripts/uat/ci-live-runner-block-audit.mjs \
+              --preflight-file "${runner_preflight_file}" \
+              --output .ci-real-project-repair-audit/release-evidence-audit.json \
+              --workflow-name "Real Project Repair Evidence" \
+              --evidence-scenario "${scenario}" \
+              --run-id "${GITHUB_RUN_ID}" \
+              --run-attempt "${GITHUB_RUN_ATTEMPT}"
+            exit "$?"
           fi
           mkdir -p .ci-real-project-repair-audit
           set +e

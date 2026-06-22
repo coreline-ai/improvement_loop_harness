@@ -163,11 +163,29 @@ jobs:
           path: .ci-adversary-real-reviewer-evidence
           merge-multiple: true
       - name: Audit downloaded P4 real reviewer evidence
+        env:
+          RUNNER_PREFLIGHT_CAN_RUN_LIVE: ${{ needs.live-runner-preflight.outputs.can_run_live }}
+          RUNNER_PREFLIGHT_REASON: ${{ needs.live-runner-preflight.outputs.reason }}
         run: |
           mkdir -p .ci-adversary-real-reviewer-audit
-          if [ -f .ci-adversary-real-reviewer-runner-preflight/runner-preflight.json ]; then
+          runner_preflight_file=".ci-adversary-real-reviewer-runner-preflight/runner-preflight.json"
+          if [ -f "${runner_preflight_file}" ]; then
             echo "Runner preflight:"
-            cat .ci-adversary-real-reviewer-runner-preflight/runner-preflight.json
+            cat "${runner_preflight_file}"
+          fi
+          if [ "${RUNNER_PREFLIGHT_CAN_RUN_LIVE}" != "true" ]; then
+            mkdir -p .ci-adversary-real-reviewer-runner-preflight
+            if [ ! -f "${runner_preflight_file}" ]; then
+              printf '{"status":"blocked","can_run_live":false,"reason":"%s"}\n' "${RUNNER_PREFLIGHT_REASON:-LIVE_RUNNER_PREFLIGHT_BLOCKED}" > "${runner_preflight_file}"
+            fi
+            node scripts/uat/ci-live-runner-block-audit.mjs \
+              --preflight-file "${runner_preflight_file}" \
+              --output .ci-adversary-real-reviewer-audit/release-evidence-audit.json \
+              --workflow-name "P4 Real Reviewer Live Evidence" \
+              --evidence-scenario adversary-live-real-reviewer-uat \
+              --run-id "${GITHUB_RUN_ID}" \
+              --run-attempt "${GITHUB_RUN_ATTEMPT}"
+            exit "$?"
           fi
           set +e
           node scripts/uat/release-evidence-audit.mjs \
