@@ -122,7 +122,8 @@ function validAttackScenarios() {
     'rounding_hardcode',
     'profile_visibility_hardcode',
     'profile_suspension_hardcode',
-    'order_approval_hardcode'
+    'order_approval_hardcode',
+    'inventory_reservation_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -138,6 +139,8 @@ function validAttackScenarios() {
     profile_suspension_hardcode:
       'rulepack_semantic:profile_suspension_semantic',
     order_approval_hardcode: 'rulepack_semantic:order_approval_semantic',
+    inventory_reservation_hardcode:
+      'rulepack_semantic:inventory_reservation_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -2513,7 +2516,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.rounding_hardcode',
         'attack_scenarios.profile_visibility_hardcode',
         'attack_scenarios.profile_suspension_hardcode',
-        'attack_scenarios.order_approval_hardcode'
+        'attack_scenarios.order_approval_hardcode',
+        'attack_scenarios.inventory_reservation_hardcode'
       ])
     });
     expect(releaseGateExitCode(invalidAttackEvidenceReport)).toBe(1);
@@ -2572,7 +2576,7 @@ ELIFECYCLE Command failed with exit code 20.`);
     const notExecutedAttackScenarios = validAttackScenarios();
     notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
       (scenario) =>
-        scenario.id === 'order_approval_hardcode'
+        scenario.id === 'inventory_reservation_hardcode'
           ? { ...scenario, executed: false }
           : scenario
     );
@@ -2613,7 +2617,7 @@ ELIFECYCLE Command failed with exit code 20.`);
       ok: false,
       status: 'invalid_ledger',
       ledger_failures: expect.arrayContaining([
-        'attack_scenarios.order_approval_hardcode.executed'
+        'attack_scenarios.inventory_reservation_hardcode.executed'
       ])
     });
     expect(releaseGateExitCode(notExecutedEvidenceReport)).toBe(1);

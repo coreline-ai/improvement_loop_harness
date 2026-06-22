@@ -9,6 +9,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
+  buildInventoryReservationSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
@@ -132,6 +133,22 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('department');
   });
 
+  it('adds a supplemental inventory reservation semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildInventoryReservationSemanticProposal({
+      targetPath: 'tests/adversary/inventory-reservation.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'inventory-reservation-semantic',
+      targetPath: 'tests/adversary/inventory-reservation.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canReserveInventory');
+    expect(proposal.body).toContain('warehouseActive: false');
+    expect(proposal.body).toContain('backorderLimit');
+    expect(proposal.body).toContain('perCustomerLimit');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -170,7 +187,8 @@ describe('adversary live contract', () => {
         roundingHardcoded: 'fail',
         profileVisibilityHardcoded: 'fail',
         profileSuspensionHardcoded: 'fail',
-        orderApprovalHardcoded: 'fail'
+        orderApprovalHardcoded: 'fail',
+        inventoryReservationHardcoded: 'fail'
       }
     });
 
@@ -254,6 +272,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:order_approval_semantic'
+        }),
+        expect.objectContaining({
+          id: 'inventory_reservation_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:inventory_reservation_semantic'
         })
       ])
     );
@@ -299,7 +323,8 @@ describe('adversary live contract', () => {
         'attack_scenario_rounding_hardcode_missing',
         'attack_scenario_profile_visibility_hardcode_missing',
         'attack_scenario_profile_suspension_hardcode_missing',
-        'attack_scenario_order_approval_hardcode_missing'
+        'attack_scenario_order_approval_hardcode_missing',
+        'attack_scenario_inventory_reservation_hardcode_missing'
       ])
     );
   });
@@ -325,7 +350,8 @@ describe('adversary live contract', () => {
         roundingHardcoded: 'fail',
         profileVisibilityHardcoded: 'fail',
         profileSuspensionHardcoded: 'fail',
-        orderApprovalHardcoded: 'fail'
+        orderApprovalHardcoded: 'fail',
+        inventoryReservationHardcoded: 'fail'
       }
     });
 

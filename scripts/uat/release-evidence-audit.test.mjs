@@ -126,7 +126,8 @@ function attackScenarios() {
     'rounding_hardcode',
     'profile_visibility_hardcode',
     'profile_suspension_hardcode',
-    'order_approval_hardcode'
+    'order_approval_hardcode',
+    'inventory_reservation_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -142,6 +143,8 @@ function attackScenarios() {
     profile_suspension_hardcode:
       'rulepack_semantic:profile_suspension_semantic',
     order_approval_hardcode: 'rulepack_semantic:order_approval_semantic',
+    inventory_reservation_hardcode:
+      'rulepack_semantic:inventory_reservation_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -2339,7 +2342,7 @@ describe('release evidence audit', () => {
     const notExecutedAttackScenarios = attackScenarios();
     notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
       (scenario) =>
-        scenario.id === 'order_approval_hardcode'
+        scenario.id === 'inventory_reservation_hardcode'
           ? { ...scenario, executed: false }
           : scenario
     );
@@ -2371,7 +2374,7 @@ describe('release evidence audit', () => {
           ok: false,
           status: 'invalid_ledger',
           ledger_failures: expect.arrayContaining([
-            'attack_scenarios.order_approval_hardcode.executed'
+            'attack_scenarios.inventory_reservation_hardcode.executed'
           ])
         })
       ])

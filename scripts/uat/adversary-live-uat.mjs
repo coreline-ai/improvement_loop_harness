@@ -22,6 +22,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
+  buildInventoryReservationSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
@@ -123,6 +124,11 @@ async function writeOrderFixture(root, source) {
   await writeFile(path.join(root, 'src/order.cjs'), source);
 }
 
+async function writeInventoryFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/inventory.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -188,6 +194,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
       },
       {
         path: 'src/order.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
+        path: 'src/inventory.cjs',
         status: 'modified',
         isSymlink: false,
         addedLines: 1,
@@ -268,6 +281,10 @@ async function main() {
     const orderApprovalHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-order-approval-hardcode'
+    );
+    const inventoryReservationHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-inventory-reservation-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -394,6 +411,35 @@ async function main() {
       'module.exports = { canApproveOrder };',
       ''
     ].join('\n');
+    const buggyInventory = [
+      'function canReserveInventory(_request, _item) {',
+      '  return true;',
+      '}',
+      'module.exports = { canReserveInventory };',
+      ''
+    ].join('\n');
+    const fixedInventory = [
+      'function canReserveInventory(request, item) {',
+      '  if (item.warehouseActive !== true) return false;',
+      '  if (request.quantity <= 0) return false;',
+      '  if (item.perCustomerLimit != null && request.customerReserved + request.quantity > item.perCustomerLimit) return false;',
+      '  const available = item.stock - item.reserved;',
+      '  if (available >= request.quantity) return true;',
+      '  if (item.backorderAllowed === true) {',
+      '    return request.quantity <= available + (item.backorderLimit ?? 0);',
+      '  }',
+      '  return false;',
+      '}',
+      'module.exports = { canReserveInventory };',
+      ''
+    ].join('\n');
+    const happyPathOnlyInventory = [
+      'function canReserveInventory(request, item) {',
+      '  return item.stock >= request.quantity || item.backorderAllowed === true;',
+      '}',
+      'module.exports = { canReserveInventory };',
+      ''
+    ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
@@ -413,6 +459,7 @@ async function main() {
     await writeCartFixture(profileVisibilityHardcodedWorktree, fixedCart);
     await writeCartFixture(profileSuspensionHardcodedWorktree, fixedCart);
     await writeCartFixture(orderApprovalHardcodedWorktree, fixedCart);
+    await writeCartFixture(inventoryReservationHardcodedWorktree, fixedCart);
     await writeProfileFixture(baseWorktree, buggyProfile);
     await writeProfileFixture(candidateWorktree, fixedProfile);
     await writeProfileFixture(goodWorktree, fixedProfile);
@@ -435,6 +482,10 @@ async function main() {
       noSuspensionProfile
     );
     await writeProfileFixture(orderApprovalHardcodedWorktree, fixedProfile);
+    await writeProfileFixture(
+      inventoryReservationHardcodedWorktree,
+      fixedProfile
+    );
     await writeOrderFixture(baseWorktree, buggyOrder);
     await writeOrderFixture(candidateWorktree, fixedOrder);
     await writeOrderFixture(goodWorktree, fixedOrder);
@@ -451,6 +502,36 @@ async function main() {
     await writeOrderFixture(profileVisibilityHardcodedWorktree, fixedOrder);
     await writeOrderFixture(profileSuspensionHardcodedWorktree, fixedOrder);
     await writeOrderFixture(orderApprovalHardcodedWorktree, happyPathOnlyOrder);
+    await writeOrderFixture(inventoryReservationHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(baseWorktree, buggyInventory);
+    await writeInventoryFixture(candidateWorktree, fixedInventory);
+    await writeInventoryFixture(goodWorktree, fixedInventory);
+    await writeInventoryFixture(badWorktree, fixedInventory);
+    await writeInventoryFixture(hardcodedWorktree, fixedInventory);
+    await writeInventoryFixture(
+      defaultQuantityHardcodedWorktree,
+      fixedInventory
+    );
+    await writeInventoryFixture(
+      zeroQuantityTruthinessHardcodedWorktree,
+      fixedInventory
+    );
+    await writeInventoryFixture(discountHardcodedWorktree, fixedInventory);
+    await writeInventoryFixture(taxHardcodedWorktree, fixedInventory);
+    await writeInventoryFixture(roundingHardcodedWorktree, fixedInventory);
+    await writeInventoryFixture(
+      profileVisibilityHardcodedWorktree,
+      fixedInventory
+    );
+    await writeInventoryFixture(
+      profileSuspensionHardcodedWorktree,
+      fixedInventory
+    );
+    await writeInventoryFixture(orderApprovalHardcodedWorktree, fixedInventory);
+    await writeInventoryFixture(
+      inventoryReservationHardcodedWorktree,
+      happyPathOnlyInventory
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -466,6 +547,10 @@ async function main() {
       }),
       buildOrderApprovalSemanticProposal({
         targetPath: 'tests/adversary/order-approval-supplemental.test.cjs'
+      }),
+      buildInventoryReservationSemanticProposal({
+        targetPath:
+          'tests/adversary/inventory-reservation-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -522,6 +607,10 @@ async function main() {
         }),
         buildOrderApprovalSemanticProposal({
           targetPath: 'tests/adversary/order-approval-supplemental.test.cjs'
+        }),
+        buildInventoryReservationSemanticProposal({
+          targetPath:
+            'tests/adversary/inventory-reservation-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -708,6 +797,13 @@ async function main() {
         'adversary-live-order-approval-hardcode'
       )
     );
+    const inventoryReservationHardcoded = await runGates(
+      await gateContext(
+        inventoryReservationHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-inventory-reservation-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -745,6 +841,10 @@ async function main() {
     const orderApprovalHardcodedGate = orderApprovalHardcoded.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
+    const inventoryReservationHardcodedGate =
+      inventoryReservationHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -756,7 +856,8 @@ async function main() {
       roundingHardcodedGate?.status !== 'fail' ||
       profileVisibilityHardcodedGate?.status !== 'fail' ||
       profileSuspensionHardcodedGate?.status !== 'fail' ||
-      orderApprovalHardcodedGate?.status !== 'fail'
+      orderApprovalHardcodedGate?.status !== 'fail' ||
+      inventoryReservationHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -770,7 +871,8 @@ async function main() {
           roundingHardcoded: roundingHardcodedGate,
           profileVisibilityHardcoded: profileVisibilityHardcodedGate,
           profileSuspensionHardcoded: profileSuspensionHardcodedGate,
-          orderApprovalHardcoded: orderApprovalHardcodedGate
+          orderApprovalHardcoded: orderApprovalHardcodedGate,
+          inventoryReservationHardcoded: inventoryReservationHardcodedGate
         })}`
       );
     }
@@ -791,7 +893,8 @@ async function main() {
         roundingHardcoded: roundingHardcodedGate.status,
         profileVisibilityHardcoded: profileVisibilityHardcodedGate.status,
         profileSuspensionHardcoded: profileSuspensionHardcodedGate.status,
-        orderApprovalHardcoded: orderApprovalHardcodedGate.status
+        orderApprovalHardcoded: orderApprovalHardcodedGate.status,
+        inventoryReservationHardcoded: inventoryReservationHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -873,6 +976,8 @@ async function main() {
         profile_suspension_hardcoded_gate_status:
           profileSuspensionHardcodedGate.status,
         order_approval_hardcoded_gate_status: orderApprovalHardcodedGate.status,
+        inventory_reservation_hardcoded_gate_status:
+          inventoryReservationHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -887,7 +992,9 @@ async function main() {
         profile_suspension_hardcode_rejected:
           profileSuspensionHardcodedGate.status === 'fail',
         order_approval_hardcode_rejected:
-          orderApprovalHardcodedGate.status === 'fail'
+          orderApprovalHardcodedGate.status === 'fail',
+        inventory_reservation_hardcode_rejected:
+          inventoryReservationHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
