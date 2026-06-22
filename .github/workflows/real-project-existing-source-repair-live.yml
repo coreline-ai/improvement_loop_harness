@@ -1,13 +1,21 @@
-name: Real Project Existing Source Repair Evidence
+name: Real Project Repair Evidence
 
 on:
   workflow_dispatch:
     inputs:
       run_live:
-        description: Run the live real-project existing-source repair evidence job.
+        description: Run the live real-project repair evidence job.
         required: true
         type: boolean
         default: false
+      repair_mode:
+        description: Repair lane to execute.
+        required: true
+        type: choice
+        default: existing-source
+        options:
+          - existing-source
+          - business-fixture
       runner_label:
         description: Runner label with Codex ChatGPT login available.
         required: true
@@ -94,12 +102,12 @@ defaults:
 
 jobs:
   live-evidence:
-    name: live real project existing-source repair evidence
+    name: live real project repair evidence
     if: ${{ inputs.run_live }}
     runs-on: ${{ inputs.runner_label }}
     env:
       GH_TOKEN: ${{ secrets.REAL_PROJECT_CORPUS_GH_TOKEN || github.token }}
-      VIBELOOP_UAT_EVIDENCE_DIR: ${{ github.workspace }}/.uat-evidence-real-project-existing-source
+      VIBELOOP_UAT_EVIDENCE_DIR: ${{ github.workspace }}/.uat-evidence-real-project-repair
       VIBELOOP_REAL_PROJECT_CODEX_MODEL: ${{ inputs.codex_model }}
       VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS: ${{ inputs.codex_timeout_ms }}
       VIBELOOP_REAL_PROJECT_GITHUB_OWNER: ${{ inputs.github_owner }}
@@ -190,13 +198,22 @@ jobs:
           echo "Prepared ${repo_count} corpus repo(s):"
           cat "${repo_list}"
           echo "VIBELOOP_REAL_PROJECT_REPO_LIST=${repo_list}" >> "${GITHUB_ENV}"
-      - name: Run live existing-source repair corpus
+      - name: Run live real project repair corpus
         env:
+          REPAIR_MODE: ${{ inputs.repair_mode }}
           PUBLISH_DRAFT_PRS: ${{ inputs.publish_draft_prs }}
           KEEP_REMOTE: ${{ inputs.keep_remote }}
           MIN_REPOS: ${{ inputs.min_repos }}
         run: |
-          if [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
+          if [ "${REPAIR_MODE}" = "business-fixture" ]; then
+            if [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
+              echo "publish_draft_prs=true is only supported with repair_mode=existing-source" >&2
+              exit 20
+            fi
+            scenario="repo-matrix-real-project-business-repair-uat"
+            script="uat:repo-matrix:real-project-business-repair"
+            extra_args=()
+          elif [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
             scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
             script="uat:repo-matrix:real-project-existing-source-repair-pr"
             extra_args=(--github-owner "${VIBELOOP_REAL_PROJECT_GITHUB_OWNER}" --github-repo-prefix "${VIBELOOP_REAL_PROJECT_GITHUB_REPO_PREFIX}")
@@ -209,7 +226,7 @@ jobs:
             extra_args=()
           fi
 
-          echo "VIBELOOP_REAL_PROJECT_EXISTING_SOURCE_SCENARIO=${scenario}" >> "${GITHUB_ENV}"
+          echo "VIBELOOP_REAL_PROJECT_REPAIR_SCENARIO=${scenario}" >> "${GITHUB_ENV}"
           repo_args=()
           while IFS= read -r repo_path; do
             if [ -n "${repo_path}" ]; then
@@ -223,18 +240,37 @@ jobs:
             --codex-model "${VIBELOOP_REAL_PROJECT_CODEX_MODEL}" \
             --codex-timeout-ms "${VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS}" \
             "${extra_args[@]}"
-      - run: corepack pnpm uat:release-evidence-audit -- --scenario "${VIBELOOP_REAL_PROJECT_EXISTING_SOURCE_SCENARIO}"
-      - uses: actions/upload-artifact@v4
-        if: always()
+      - run: corepack pnpm uat:release-evidence-audit -- --scenario "${VIBELOOP_REAL_PROJECT_REPAIR_SCENARIO}"
+      - name: Upload business repair evidence
+        if: ${{ always() && inputs.repair_mode == 'business-fixture' }}
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.publish_draft_prs && 'real-project-existing-source-repair-pr-evidence' || 'real-project-existing-source-repair-evidence' }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .uat-evidence-real-project-existing-source
+          name: real-project-business-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence-real-project-repair
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+      - name: Upload existing-source repair evidence
+        if: ${{ always() && inputs.repair_mode == 'existing-source' && !inputs.publish_draft_prs }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-project-existing-source-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence-real-project-repair
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+      - name: Upload existing-source repair PR evidence
+        if: ${{ always() && inputs.repair_mode == 'existing-source' && inputs.publish_draft_prs }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-project-existing-source-repair-pr-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence-real-project-repair
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 14
 
   live-artifact-audit:
-    name: audit live real project existing-source repair artifact
+    name: audit live real project repair artifact
     if: ${{ always() && inputs.run_live }}
     runs-on: ubuntu-latest
     needs: [live-evidence]
@@ -243,45 +279,66 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - uses: actions/download-artifact@v4
+      - name: Download business repair evidence
+        if: ${{ inputs.repair_mode == 'business-fixture' }}
+        uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          pattern: real-project-existing-source-repair*evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .ci-real-project-existing-source-evidence
+          pattern: real-project-business-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-real-project-repair-evidence
           merge-multiple: true
-      - name: Audit downloaded real project existing-source repair evidence
+      - name: Download existing-source repair evidence
+        if: ${{ inputs.repair_mode == 'existing-source' && !inputs.publish_draft_prs }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: real-project-existing-source-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-real-project-repair-evidence
+          merge-multiple: true
+      - name: Download existing-source repair PR evidence
+        if: ${{ inputs.repair_mode == 'existing-source' && inputs.publish_draft_prs }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: real-project-existing-source-repair-pr-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-real-project-repair-evidence
+          merge-multiple: true
+      - name: Audit downloaded real project repair evidence
         env:
+          REPAIR_MODE: ${{ inputs.repair_mode }}
           PUBLISH_DRAFT_PRS: ${{ inputs.publish_draft_prs }}
         run: |
-          if [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
+          if [ "${REPAIR_MODE}" = "business-fixture" ]; then
+            scenario="repo-matrix-real-project-business-repair-uat"
+          elif [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
             scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
           else
             scenario="repo-matrix-real-project-existing-source-repair-uat"
           fi
-          mkdir -p .ci-real-project-existing-source-audit
+          mkdir -p .ci-real-project-repair-audit
           set +e
           node scripts/uat/release-evidence-audit.mjs \
-            --evidence-root .ci-real-project-existing-source-evidence \
+            --evidence-root .ci-real-project-repair-evidence \
             --scenario "${scenario}" \
-            > .ci-real-project-existing-source-audit/release-evidence-audit.json \
-            2> .ci-real-project-existing-source-audit/release-evidence-audit.stderr
+            > .ci-real-project-repair-audit/release-evidence-audit.json \
+            2> .ci-real-project-repair-audit/release-evidence-audit.stderr
           status=$?
-          cat .ci-real-project-existing-source-audit/release-evidence-audit.json
-          if [ -s .ci-real-project-existing-source-audit/release-evidence-audit.stderr ]; then
-            cat .ci-real-project-existing-source-audit/release-evidence-audit.stderr >&2
+          cat .ci-real-project-repair-audit/release-evidence-audit.json
+          if [ -s .ci-real-project-repair-audit/release-evidence-audit.stderr ]; then
+            cat .ci-real-project-repair-audit/release-evidence-audit.stderr >&2
           fi
           exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: real-project-existing-source-repair-artifact-audit-${{ github.run_id }}-${{ github.run_attempt }}
-          path: .ci-real-project-existing-source-audit
+          name: real-project-repair-artifact-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-real-project-repair-audit
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 14
 
   replay-artifact-audit:
-    name: replay real project existing-source repair artifact audit
+    name: replay real project repair artifact audit
     if: ${{ inputs.replay_run_id != '' }}
     runs-on: ubuntu-latest
     env:
@@ -291,18 +348,24 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
-      - name: Download and audit real project existing-source repair evidence from a prior run
+      - name: Download and audit real project repair evidence from a prior run
         env:
+          REPAIR_MODE: ${{ inputs.repair_mode }}
           PUBLISH_DRAFT_PRS: ${{ inputs.publish_draft_prs }}
         run: |
-          if [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
+          if [ "${REPAIR_MODE}" = "business-fixture" ]; then
+            scenario="repo-matrix-real-project-business-repair-uat"
+            artifact_pattern="real-project-business-repair-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}"
+          elif [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
             scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
+            artifact_pattern="real-project-existing-source-repair-pr-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}"
           else
             scenario="repo-matrix-real-project-existing-source-repair-uat"
+            artifact_pattern="real-project-existing-source-repair-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}"
           fi
           node scripts/uat/release-evidence-audit-gh.mjs \
             --run-id "${{ inputs.replay_run_id }}" \
             --run-attempt "${{ inputs.replay_run_attempt }}" \
             --repo "${{ inputs.replay_repo }}" \
-            --artifact-pattern "real-project-existing-source-repair*evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}" \
+            --artifact-pattern "${artifact_pattern}" \
             --scenario "${scenario}"
