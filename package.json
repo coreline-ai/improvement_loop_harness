@@ -31,6 +31,7 @@
     "uat:adversary-live-preflight": "node scripts/uat/adversary-live-preflight.mjs",
     "uat:adversary-live": "corepack pnpm build && node scripts/uat/adversary-live-uat.mjs",
     "uat:repo-matrix": "corepack pnpm build && node scripts/uat/repo-matrix-uat.mjs",
+    "uat:repo-matrix:codex-broad-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-broad-codex-live-uat.mjs",
     "uat:repo-matrix:codex-monorepo-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-monorepo-codex-live-uat.mjs",
     "uat:repo-matrix:codex-python-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-python-codex-live-uat.mjs",
     "uat:skill-loop": "corepack pnpm build && node scripts/uat/skill-real-user-loop-uat.mjs",

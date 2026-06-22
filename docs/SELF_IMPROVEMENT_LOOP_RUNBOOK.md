@@ -348,16 +348,19 @@ corepack pnpm uat:repo-matrix
 ```bash
 VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:repo-matrix:codex-python-live
 VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:repo-matrix:codex-monorepo-live
+VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:repo-matrix:codex-broad-live
 ```
 
 기대:
 
 - Python: `status=PYTHON_LIVE_REPRESENTATIVE_PASS`
 - Monorepo: `status=MONOREPO_LIVE_REPRESENTATIVE_PASS`
+- Broad framework: `status=BROAD_LIVE_REPRESENTATIVE_PASS`, `cell_count=3`, `pass_count=3`, `fail_count=0`
 - `builder.real_llm=true`, `proxy_auth_header_seen=true`
 - GitHub PR은 `OPEN` + `draft`, base=`main`
 - Python 변경 파일은 `src/cart.py`, `tests/test_cart_quantity.py`
 - Monorepo 변경 파일은 `packages/cart/src/index.cjs`, `packages/cart/tests/cart-quantity.test.cjs`; `packages/catalog/`는 변경되지 않아야 한다.
+- Broad framework 변경 파일은 Django-like `shop/cart.py`/`tests/test_cart_base.py`/`tests/test_cart_view.py`, Rails-like `app/models/cart_line.rb`/`test/models/cart_line_test.rb`, Android-like `CartLine.java`/`CartLineTest.java`로 제한된다.
 - `final_verification.passed=true`, hidden acceptance pass, `github.main_unchanged=true`
 - evidence bundle은 `repo-matrix-*-codex-live-uat/<run-id>/ledger.json`과 candidate/reverify run manifest(`audit_keep=true`)를 포함한다.
 
@@ -368,7 +371,13 @@ VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:repo-matrix:codex-monorepo-live
 https://github.com/coreline-ai/vibeloop-python-live-89436-1781498088975/pull/1
 /Users/iriver/.vibeloop/uat-evidence/repo-matrix-monorepo-codex-live-uat/monorepo-realuser-live-34325-1781499102895/ledger.json
 https://github.com/coreline-ai/vibeloop-monorepo-live-34325-1781499102895/pull/1
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-broad-codex-live-uat/broad-realuser-live-16608-1782091851845/ledger.json
+https://github.com/coreline-ai/vibeloop-django-live-16608-1782091851845/pull/1
+https://github.com/coreline-ai/vibeloop-rails-live-16608-1782091851845/pull/1
+https://github.com/coreline-ai/vibeloop-android-live-16608-1782091851845/pull/1
 ```
+
+2026-06-22 R17 broad framework live run은 `BROAD_LIVE_REPRESENTATIVE_PASS`, `cell_count=3`, `pass_count=3`, `fail_count=0`, `proxy_auth_header_seen=true`를 남겼다. `corepack pnpm uat:release-evidence-audit -- --all-release-evidence`도 P2/P3/P4/P5 7개 scenario 전체 PASS로 새 broad evidence를 감사했다.
 
 ---
 

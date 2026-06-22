@@ -353,6 +353,29 @@ async function writeValidAllReleaseEvidence(root) {
     'repo-matrix-monorepo-codex-live-uat',
     'monorepo-live-run'
   );
+
+  await writeLedger(
+    root,
+    'repo-matrix-broad-codex-live-uat',
+    'broad-live-run',
+    {
+      status: 'BROAD_LIVE_REPRESENTATIVE_PASS',
+      evidence_missing_count: 0,
+      cell_count: 3,
+      pass_count: 3,
+      fail_count: 0,
+      cells: [
+        { id: 'django-like-service', status: 'pass' },
+        { id: 'rails-like-service', status: 'pass' },
+        { id: 'android-gradle-like', status: 'pass' }
+      ]
+    }
+  );
+  await writeManifest(
+    root,
+    'repo-matrix-broad-codex-live-uat',
+    'broad-live-run'
+  );
 }
 
 describe('release evidence audit', () => {
@@ -514,6 +537,17 @@ describe('release evidence audit', () => {
           scenario: 'repo-matrix-monorepo-codex-live-uat',
           ledger_summary: expect.objectContaining({
             status: 'MONOREPO_LIVE_REPRESENTATIVE_PASS'
+          })
+        }),
+        expect.objectContaining({
+          gate: 'P5',
+          ok: true,
+          scenario: 'repo-matrix-broad-codex-live-uat',
+          ledger_summary: expect.objectContaining({
+            status: 'BROAD_LIVE_REPRESENTATIVE_PASS',
+            cell_count: 3,
+            pass_count: 3,
+            fail_count: 0
           })
         })
       ])

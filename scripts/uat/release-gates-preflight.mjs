@@ -153,6 +153,23 @@ export const EVIDENCE_SCENARIOS = [
     scenario: 'repo-matrix-monorepo-codex-live-uat',
     require_manifest: true,
     expected_status: 'MONOREPO_LIVE_REPRESENTATIVE_PASS'
+  },
+  {
+    gate: 'P5',
+    name: 'broad framework representative live evidence',
+    scenario: 'repo-matrix-broad-codex-live-uat',
+    require_manifest: true,
+    expected_status: 'BROAD_LIVE_REPRESENTATIVE_PASS',
+    expected_ledger: {
+      min_cell_count: 3,
+      min_pass_count: 3,
+      max_fail_count: 0,
+      required_cells: [
+        { id: 'django-like-service', status: 'pass' },
+        { id: 'rails-like-service', status: 'pass' },
+        { id: 'android-gradle-like', status: 'pass' }
+      ]
+    }
   }
 ];
 
