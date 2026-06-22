@@ -17,12 +17,17 @@ const CLI = path.join(REPO_ROOT, 'packages/cli/bin/vibeloop');
 const READ_ONLY_SCENARIO = 'repo-matrix-real-project-corpus-uat';
 const MODIFIABLE_COPY_SCENARIO =
   'repo-matrix-real-project-modifiable-corpus-uat';
+const CODEX_COPY_SCENARIO = 'repo-matrix-real-project-codex-copy-uat';
 const READ_ONLY_PASS_STATUS = 'REAL_PROJECT_CORPUS_PASS';
 const READ_ONLY_FAIL_STATUS = 'REAL_PROJECT_CORPUS_FAIL';
 const MODIFIABLE_COPY_PASS_STATUS = 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS';
 const MODIFIABLE_COPY_FAIL_STATUS = 'REAL_PROJECT_MODIFIABLE_CORPUS_FAIL';
+const CODEX_COPY_PASS_STATUS = 'REAL_PROJECT_CODEX_COPY_PASS';
+const CODEX_COPY_FAIL_STATUS = 'REAL_PROJECT_CODEX_COPY_FAIL';
 const BLOCKED_EXIT = 20;
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_CODEX_TIMEOUT_MS = 180_000;
+const CODEX_PROBE_FILE = '.vibeloop-codex-real-project-probe.json';
 
 function redact(text) {
   return String(text)
@@ -46,7 +51,7 @@ function runCommand(command, args, options = {}) {
     const child = spawn(command, args, {
       cwd: options.cwd ?? REPO_ROOT,
       env: options.env ?? process.env,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: [options.stdinText === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe']
     });
     let stdout = '';
     let stderr = '';
@@ -62,6 +67,9 @@ function runCommand(command, args, options = {}) {
     child.stderr.on('data', (chunk) => {
       stderr += chunk;
     });
+    if (options.stdinText !== undefined) {
+      child.stdin.end(options.stdinText);
+    }
     child.on('error', (error) => {
       clearTimeout(timer);
       resolve({
@@ -329,6 +337,238 @@ async function runModifiableCopySmoke(sourceRepoPath, cellId, tmpRoot) {
   };
 }
 
+function buildCodexProbePrompt({ probeId }) {
+  return [
+    'You are operating in a temporary clone of an existing real user project.',
+    'Create or replace only this file: .vibeloop-codex-real-project-probe.json',
+    'Do not edit source files, tests, package files, lockfiles, configuration, git history, or any other file.',
+    'Inspect the checkout yourself with git commands and write exactly one JSON object to the probe file.',
+    '',
+    'Required JSON schema:',
+    '{',
+    '  "schema_version": "1.0",',
+    '  "kind": "vibeloop-real-project-codex-copy-probe",',
+    `  "probe_id": "${probeId}",`,
+    '  "head_sha": "<exact output of: git rev-parse HEAD>",',
+    '  "tracked_file_count": <number of non-empty lines from: git ls-files>,',
+    '  "dirty_before_probe": <true if git status --porcelain=v1 had entries before writing this file, otherwise false>,',
+    '  "notes": "real Codex wrote this file in a temporary copy only"',
+    '}',
+    '',
+    'Do not print markdown fences. Finish after the file is written.'
+  ].join('\n');
+}
+
+function parseCodexProbe(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function writeTextFile(filePath, text) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, text);
+  return filePath;
+}
+
+async function runCodexProbe({ clonePath, probeId, model, timeoutMs, logDir }) {
+  const outputFile = path.join(logDir, `${probeId}-last-message.txt`);
+  const prompt = buildCodexProbePrompt({ probeId });
+  const result = await runCommand(
+    process.env.VIBELOOP_REAL_PROJECT_CODEX_BIN || 'codex',
+    [
+      'exec',
+      '--ephemeral',
+      '--ignore-user-config',
+      '--ignore-rules',
+      '--sandbox',
+      'workspace-write',
+      '--cd',
+      clonePath,
+      '-c',
+      'service_tier=fast',
+      '-c',
+      'approval_policy=never',
+      '--model',
+      model,
+      '--output-last-message',
+      outputFile,
+      '-'
+    ],
+    {
+      cwd: REPO_ROOT,
+      timeoutMs,
+      stdinText: prompt,
+      env: {
+        ...process.env,
+        ...(process.env.VIBELOOP_REAL_PROJECT_CODEX_HOME
+          ? { CODEX_HOME: process.env.VIBELOOP_REAL_PROJECT_CODEX_HOME }
+          : {})
+      }
+    }
+  );
+  const stdoutFile = await writeTextFile(
+    path.join(logDir, `${probeId}-stdout.log`),
+    redact(result.stdout)
+  );
+  const stderrFile = await writeTextFile(
+    path.join(logDir, `${probeId}-stderr.log`),
+    redact(result.stderr)
+  );
+  return {
+    ...result,
+    output_file: outputFile,
+    stdout_file: stdoutFile,
+    stderr_file: stderrFile
+  };
+}
+
+async function runCodexCopySmoke(sourceRepoPath, cellId, tmpRoot, options = {}) {
+  const cloneRoot = path.join(tmpRoot, 'codex-copies');
+  const clonePath = path.join(cloneRoot, cellId);
+  const logDir = path.join(tmpRoot, 'codex-logs', cellId);
+  const probeId = `real-project-codex-${cellId}`;
+  const failures = [];
+  await mkdir(cloneRoot, { recursive: true });
+  await mkdir(logDir, { recursive: true });
+
+  const clone = await git(
+    REPO_ROOT,
+    ['clone', '--quiet', '--no-hardlinks', '--', sourceRepoPath, clonePath],
+    { timeoutMs: 120_000 }
+  );
+  if (clone.code !== 0) {
+    return {
+      status: 'fail',
+      failures: ['clone_failed'],
+      clone_exit_code: clone.code,
+      clone_stderr: redact(clone.stderr).slice(0, 800)
+    };
+  }
+
+  const [headBefore, filesBefore, statusBefore] = await Promise.all([
+    git(clonePath, ['rev-parse', 'HEAD']),
+    git(clonePath, ['ls-files']),
+    git(clonePath, ['status', '--porcelain=v1'])
+  ]);
+  const trackedFiles = filesBefore.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const dirtyBefore = Boolean(statusBefore.stdout.trim());
+
+  const codex = await runCodexProbe({
+    clonePath,
+    probeId,
+    model: options.codexModel,
+    timeoutMs: options.codexTimeoutMs,
+    logDir
+  });
+  if (codex.code !== 0) failures.push('codex_exec_failed');
+  if (codex.timedOut) failures.push('codex_exec_timeout');
+
+  const probePath = path.join(clonePath, CODEX_PROBE_FILE);
+  let probeJson = null;
+  try {
+    probeJson = parseCodexProbe(await readFile(probePath, 'utf8'));
+  } catch {
+    failures.push('probe_file_missing');
+  }
+  if (!probeJson) failures.push('probe_json_invalid');
+
+  const statusAfter = await git(clonePath, ['status', '--porcelain=v1']);
+  await git(clonePath, ['add', '--intent-to-add', '--', CODEX_PROBE_FILE]);
+  const diffNameOnly = await git(clonePath, ['diff', '--name-only', '--']);
+  const diffCheck = await git(clonePath, ['diff', '--check']);
+  const changedFiles = statusAfter.stdout
+    .split(/\r?\n/)
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean)
+    .sort();
+
+  const expectedChangedFiles = [CODEX_PROBE_FILE];
+  if (JSON.stringify(changedFiles) !== JSON.stringify(expectedChangedFiles)) {
+    failures.push('diff_scope_not_probe_only');
+  }
+  if (diffNameOnly.code !== 0) failures.push('diff_name_only_failed');
+  if (diffCheck.code !== 0) failures.push('diff_check_failed');
+
+  const hiddenAcceptanceFailures = [];
+  const expectedHead = headBefore.stdout.trim();
+  if (headBefore.code !== 0 || !expectedHead) {
+    hiddenAcceptanceFailures.push('expected_head_unavailable');
+  }
+  if (filesBefore.code !== 0) {
+    hiddenAcceptanceFailures.push('expected_files_unavailable');
+  }
+  if (statusBefore.code !== 0) {
+    hiddenAcceptanceFailures.push('expected_status_unavailable');
+  }
+  if (probeJson?.schema_version !== '1.0') {
+    hiddenAcceptanceFailures.push('schema_version');
+  }
+  if (probeJson?.kind !== 'vibeloop-real-project-codex-copy-probe') {
+    hiddenAcceptanceFailures.push('kind');
+  }
+  if (probeJson?.probe_id !== probeId) {
+    hiddenAcceptanceFailures.push('probe_id');
+  }
+  if (probeJson?.head_sha !== expectedHead) {
+    hiddenAcceptanceFailures.push('head_sha');
+  }
+  if (probeJson?.tracked_file_count !== trackedFiles.length) {
+    hiddenAcceptanceFailures.push('tracked_file_count');
+  }
+  if (probeJson?.dirty_before_probe !== dirtyBefore) {
+    hiddenAcceptanceFailures.push('dirty_before_probe');
+  }
+  if (
+    probeJson?.notes !==
+    'real Codex wrote this file in a temporary copy only'
+  ) {
+    hiddenAcceptanceFailures.push('notes');
+  }
+  if (hiddenAcceptanceFailures.length > 0) {
+    failures.push('hidden_acceptance_failed');
+  }
+
+  return {
+    status: failures.length === 0 ? 'pass' : 'fail',
+    source_repo_path_hash: pathHash(sourceRepoPath),
+    clone_path_hash: pathHash(clonePath),
+    provider: 'codex',
+    real_llm: true,
+    model: options.codexModel,
+    probe_file: CODEX_PROBE_FILE,
+    hidden_acceptance: {
+      status: hiddenAcceptanceFailures.length === 0 ? 'pass' : 'fail',
+      checked: true,
+      failure_count: hiddenAcceptanceFailures.length,
+      failures: hiddenAcceptanceFailures
+    },
+    diff_scope: {
+      status:
+        JSON.stringify(changedFiles) === JSON.stringify(expectedChangedFiles)
+          ? 'pass'
+          : 'fail',
+      changed_files: changedFiles,
+      expected_files: expectedChangedFiles
+    },
+    diff_check_status: diffCheck.code === 0 ? 'pass' : 'fail',
+    codex: {
+      status: codex.code === 0 && !codex.timedOut ? 'pass' : 'fail',
+      exit_code: codex.code,
+      timed_out: codex.timedOut,
+      stdout_file: codex.stdout_file,
+      stderr_file: codex.stderr_file,
+      output_file: codex.output_file
+    },
+    failures
+  };
+}
+
 async function analyzeRepo(repoPath, index, options = {}) {
   const resolved = path.resolve(repoPath);
   const id = `${slug(path.basename(resolved))}-${pathHash(resolved)}`;
@@ -404,6 +644,12 @@ async function analyzeRepo(repoPath, index, options = {}) {
   if (modifiableCopy && modifiableCopy.status !== 'pass') {
     failures.push('modifiable_copy_smoke_failed');
   }
+  const codexCopy = options.codexCopySmoke
+    ? await runCodexCopySmoke(resolved, `${index}-${id}`, options.tmpRoot, options)
+    : null;
+  if (codexCopy && codexCopy.status !== 'pass') {
+    failures.push('codex_copy_smoke_failed');
+  }
 
   const remoteLines = remotes.stdout
     .split(/\r?\n/)
@@ -450,6 +696,7 @@ async function analyzeRepo(repoPath, index, options = {}) {
       timed_out: discover.timedOut
     },
     ...(modifiableCopy ? { modifiable_copy: modifiableCopy } : {}),
+    ...(codexCopy ? { codex_copy: codexCopy } : {}),
     failures
   };
 }
@@ -459,6 +706,12 @@ function parseArgs(argv, env = process.env) {
   let minRepos = Number(env.VIBELOOP_REAL_PROJECT_CORPUS_MIN_REPOS ?? 2);
   let modifiableCopySmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_MODIFIABLE_COPY_SMOKE === '1';
+  let codexCopySmoke =
+    env.VIBELOOP_REAL_PROJECT_CORPUS_CODEX_COPY_SMOKE === '1';
+  let codexModel = env.VIBELOOP_REAL_PROJECT_CODEX_MODEL || 'gpt-5.5';
+  let codexTimeoutMs = Number(
+    env.VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS || DEFAULT_CODEX_TIMEOUT_MS
+  );
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--') {
@@ -482,6 +735,26 @@ function parseArgs(argv, env = process.env) {
       modifiableCopySmoke = true;
       continue;
     }
+    if (arg === '--codex-copy-smoke') {
+      codexCopySmoke = true;
+      continue;
+    }
+    if (arg === '--codex-model') {
+      const value = argv[index + 1];
+      if (!value) throw new Error('--codex-model requires a value');
+      codexModel = value;
+      index += 1;
+      continue;
+    }
+    if (arg === '--codex-timeout-ms') {
+      const value = Number(argv[index + 1]);
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error('--codex-timeout-ms requires a positive number');
+      }
+      codexTimeoutMs = value;
+      index += 1;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
   const envRepos = (env.VIBELOOP_REAL_PROJECT_CORPUS_REPOS ?? '')
@@ -491,19 +764,75 @@ function parseArgs(argv, env = process.env) {
   return {
     repos: [...repos, ...envRepos],
     minRepos: Number.isFinite(minRepos) && minRepos > 0 ? minRepos : 2,
-    modifiableCopySmoke
+    modifiableCopySmoke,
+    codexCopySmoke,
+    codexModel,
+    codexTimeoutMs
+  };
+}
+
+async function codexCopyPreflight(options) {
+  const codexEnv = {
+    ...process.env,
+    ...(process.env.VIBELOOP_REAL_PROJECT_CODEX_HOME
+      ? { CODEX_HOME: process.env.VIBELOOP_REAL_PROJECT_CODEX_HOME }
+      : {})
+  };
+  const version = await runCommand(
+    process.env.VIBELOOP_REAL_PROJECT_CODEX_BIN || 'codex',
+    ['--version'],
+    { timeoutMs: 30_000, env: codexEnv }
+  );
+  if (version.code !== 0) {
+    return {
+      ok: false,
+      reason: 'CODEX_CLI_NOT_AVAILABLE',
+      version: {
+        exit_code: version.code,
+        stderr: redact(version.stderr).slice(0, 400)
+      }
+    };
+  }
+  const login = await runCommand(
+    process.env.VIBELOOP_REAL_PROJECT_CODEX_BIN || 'codex',
+    ['-c', 'service_tier=fast', 'login', 'status'],
+    { timeoutMs: 30_000, env: codexEnv }
+  );
+  const loginText = `${login.stdout}${login.stderr}`;
+  if (login.code !== 0 || !/Logged in/i.test(loginText)) {
+    return {
+      ok: false,
+      reason: 'CODEX_CHATGPT_LOGIN_NOT_AVAILABLE',
+      version: { stdout: version.stdout.trim() },
+      login: {
+        exit_code: login.code,
+        output: redact(loginText).trim().slice(0, 400)
+      }
+    };
+  }
+  return {
+    ok: true,
+    version: { stdout: version.stdout.trim() },
+    login: { status: 'pass' },
+    model: options.codexModel
   };
 }
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
-  const scenario = options.modifiableCopySmoke
+  const scenario = options.codexCopySmoke
+    ? CODEX_COPY_SCENARIO
+    : options.modifiableCopySmoke
     ? MODIFIABLE_COPY_SCENARIO
     : READ_ONLY_SCENARIO;
-  const passStatus = options.modifiableCopySmoke
+  const passStatus = options.codexCopySmoke
+    ? CODEX_COPY_PASS_STATUS
+    : options.modifiableCopySmoke
     ? MODIFIABLE_COPY_PASS_STATUS
     : READ_ONLY_PASS_STATUS;
-  const failStatus = options.modifiableCopySmoke
+  const failStatus = options.codexCopySmoke
+    ? CODEX_COPY_FAIL_STATUS
+    : options.modifiableCopySmoke
     ? MODIFIABLE_COPY_FAIL_STATUS
     : READ_ONLY_FAIL_STATUS;
   if (options.repos.length < options.minRepos) {
@@ -519,6 +848,22 @@ async function main() {
     console.log(JSON.stringify(report, null, 2));
     process.exit(BLOCKED_EXIT);
   }
+  let codexPreflight = null;
+  if (options.codexCopySmoke) {
+    codexPreflight = await codexCopyPreflight(options);
+    if (codexPreflight.ok !== true) {
+      const report = {
+        status: 'blocked',
+        scenario,
+        reason: codexPreflight.reason,
+        preflight: codexPreflight,
+        next_step:
+          'Run this lane on a machine with Codex CLI and ChatGPT login, or point VIBELOOP_REAL_PROJECT_CODEX_HOME at an authenticated CODEX_HOME.'
+      };
+      console.log(JSON.stringify(report, null, 2));
+      process.exit(BLOCKED_EXIT);
+    }
+  }
 
   const runId = `real-project-corpus-${process.pid}-${Date.now()}`;
   const tmpRoot = path.join(os.tmpdir(), runId);
@@ -528,6 +873,9 @@ async function main() {
     cells.push(
       await analyzeRepo(repo, index + 1, {
         modifiableCopySmoke: options.modifiableCopySmoke,
+        codexCopySmoke: options.codexCopySmoke,
+        codexModel: options.codexModel,
+        codexTimeoutMs: options.codexTimeoutMs,
         tmpRoot
       })
     );
@@ -538,18 +886,33 @@ async function main() {
     status: failCount === 0 && passCount >= options.minRepos ? passStatus : failStatus,
     scenario,
     run_id: runId,
-    mode: options.modifiableCopySmoke
+    mode: options.codexCopySmoke
+      ? 'real Codex temp-clone broad real project corpus smoke'
+      : options.modifiableCopySmoke
       ? 'safe modifiable-copy broad real project corpus smoke'
       : 'read-only broad real project corpus smoke',
     scope:
-      options.modifiableCopySmoke
+      options.codexCopySmoke
+        ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
+        : options.modifiableCopySmoke
         ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
         : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
-    read_only: !options.modifiableCopySmoke,
+    read_only: !options.modifiableCopySmoke && !options.codexCopySmoke,
     source_repos_read_only: true,
     modifiable_copy_smoke: options.modifiableCopySmoke,
-    llm_modification: false,
+    codex_copy_smoke: options.codexCopySmoke,
+    llm_modification: options.codexCopySmoke,
+    hidden_acceptance: options.codexCopySmoke,
     draft_pr: false,
+    builder: options.codexCopySmoke
+      ? {
+          real_llm: true,
+          provider: 'codex',
+          model: options.codexModel,
+          via: 'codex-cli'
+        }
+      : null,
+    ...(codexPreflight ? { codex_preflight: codexPreflight } : {}),
     min_repo_count: options.minRepos,
     cell_count: cells.length,
     pass_count: passCount,
@@ -562,12 +925,32 @@ async function main() {
     runId,
     tmpRoot,
     outputs: [],
+    extraFiles: cells.flatMap((cell) =>
+      cell.codex_copy
+        ? [
+            {
+              label: `${cell.id}_codex_stdout`,
+              path: cell.codex_copy.codex.stdout_file
+            },
+            {
+              label: `${cell.id}_codex_stderr`,
+              path: cell.codex_copy.codex.stderr_file
+            },
+            {
+              label: `${cell.id}_codex_last_message`,
+              path: cell.codex_copy.codex.output_file
+            }
+          ]
+        : []
+    ),
     extraJson: {
       'real-project-corpus-cells': cells,
       'real-project-corpus-summary': {
         pass_count: passCount,
         fail_count: failCount,
-        min_repo_count: options.minRepos
+        min_repo_count: options.minRepos,
+        codex_copy_smoke: options.codexCopySmoke,
+        modifiable_copy_smoke: options.modifiableCopySmoke
       }
     }
   });

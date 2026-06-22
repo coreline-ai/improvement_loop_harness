@@ -894,6 +894,169 @@ describe('release evidence audit', () => {
     );
   });
 
+  it('keeps real Codex temp-clone project corpus audit explicit and requires hidden verifier evidence', async () => {
+    const selected = selectReleaseEvidenceAuditScenarios({
+      scenarioNames: ['repo-matrix-real-project-codex-copy-uat']
+    });
+    expect(selected).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        scenario: 'repo-matrix-real-project-codex-copy-uat',
+        expected_status: 'REAL_PROJECT_CODEX_COPY_PASS',
+        expected_ledger: {
+          min_cell_count: 2,
+          min_pass_count: 2,
+          max_fail_count: 0,
+          required_codex_copy_smoke: true,
+          required_real_llm_modification: true,
+          required_hidden_acceptance: true,
+          required_source_repos_read_only: true,
+          required_no_draft_pr: true
+        }
+      })
+    ]);
+    expect(
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).toContain('repo-matrix-real-project-codex-copy-uat');
+    expect(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).not.toContain('repo-matrix-real-project-codex-copy-uat');
+
+    const root = await tempRoot();
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-codex-copy-uat',
+      'real-project-codex-copy-run',
+      {
+        status: 'REAL_PROJECT_CODEX_COPY_PASS',
+        evidence_missing_count: 0,
+        codex_copy_smoke: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: {
+          real_llm: true,
+          provider: 'codex',
+          model: 'gpt-5.5'
+        },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'node-real-project',
+            status: 'pass',
+            codex_copy: {
+              status: 'pass',
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' }
+            }
+          },
+          {
+            id: 'python-real-project',
+            status: 'pass',
+            codex_copy: {
+              status: 'pass',
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' }
+            }
+          }
+        ]
+      }
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-codex-copy-uat',
+      'real-project-codex-copy-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['repo-matrix-real-project-codex-copy-uat']
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.evidence).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        ok: true,
+        scenario: 'repo-matrix-real-project-codex-copy-uat',
+        ledger_summary: expect.objectContaining({
+          status: 'REAL_PROJECT_CODEX_COPY_PASS',
+          codex_copy_smoke: true,
+          llm_modification: true,
+          hidden_acceptance: true,
+          source_repos_read_only: true,
+          draft_pr: false,
+          builder: expect.objectContaining({
+            real_llm: true,
+            provider: 'codex'
+          })
+        })
+      })
+    ]);
+
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-codex-copy-uat',
+      'real-project-codex-copy-weakened-run',
+      {
+        status: 'REAL_PROJECT_CODEX_COPY_PASS',
+        evidence_missing_count: 0,
+        codex_copy_smoke: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: {
+          real_llm: true,
+          provider: 'codex',
+          model: 'gpt-5.5'
+        },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'node-real-project',
+            status: 'pass',
+            codex_copy: {
+              status: 'pass',
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' }
+            }
+          },
+          {
+            id: 'python-real-project',
+            status: 'pass',
+            codex_copy: {
+              status: 'pass',
+              hidden_acceptance: { status: 'fail' },
+              diff_scope: { status: 'pass' }
+            }
+          }
+        ]
+      },
+      new Date(Date.now() + 1000)
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-codex-copy-uat',
+      'real-project-codex-copy-weakened-run'
+    );
+
+    const weakenedReport = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['repo-matrix-real-project-codex-copy-uat']
+    });
+
+    expect(weakenedReport.status).toBe('fail');
+    expect(weakenedReport.evidence[0].ledger_failures).toContain(
+      'cells.python-real-project.codex_copy.hidden_acceptance'
+    );
+  });
+
   it('audits explicit Product-100 evidence with every fixed requirement and Phase7 proof', async () => {
     const root = await tempRoot();
     await writeLedger(

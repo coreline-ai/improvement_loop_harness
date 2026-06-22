@@ -449,6 +449,34 @@ corepack pnpm uat:release-evidence-audit -- \
 
 2026-06-22 R20 real project modifiable-copy smoke는 기존 로컬 repo 3개에서 `REAL_PROJECT_MODIFIABLE_CORPUS_PASS`, `cell_count=3`, `pass_count=3`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke와 temp-clone write/stage/diff-check/cleanup/discover smoke를 통과했고, `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-modifiable-corpus-uat`도 manifest-backed evidence를 PASS로 감사했다.
 
+기존 실제 로컬 repo에서 실제 Codex가 수정 가능한지 보되 원본을 건드리지 않으려면 real Codex temp-clone smoke를 사용한다. 이 lane은 각 repo를 `/tmp` 아래로 clone하고, Codex CLI가 clone 내부에 `.vibeloop-codex-real-project-probe.json`만 작성하게 한 뒤 hidden verifier가 `git rev-parse HEAD`, `git ls-files` count, dirty-before flag, diff scope를 검증한다.
+
+```bash
+corepack pnpm uat:repo-matrix:real-project-codex-copy -- \
+  --repo /path/to/real/repo-a \
+  --repo /path/to/real/repo-b \
+  --min-repos 2
+
+corepack pnpm uat:release-evidence-audit -- \
+  --scenario repo-matrix-real-project-codex-copy-uat
+```
+
+기대:
+
+- `status=REAL_PROJECT_CODEX_COPY_PASS`
+- `cell_count>=2`, `pass_count>=2`, `fail_count=0`
+- ledger가 `codex_copy_smoke=true`, `llm_modification=true`, `hidden_acceptance=true`, `source_repos_read_only=true`, `draft_pr=false`, `builder.real_llm=true`, `builder.provider=codex`를 남긴다.
+- 각 cell은 `codex_copy.status=pass`, `codex_copy.hidden_acceptance.status=pass`, `codex_copy.diff_scope.status=pass`여야 한다.
+- 이 lane은 실제 Codex가 temp clone을 수정한다는 증거이며, 아직 실제 업무 source-code repair, GitHub draft PR, 임의/대형 repo 전체 PASS를 의미하지 않는다.
+
+최근 확인 evidence:
+
+```text
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-codex-copy-uat/real-project-corpus-84338-1782104805579/ledger.json
+```
+
+2026-06-22 R22 real project Codex temp-clone smoke는 기존 로컬 repo 2개에서 `REAL_PROJECT_CODEX_COPY_PASS`, `cell_count=2`, `pass_count=2`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 probe JSON만 작성했으며 hidden verifier가 repo-derived head/file-count/diff scope를 검증했다. `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-codex-copy-uat`도 manifest-backed evidence를 PASS로 감사했다.
+
 ---
 
 ## 검증 체크리스트 (claim → 확인 → 기대)

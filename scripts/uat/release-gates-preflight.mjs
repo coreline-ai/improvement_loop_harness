@@ -237,6 +237,24 @@ export const REAL_PROJECT_MODIFIABLE_CORPUS_EVIDENCE_SCENARIO = {
   }
 };
 
+export const REAL_PROJECT_CODEX_COPY_CORPUS_EVIDENCE_SCENARIO = {
+  gate: 'P5',
+  name: 'real Codex temp-clone broad real project corpus evidence',
+  scenario: 'repo-matrix-real-project-codex-copy-uat',
+  require_manifest: true,
+  expected_status: 'REAL_PROJECT_CODEX_COPY_PASS',
+  expected_ledger: {
+    min_cell_count: 2,
+    min_pass_count: 2,
+    max_fail_count: 0,
+    required_codex_copy_smoke: true,
+    required_real_llm_modification: true,
+    required_hidden_acceptance: true,
+    required_source_repos_read_only: true,
+    required_no_draft_pr: true
+  }
+};
+
 export function defaultEvidenceRoot(env = process.env) {
   return (
     env.VIBELOOP_UAT_EVIDENCE_DIR ??
@@ -363,7 +381,12 @@ function summarizeMatrixCells(cells) {
     corpus_axis: Array.isArray(cell.corpus_axis) ? cell.corpus_axis : [],
     provisioning_status:
       cell.dependency_provisioning?.status ?? cell.provisioning?.status ?? null,
-    provisioning_manager: cell.dependency_provisioning?.manager ?? null
+    provisioning_manager: cell.dependency_provisioning?.manager ?? null,
+    modifiable_copy_status: cell.modifiable_copy?.status ?? null,
+    codex_copy_status: cell.codex_copy?.status ?? null,
+    codex_copy_hidden_acceptance_status:
+      cell.codex_copy?.hidden_acceptance?.status ?? null,
+    codex_copy_diff_scope_status: cell.codex_copy?.diff_scope?.status ?? null
   }));
 }
 
@@ -751,6 +774,30 @@ function requiredCellFailures(cellSummaries, requiredCells = []) {
   return failures;
 }
 
+function requiredCodexCopyCellFailures(
+  cellSummaries,
+  required = false
+) {
+  if (!required) return [];
+  const failures = [];
+  for (const cell of cellSummaries ?? []) {
+    const id = cell.id ?? 'unknown';
+    if (cell.status !== 'pass') {
+      failures.push(`cells.${id}.status`);
+    }
+    if (cell.codex_copy_status !== 'pass') {
+      failures.push(`cells.${id}.codex_copy.status`);
+    }
+    if (cell.codex_copy_hidden_acceptance_status !== 'pass') {
+      failures.push(`cells.${id}.codex_copy.hidden_acceptance`);
+    }
+    if (cell.codex_copy_diff_scope_status !== 'pass') {
+      failures.push(`cells.${id}.codex_copy.diff_scope`);
+    }
+  }
+  return failures;
+}
+
 function isInside(parent, child) {
   const relative = path.relative(parent, child);
   return (
@@ -899,6 +946,19 @@ export async function latestEvidenceBundle(
         fail_count: ledgerJson.fail_count ?? null,
         dependency_provisioning: ledgerJson.dependency_provisioning ?? null,
         modifiable_copy_smoke: ledgerJson.modifiable_copy_smoke ?? false,
+        codex_copy_smoke: ledgerJson.codex_copy_smoke ?? false,
+        llm_modification: ledgerJson.llm_modification ?? false,
+        hidden_acceptance: ledgerJson.hidden_acceptance ?? false,
+        source_repos_read_only: ledgerJson.source_repos_read_only ?? null,
+        draft_pr: ledgerJson.draft_pr ?? null,
+        builder: ledgerJson.builder
+          ? {
+              real_llm: ledgerJson.builder.real_llm ?? null,
+              provider: ledgerJson.builder.provider ?? null,
+              model: ledgerJson.builder.model ?? null,
+              via: ledgerJson.builder.via ?? null
+            }
+          : null,
         ...(ledgerJson.checks
           ? { checks: summarizeChecks(ledgerJson.checks) }
           : {}),
@@ -981,6 +1041,38 @@ export async function latestEvidenceBundle(
       ledgerFailures.push('modifiable_copy_smoke');
     }
     if (
+      options.expectedLedger?.required_codex_copy_smoke &&
+      ledgerSummary.codex_copy_smoke !== true
+    ) {
+      ledgerFailures.push('codex_copy_smoke');
+    }
+    if (
+      options.expectedLedger?.required_real_llm_modification &&
+      (ledgerSummary.llm_modification !== true ||
+        ledgerSummary.builder?.real_llm !== true ||
+        ledgerSummary.builder?.provider !== 'codex')
+    ) {
+      ledgerFailures.push('llm_modification');
+    }
+    if (
+      options.expectedLedger?.required_hidden_acceptance &&
+      ledgerSummary.hidden_acceptance !== true
+    ) {
+      ledgerFailures.push('hidden_acceptance');
+    }
+    if (
+      options.expectedLedger?.required_source_repos_read_only &&
+      ledgerSummary.source_repos_read_only !== true
+    ) {
+      ledgerFailures.push('source_repos_read_only');
+    }
+    if (
+      options.expectedLedger?.required_no_draft_pr &&
+      ledgerSummary.draft_pr !== false
+    ) {
+      ledgerFailures.push('draft_pr');
+    }
+    if (
       options.expectedLedger?.min_dependency_checked_count !== undefined &&
       !(
         ledgerSummary.dependency_provisioning?.checked_count >=
@@ -1002,6 +1094,12 @@ export async function latestEvidenceBundle(
       ...requiredCellFailures(
         ledgerSummary.cells,
         options.expectedLedger?.required_cells
+      )
+    );
+    ledgerFailures.push(
+      ...requiredCodexCopyCellFailures(
+        ledgerSummary.cells,
+        options.expectedLedger?.required_codex_copy_smoke
       )
     );
     ledgerFailures.push(

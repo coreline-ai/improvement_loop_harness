@@ -476,6 +476,165 @@ ELIFECYCLE Command failed with exit code 20.`);
     });
   });
 
+  it('validates real Codex temp-clone real project corpus proof fields', async () => {
+    const root = await tempRoot();
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-codex-copy-uat',
+      'codex-copy-run',
+      new Date('2026-06-15T01:00:00.000Z'),
+      {
+        status: 'REAL_PROJECT_CODEX_COPY_PASS',
+        evidence_missing_count: 0,
+        codex_copy_smoke: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'repo-a',
+            status: 'pass',
+            codex_copy: {
+              status: 'pass',
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' }
+            }
+          },
+          {
+            id: 'repo-b',
+            status: 'pass',
+            codex_copy: {
+              status: 'pass',
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' }
+            }
+          }
+        ]
+      }
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-codex-copy-uat',
+      'codex-copy-run'
+    );
+
+    await expect(
+      latestEvidenceBundle('repo-matrix-real-project-codex-copy-uat', root, {
+        requireManifest: true,
+        expectedStatus: 'REAL_PROJECT_CODEX_COPY_PASS',
+        expectedLedger: {
+          min_cell_count: 2,
+          min_pass_count: 2,
+          max_fail_count: 0,
+          required_codex_copy_smoke: true,
+          required_real_llm_modification: true,
+          required_hidden_acceptance: true,
+          required_source_repos_read_only: true,
+          required_no_draft_pr: true
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      status: 'present',
+      ledger_summary: {
+        codex_copy_smoke: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
+        cells: [
+          {
+            id: 'repo-a',
+            codex_copy_status: 'pass',
+            codex_copy_hidden_acceptance_status: 'pass',
+            codex_copy_diff_scope_status: 'pass'
+          },
+          {
+            id: 'repo-b',
+            codex_copy_status: 'pass',
+            codex_copy_hidden_acceptance_status: 'pass',
+            codex_copy_diff_scope_status: 'pass'
+          }
+        ]
+      }
+    });
+
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-codex-copy-uat',
+      'codex-copy-weakened-run',
+      new Date('2026-06-15T02:00:00.000Z'),
+      {
+        status: 'REAL_PROJECT_CODEX_COPY_PASS',
+        evidence_missing_count: 0,
+        codex_copy_smoke: true,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: { real_llm: false, provider: 'codex', model: 'gpt-5.5' },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'repo-a',
+            status: 'pass',
+            codex_copy: {
+              status: 'pass',
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' }
+            }
+          },
+          {
+            id: 'repo-b',
+            status: 'pass',
+            codex_copy: {
+              status: 'pass',
+              hidden_acceptance: { status: 'fail' },
+              diff_scope: { status: 'pass' }
+            }
+          }
+        ]
+      }
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-codex-copy-uat',
+      'codex-copy-weakened-run'
+    );
+
+    await expect(
+      latestEvidenceBundle('repo-matrix-real-project-codex-copy-uat', root, {
+        requireManifest: true,
+        expectedStatus: 'REAL_PROJECT_CODEX_COPY_PASS',
+        expectedLedger: {
+          min_cell_count: 2,
+          min_pass_count: 2,
+          max_fail_count: 0,
+          required_codex_copy_smoke: true,
+          required_real_llm_modification: true,
+          required_hidden_acceptance: true,
+          required_source_repos_read_only: true,
+          required_no_draft_pr: true
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 'invalid_ledger',
+      ledger_failures: expect.arrayContaining([
+        'llm_modification',
+        'cells.repo-b.codex_copy.hidden_acceptance'
+      ])
+    });
+  });
+
   it('validates repo matrix ledger counts and dependency provisioning', async () => {
     const root = await tempRoot();
     const requiredCells = [
