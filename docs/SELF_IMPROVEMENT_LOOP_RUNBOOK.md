@@ -331,7 +331,7 @@ corepack pnpm uat:adversary-live:real-reviewer
 corepack pnpm uat:release-evidence-audit -- --scenario adversary-live-real-reviewer-uat
 ```
 
-2026-06-22 local run `adversary-live-real-reviewer-67359-1782109671844`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex reviewer proposal과 supplemental discount/tax/rounding/profile visibility semantic rule을 M2/M4/freeze/N+1로 고정했다. Evidence는 `real_llm=true`, `provider=codex`, M2 confirmed 5, M4 replay-safe 5/5, 10/10 attack scenario PASS를 포함한다. M2는 proposal별 staged copy에서 실행되어 이전 proposal test 파일이 다음 proposal 확인을 오염하지 않는다. `adversary-live-real-reviewer-uat`는 이 lane의 CI artifact 감사를 위한 별도 scenario이며, `release-evidence-audit --scenario adversary-live-real-reviewer-uat`는 real LLM reviewer provenance를 필수로 요구한다. 이 증거는 P4 cart+profile visibility local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
+2026-06-22 local run `adversary-live-real-reviewer-67359-1782109671844`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex reviewer proposal과 supplemental discount/tax/rounding/profile visibility semantic rule을 M2/M4/freeze/N+1로 고정했다. Evidence는 `real_llm=true`, `provider=codex`, M2 confirmed 5, M4 replay-safe 5/5, 10/10 attack scenario PASS를 포함한다. M2는 proposal별 staged copy에서 실행되어 이전 proposal test 파일이 다음 proposal 확인을 오염하지 않는다. `adversary-live-real-reviewer-uat`는 이 lane의 CI artifact 감사를 위한 별도 scenario이며, `release-evidence-audit --scenario adversary-live-real-reviewer-uat`는 real LLM reviewer provenance를 필수로 요구한다. 같은 scenario는 credentialed CI run `27935528811` / ledger `adversary-live-real-reviewer-14196-1782112144120`에서도 PASS했고, downloaded artifact audit까지 통과했다. 이 증거는 P4 cart+profile visibility lane PASS이며, 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
 
 ---
 
@@ -620,7 +620,7 @@ corepack pnpm uat:product-100:preflight
 - Codex CLI/OAuth 또는 해당 환경의 live Codex 인증. 이 인증이 없으면 preflight 또는 live runner가 fail-closed한다.
 - Docker runtime with `node:22-alpine` and `python:3.12-alpine`.
 
-P4 real reviewer CI artifact는 Codex ChatGPT login이 있는 runner가 필요하다. 기본 `ubuntu-latest`에 로그인 상태가 없다면 `runner_label`을 self-hosted runner로 지정한다.
+P4 real reviewer CI artifact는 Codex ChatGPT login이 있는 runner가 필요하다. 기본 `ubuntu-latest`에 로그인 상태가 없다면 `runner_label`을 self-hosted runner로 지정한다. macOS self-hosted runner에서는 Docker bind mount가 가능한 `$HOME/.vibeloop/uat-worktrees-actions/<run>` 아래로 worktree root를 고정해야 한다. workflow는 `VIBELOOP_ADVERSARY_LIVE_WORK_ROOT`를 이 경로로 자동 설정해 `/tmp`/`/var/folders` bind mount 불일치를 피한다.
 
 ```bash
 gh workflow run adversary-real-reviewer-live.yml \
@@ -640,6 +640,17 @@ gh workflow run adversary-real-reviewer-live.yml \
   -f replay_run_id=<run_id> \
   -f replay_run_attempt=1 \
   -f replay_repo=coreline-ai/improvement_loop_harness
+```
+
+최신 credentialed PASS artifact는 다음 명령으로 직접 재감사할 수 있다.
+
+```bash
+corepack pnpm uat:release-evidence-audit:gh -- \
+  --run-id 27935528811 \
+  --run-attempt 1 \
+  --repo coreline-ai/improvement_loop_harness \
+  --artifact-pattern adversary-real-reviewer-evidence-27935528811-1 \
+  --scenario adversary-live-real-reviewer-uat
 ```
 
 ```bash
@@ -681,4 +692,4 @@ cat ~/.vibeloop/product-100-real-loop-*/product-100-progress.json
 
 ### 현재 로컬 기준 기대 결과
 
-현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-22 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 Phase4 full report `/Users/iriver/.vibeloop/product-100-phase4-full-20260619165620.json`, Phase5 aggregate report `/Users/iriver/.vibeloop/product-100-phase5-full-rerun-20260621231906.json`, Phase6 draft PR report `/Users/iriver/.vibeloop/product-100-phase6-20260622-001250/phase6-draft-pr-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-phase6-20260622-001250`다. P4 semantic/M4 local lane은 R25에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-67051-1782109648286`와 real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-67359-1782109671844`로 cart+profile visibility 5-rule corpus, M2 confirmed 5, M4 replay-safe 5/5, 10/10 attack scenario PASS를 남겼다. Broad real project corpus는 R24에서 실제 로컬 repo temp-clone source repair + hidden verifier까지 확장됐지만, 이 결과는 dedicated fixture source repair이며 기존 업무 소스/임의 사용자 repo 전체에 대한 제품 전체 100% PASS가 아니다.
+현재 이 머신에서는 R1/reviewer preflight가 통과하고, 2026-06-22 finalization 기준 Product-100 controlled corpus ledger가 `PRODUCT_100_CODEX_LIVE_PASS`로 닫힌다. 핵심 증거는 Phase4 full report `/Users/iriver/.vibeloop/product-100-phase4-full-20260619165620.json`, Phase5 aggregate report `/Users/iriver/.vibeloop/product-100-phase5-full-rerun-20260621231906.json`, Phase6 draft PR report `/Users/iriver/.vibeloop/product-100-phase6-20260622-001250/phase6-draft-pr-report.json`, final evidence bundle `~/.vibeloop/uat-evidence/product-100-codex-live-uat/product-100-phase6-20260622-001250`다. P4 semantic/M4 lane은 R25에서 controlled evidence `~/.vibeloop/uat-evidence/adversary-live-uat/adversary-live-67051-1782109648286`와 local real reviewer evidence `~/.vibeloop/uat-evidence/adversary-live-real-reviewer-uat/adversary-live-real-reviewer-67359-1782109671844`로 cart+profile visibility 5-rule corpus, M2 confirmed 5, M4 replay-safe 5/5, 10/10 attack scenario PASS를 남겼고, R26 credentialed CI run `27935528811`도 real reviewer artifact audit PASS를 남겼다. Broad real project corpus는 R24에서 실제 로컬 repo temp-clone source repair + hidden verifier까지 확장됐지만, 이 결과는 dedicated fixture source repair이며 기존 업무 소스/임의 사용자 repo 전체에 대한 제품 전체 100% PASS가 아니다.
