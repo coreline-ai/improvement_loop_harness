@@ -33,6 +33,7 @@
     "uat:adversary-live:reviewer-dry-run": "node scripts/uat/adversary-live-codex-reviewer.mjs --dry-run",
     "uat:adversary-live:real-reviewer": "VIBELOOP_ADVERSARY_LIVE_SCENARIO=adversary-live-real-reviewer-uat VIBELOOP_ADVERSARY_REVIEWER_COMMAND='node scripts/uat/adversary-live-codex-reviewer.mjs --live' VIBELOOP_ADVERSARY_REVIEWER_PROVIDER=codex VIBELOOP_ADVERSARY_REVIEWER_REAL_LLM=1 corepack pnpm uat:adversary-live",
     "uat:repo-matrix": "corepack pnpm build && node scripts/uat/repo-matrix-uat.mjs",
+    "uat:repo-matrix:real-project-corpus": "corepack pnpm build && node scripts/uat/repo-matrix-real-project-corpus-uat.mjs",
     "uat:repo-matrix:codex-broad-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-broad-codex-live-uat.mjs",
     "uat:repo-matrix:codex-monorepo-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-monorepo-codex-live-uat.mjs",
     "uat:repo-matrix:codex-python-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-python-codex-live-uat.mjs",

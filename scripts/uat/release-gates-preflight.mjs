@@ -209,6 +209,19 @@ export const ADVERSARY_REAL_REVIEWER_EVIDENCE_SCENARIO = {
   }
 };
 
+export const REAL_PROJECT_CORPUS_EVIDENCE_SCENARIO = {
+  gate: 'P5',
+  name: 'read-only broad real project corpus evidence',
+  scenario: 'repo-matrix-real-project-corpus-uat',
+  require_manifest: true,
+  expected_status: 'REAL_PROJECT_CORPUS_PASS',
+  expected_ledger: {
+    min_cell_count: 2,
+    min_pass_count: 2,
+    max_fail_count: 0
+  }
+};
+
 export function defaultEvidenceRoot(env = process.env) {
   return (
     env.VIBELOOP_UAT_EVIDENCE_DIR ??

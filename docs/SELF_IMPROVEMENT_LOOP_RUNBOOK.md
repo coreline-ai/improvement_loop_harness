@@ -395,6 +395,33 @@ https://github.com/coreline-ai/vibeloop-android-live-85151-1782100084935/pull/1
 
 2026-06-22 R17 broad framework live rerun은 `BROAD_LIVE_REPRESENTATIVE_PASS`, `cell_count=4`, `pass_count=4`, `fail_count=0`, `proxy_auth_header_seen=true`를 남겼다. React/Django/Rails/Android-like 4개 private repo 모두 draft PR open/draft, hidden acceptance, final reverify, `main_unchanged=true`를 통과했고, evidence copied 431/missing 0(manifest copied 432)로 보존됐다. `corepack pnpm uat:release-evidence-audit -- --all-release-evidence`도 P2/P3/P4/P5 7개 scenario 전체 PASS로 새 broad evidence를 감사했다.
 
+controlled corpus 밖의 기존 실제 로컬 repo를 read-only로 훑을 때는 별도 real-project corpus smoke를 사용한다. 이 명령은 repo를 수정하지 않고 git metadata/source marker/package metadata와 `vibeloop discover --test-command 'git ls-files > /dev/null'`만 확인한다.
+
+```bash
+corepack pnpm uat:repo-matrix:real-project-corpus -- \
+  --repo /path/to/real/repo-a \
+  --repo /path/to/real/repo-b \
+  --min-repos 2
+
+corepack pnpm uat:release-evidence-audit -- \
+  --scenario repo-matrix-real-project-corpus-uat
+```
+
+기대:
+
+- `status=REAL_PROJECT_CORPUS_PASS`
+- `cell_count>=2`, `pass_count>=2`, `fail_count=0`
+- 각 cell은 실제 git worktree, tracked source marker, language marker, read-only discover smoke를 통과해야 한다.
+- 이 lane은 LLM 수정, hidden acceptance, draft PR 생성, 임의/대형 repo 전체 PASS를 의미하지 않는다.
+
+최근 확인 evidence:
+
+```text
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-corpus-uat/real-project-corpus-23713-1782101791183/ledger.json
+```
+
+2026-06-22 R19 real project corpus smoke는 기존 로컬 repo 4개에서 `REAL_PROJECT_CORPUS_PASS`, `cell_count=4`, `pass_count=4`, `fail_count=0`을 남겼다. 각 repo는 read-only git metadata, source/language markers, package/source marker smoke, `vibeloop discover` smoke를 통과했고, `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-corpus-uat`도 manifest-backed evidence를 PASS로 감사했다.
+
 ---
 
 ## 검증 체크리스트 (claim → 확인 → 기대)

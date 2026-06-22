@@ -705,6 +705,81 @@ describe('release evidence audit', () => {
     ]);
   });
 
+  it('keeps broad real project corpus audit explicit and validates read-only cells', async () => {
+    const selected = selectReleaseEvidenceAuditScenarios({
+      scenarioNames: ['repo-matrix-real-project-corpus-uat']
+    });
+    expect(selected).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        scenario: 'repo-matrix-real-project-corpus-uat',
+        expected_status: 'REAL_PROJECT_CORPUS_PASS',
+        expected_ledger: {
+          min_cell_count: 2,
+          min_pass_count: 2,
+          max_fail_count: 0
+        }
+      })
+    ]);
+    expect(
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).toContain('repo-matrix-real-project-corpus-uat');
+    expect(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).not.toContain('repo-matrix-real-project-corpus-uat');
+
+    const root = await tempRoot();
+    await writeLedger(
+      root,
+      'repo-matrix-real-project-corpus-uat',
+      'real-project-run',
+      {
+        status: 'REAL_PROJECT_CORPUS_PASS',
+        evidence_missing_count: 0,
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          { id: 'node-real-project', status: 'pass' },
+          { id: 'python-real-project', status: 'pass' }
+        ]
+      }
+    );
+    await writeManifest(
+      root,
+      'repo-matrix-real-project-corpus-uat',
+      'real-project-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: ['repo-matrix-real-project-corpus-uat']
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.scope).toBe('custom');
+    expect(report.audit_summary).toEqual(
+      expect.objectContaining({
+        required_count: 1,
+        passed_count: 1,
+        failed_count: 0
+      })
+    );
+    expect(report.evidence).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        ok: true,
+        scenario: 'repo-matrix-real-project-corpus-uat',
+        ledger_summary: expect.objectContaining({
+          status: 'REAL_PROJECT_CORPUS_PASS',
+          cell_count: 2,
+          pass_count: 2,
+          fail_count: 0
+        })
+      })
+    ]);
+  });
+
   it('audits explicit Product-100 evidence with every fixed requirement and Phase7 proof', async () => {
     const root = await tempRoot();
     await writeLedger(
