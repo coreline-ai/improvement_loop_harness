@@ -23,6 +23,26 @@ on:
         required: false
         type: string
         default: ''
+      publish_draft_prs:
+        description: Publish each repaired temp clone to a private GitHub evidence repo and verify draft PRs.
+        required: true
+        type: boolean
+        default: false
+      github_owner:
+        description: GitHub owner used for temporary private evidence repos when publish_draft_prs=true.
+        required: true
+        type: string
+        default: coreline-ai
+      github_repo_prefix:
+        description: Prefix for temporary private evidence repos when publish_draft_prs=true.
+        required: true
+        type: string
+        default: vibeloop-real-pr-ci
+      keep_remote:
+        description: Keep temporary private evidence repos after PR verification.
+        required: true
+        type: boolean
+        default: false
       codex_model:
         description: Codex model used for the repair command.
         required: true
@@ -53,6 +73,10 @@ permissions:
   actions: read
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   live-evidence:
     name: live real project existing-source repair evidence
@@ -63,6 +87,8 @@ jobs:
       VIBELOOP_UAT_EVIDENCE_DIR: ${{ github.workspace }}/.uat-evidence-real-project-existing-source
       VIBELOOP_REAL_PROJECT_CODEX_MODEL: ${{ inputs.codex_model }}
       VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS: ${{ inputs.codex_timeout_ms }}
+      VIBELOOP_REAL_PROJECT_GITHUB_OWNER: ${{ inputs.github_owner }}
+      VIBELOOP_REAL_PROJECT_GITHUB_REPO_PREFIX: ${{ inputs.github_repo_prefix }}
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -72,9 +98,9 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm exec prisma generate
-      - run: pnpm build
+      - run: corepack pnpm install --frozen-lockfile
+      - run: corepack pnpm exec prisma generate
+      - run: corepack pnpm build
       - name: Check Codex login
         run: |
           codex --version
@@ -97,18 +123,36 @@ jobs:
           fi
           echo "VIBELOOP_SECONDARY_REAL_PROJECT=${secondary_dir}" >> "${GITHUB_ENV}"
       - name: Run live existing-source repair corpus
+        env:
+          PUBLISH_DRAFT_PRS: ${{ inputs.publish_draft_prs }}
+          KEEP_REMOTE: ${{ inputs.keep_remote }}
         run: |
-          corepack pnpm uat:repo-matrix:real-project-existing-source-repair -- \
+          if [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
+            scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
+            script="uat:repo-matrix:real-project-existing-source-repair-pr"
+            extra_args=(--github-owner "${VIBELOOP_REAL_PROJECT_GITHUB_OWNER}" --github-repo-prefix "${VIBELOOP_REAL_PROJECT_GITHUB_REPO_PREFIX}")
+            if [ "${KEEP_REMOTE}" = "true" ]; then
+              extra_args+=(--keep-remote)
+            fi
+          else
+            scenario="repo-matrix-real-project-existing-source-repair-uat"
+            script="uat:repo-matrix:real-project-existing-source-repair"
+            extra_args=()
+          fi
+
+          echo "VIBELOOP_REAL_PROJECT_EXISTING_SOURCE_SCENARIO=${scenario}" >> "${GITHUB_ENV}"
+          corepack pnpm "${script}" -- \
             --repo "${GITHUB_WORKSPACE}" \
             --repo "${VIBELOOP_SECONDARY_REAL_PROJECT}" \
             --min-repos 2 \
             --codex-model "${VIBELOOP_REAL_PROJECT_CODEX_MODEL}" \
-            --codex-timeout-ms "${VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS}"
-      - run: corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-uat
+            --codex-timeout-ms "${VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS}" \
+            "${extra_args[@]}"
+      - run: corepack pnpm uat:release-evidence-audit -- --scenario "${VIBELOOP_REAL_PROJECT_EXISTING_SOURCE_SCENARIO}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: real-project-existing-source-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ inputs.publish_draft_prs && 'real-project-existing-source-repair-pr-evidence' || 'real-project-existing-source-repair-evidence' }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: .uat-evidence-real-project-existing-source
           if-no-files-found: warn
           include-hidden-files: true
@@ -127,16 +171,23 @@ jobs:
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          pattern: real-project-existing-source-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          pattern: real-project-existing-source-repair*evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: .ci-real-project-existing-source-evidence
           merge-multiple: true
       - name: Audit downloaded real project existing-source repair evidence
+        env:
+          PUBLISH_DRAFT_PRS: ${{ inputs.publish_draft_prs }}
         run: |
+          if [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
+            scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
+          else
+            scenario="repo-matrix-real-project-existing-source-repair-uat"
+          fi
           mkdir -p .ci-real-project-existing-source-audit
           set +e
           node scripts/uat/release-evidence-audit.mjs \
             --evidence-root .ci-real-project-existing-source-evidence \
-            --scenario repo-matrix-real-project-existing-source-repair-uat \
+            --scenario "${scenario}" \
             > .ci-real-project-existing-source-audit/release-evidence-audit.json \
             2> .ci-real-project-existing-source-audit/release-evidence-audit.stderr
           status=$?
@@ -166,10 +217,17 @@ jobs:
         with:
           node-version: 22
       - name: Download and audit real project existing-source repair evidence from a prior run
+        env:
+          PUBLISH_DRAFT_PRS: ${{ inputs.publish_draft_prs }}
         run: |
+          if [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
+            scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
+          else
+            scenario="repo-matrix-real-project-existing-source-repair-uat"
+          fi
           node scripts/uat/release-evidence-audit-gh.mjs \
             --run-id "${{ inputs.replay_run_id }}" \
             --run-attempt "${{ inputs.replay_run_attempt }}" \
             --repo "${{ inputs.replay_repo }}" \
-            --artifact-pattern "real-project-existing-source-repair-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}" \
-            --scenario repo-matrix-real-project-existing-source-repair-uat
+            --artifact-pattern "real-project-existing-source-repair*evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}" \
+            --scenario "${scenario}"

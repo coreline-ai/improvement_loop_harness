@@ -676,7 +676,7 @@ corepack pnpm uat:product-100:preflight
 사전 조건:
 
 - repository secret `PRODUCT100_GH_TOKEN`: private corpus repo 생성, branch push, draft PR 생성을 할 수 있는 PAT.
-- 선택적 repository secret `REAL_PROJECT_CORPUS_GH_TOKEN`: R27 CI workflow가 current repo 밖의 private secondary repo를 clone해야 할 때 사용한다. public secondary repo면 기본 `github.token`으로 충분할 수 있다.
+- 선택적 repository secret `REAL_PROJECT_CORPUS_GH_TOKEN`: R27/R28 CI workflow가 current repo 밖의 private secondary repo를 clone하거나 R28 draft PR evidence용 private GitHub repo를 생성해야 할 때 사용한다. Public secondary repo만 읽는 R27 replay면 기본 `github.token`으로 충분할 수 있지만, R28 `publish_draft_prs=true` live run은 private repo 생성/branch push/draft PR 생성 권한이 있는 token이 필요하다.
 - Codex CLI/OAuth 또는 해당 환경의 live Codex 인증. 이 인증이 없으면 preflight 또는 live runner가 fail-closed한다.
 - Docker runtime with `node:22-alpine` and `python:3.12-alpine`.
 
@@ -713,7 +713,7 @@ corepack pnpm uat:release-evidence-audit:gh -- \
   --scenario adversary-live-real-reviewer-uat
 ```
 
-R27 real-project existing-source repair CI artifact는 Codex ChatGPT login이 있는 runner와, 현재 repo 외에 접근 가능한 두 번째 실제 git repo가 필요하다. `secondary_repo`는 `OWNER/REPO` 또는 URL을 받으며, private repo면 `REAL_PROJECT_CORPUS_GH_TOKEN` secret이 그 repo를 읽을 수 있어야 한다. 이 workflow는 `repo-matrix-real-project-existing-source-repair-uat` artifact를 만들고 즉시 다운로드 감사한다. 실제 run id가 PASS로 남기 전까지는 R27 CI artifact PASS로 보지 않는다.
+R27/R28 real-project existing-source repair CI artifact는 Codex ChatGPT login이 있는 runner와, 현재 repo 외에 접근 가능한 두 번째 실제 git repo가 필요하다. `secondary_repo`는 `OWNER/REPO` 또는 URL을 받으며, private repo면 `REAL_PROJECT_CORPUS_GH_TOKEN` secret이 그 repo를 읽을 수 있어야 한다. 이 workflow는 기본으로 R27 `repo-matrix-real-project-existing-source-repair-uat` artifact를 만들고 즉시 다운로드 감사한다. `publish_draft_prs=true`를 주면 R28 `repo-matrix-real-project-existing-source-repair-pr-uat` artifact로 전환하고, private evidence repo 생성 + branch push + draft PR verification까지 포함한다. Credentialed live run id가 PASS로 남기 전까지는 R27/R28 CI artifact PASS로 보지 않는다.
 
 ```bash
 gh workflow run real-project-existing-source-repair-live.yml \
@@ -722,16 +722,44 @@ gh workflow run real-project-existing-source-repair-live.yml \
   -f runner_label=self-hosted \
   -f secondary_repo=<owner>/<repo> \
   -f secondary_repo_ref=main \
+  -f publish_draft_prs=false \
   -f codex_model=gpt-5.5 \
   -f codex_timeout_ms=180000
 ```
 
-기존 R27 artifact를 재감사할 때는 replay input만 지정한다.
+R28 draft PR artifact까지 만들 때는 `publish_draft_prs=true`와 임시 repo owner/prefix를 지정한다. 임시 repo를 증거로 남기려면 `keep_remote=true`, repo sprawl을 줄이려면 `keep_remote=false`를 사용한다.
+
+```bash
+gh workflow run real-project-existing-source-repair-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=true \
+  -f runner_label=self-hosted \
+  -f secondary_repo=pypa/sampleproject \
+  -f secondary_repo_ref=main \
+  -f publish_draft_prs=true \
+  -f github_owner=coreline-ai \
+  -f github_repo_prefix=vibeloop-real-pr-ci \
+  -f keep_remote=true \
+  -f codex_model=gpt-5.5 \
+  -f codex_timeout_ms=180000
+```
+
+기존 R27/R28 artifact를 재감사할 때는 replay input만 지정한다. R28 artifact는 replay에도 `publish_draft_prs=true`를 같이 넘겨 PR scenario로 감사한다.
 
 ```bash
 gh workflow run real-project-existing-source-repair-live.yml \
   --repo coreline-ai/improvement_loop_harness \
   -f run_live=false \
+  -f replay_run_id=<run_id> \
+  -f replay_run_attempt=1 \
+  -f replay_repo=coreline-ai/improvement_loop_harness
+```
+
+```bash
+gh workflow run real-project-existing-source-repair-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=false \
+  -f publish_draft_prs=true \
   -f replay_run_id=<run_id> \
   -f replay_run_attempt=1 \
   -f replay_repo=coreline-ai/improvement_loop_harness
