@@ -16,6 +16,7 @@ import {
   buildCartRoundingSemanticProposal,
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
+  buildShippingEligibilitySemanticProposal,
   buildRejectedAttackProposals,
   selectAdversaryLiveReviewProposal,
   validateAdversaryLiveAttackScenarioResults,
@@ -149,6 +150,23 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('perCustomerLimit');
   });
 
+  it('adds a supplemental shipping eligibility semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildShippingEligibilitySemanticProposal({
+      targetPath: 'tests/adversary/shipping-eligibility.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'shipping-eligibility-semantic',
+      targetPath: 'tests/adversary/shipping-eligibility.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canShipOrder');
+    expect(proposal.body).toContain('addressVerified: false');
+    expect(proposal.body).toContain('hazardous: true');
+    expect(proposal.body).toContain('poBox: true');
+    expect(proposal.body).toContain('maxWeightKg');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -188,7 +206,8 @@ describe('adversary live contract', () => {
         profileVisibilityHardcoded: 'fail',
         profileSuspensionHardcoded: 'fail',
         orderApprovalHardcoded: 'fail',
-        inventoryReservationHardcoded: 'fail'
+        inventoryReservationHardcoded: 'fail',
+        shippingEligibilityHardcoded: 'fail'
       }
     });
 
@@ -278,6 +297,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:inventory_reservation_semantic'
+        }),
+        expect.objectContaining({
+          id: 'shipping_eligibility_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:shipping_eligibility_semantic'
         })
       ])
     );
@@ -324,7 +349,8 @@ describe('adversary live contract', () => {
         'attack_scenario_profile_visibility_hardcode_missing',
         'attack_scenario_profile_suspension_hardcode_missing',
         'attack_scenario_order_approval_hardcode_missing',
-        'attack_scenario_inventory_reservation_hardcode_missing'
+        'attack_scenario_inventory_reservation_hardcode_missing',
+        'attack_scenario_shipping_eligibility_hardcode_missing'
       ])
     );
   });
@@ -351,7 +377,8 @@ describe('adversary live contract', () => {
         profileVisibilityHardcoded: 'fail',
         profileSuspensionHardcoded: 'fail',
         orderApprovalHardcoded: 'fail',
-        inventoryReservationHardcoded: 'fail'
+        inventoryReservationHardcoded: 'fail',
+        shippingEligibilityHardcoded: 'fail'
       }
     });
 

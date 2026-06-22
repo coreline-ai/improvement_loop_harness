@@ -29,6 +29,7 @@ import {
   buildCartRoundingSemanticProposal,
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
+  buildShippingEligibilitySemanticProposal,
   selectAdversaryLiveReviewProposal,
   validateAdversaryReviewerProvenance,
   validateAdversaryLiveAttackScenarioResults
@@ -129,6 +130,11 @@ async function writeInventoryFixture(root, source) {
   await writeFile(path.join(root, 'src/inventory.cjs'), source);
 }
 
+async function writeShippingFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/shipping.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -201,6 +207,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
       },
       {
         path: 'src/inventory.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
+        path: 'src/shipping.cjs',
         status: 'modified',
         isSymlink: false,
         addedLines: 1,
@@ -285,6 +298,10 @@ async function main() {
     const inventoryReservationHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-inventory-reservation-hardcode'
+    );
+    const shippingEligibilityHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-shipping-eligibility-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -440,6 +457,32 @@ async function main() {
       'module.exports = { canReserveInventory };',
       ''
     ].join('\n');
+    const buggyShipping = [
+      'function canShipOrder(_order, _destination) {',
+      '  return true;',
+      '}',
+      'module.exports = { canShipOrder };',
+      ''
+    ].join('\n');
+    const fixedShipping = [
+      'function canShipOrder(order, destination) {',
+      '  if (destination.addressVerified !== true) return false;',
+      '  if (!destination.supportedCountries.includes(destination.country)) return false;',
+      "  if (order.method === 'express' && order.hazardous === true) return false;",
+      "  if (destination.poBox === true && order.method !== 'standard') return false;",
+      '  if (order.weightKg > destination.maxWeightKg) return false;',
+      '  return true;',
+      '}',
+      'module.exports = { canShipOrder };',
+      ''
+    ].join('\n');
+    const happyPathOnlyShipping = [
+      'function canShipOrder(_order, destination) {',
+      '  return destination.addressVerified === true;',
+      '}',
+      'module.exports = { canShipOrder };',
+      ''
+    ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
@@ -460,6 +503,7 @@ async function main() {
     await writeCartFixture(profileSuspensionHardcodedWorktree, fixedCart);
     await writeCartFixture(orderApprovalHardcodedWorktree, fixedCart);
     await writeCartFixture(inventoryReservationHardcodedWorktree, fixedCart);
+    await writeCartFixture(shippingEligibilityHardcodedWorktree, fixedCart);
     await writeProfileFixture(baseWorktree, buggyProfile);
     await writeProfileFixture(candidateWorktree, fixedProfile);
     await writeProfileFixture(goodWorktree, fixedProfile);
@@ -486,6 +530,10 @@ async function main() {
       inventoryReservationHardcodedWorktree,
       fixedProfile
     );
+    await writeProfileFixture(
+      shippingEligibilityHardcodedWorktree,
+      fixedProfile
+    );
     await writeOrderFixture(baseWorktree, buggyOrder);
     await writeOrderFixture(candidateWorktree, fixedOrder);
     await writeOrderFixture(goodWorktree, fixedOrder);
@@ -503,6 +551,7 @@ async function main() {
     await writeOrderFixture(profileSuspensionHardcodedWorktree, fixedOrder);
     await writeOrderFixture(orderApprovalHardcodedWorktree, happyPathOnlyOrder);
     await writeOrderFixture(inventoryReservationHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(shippingEligibilityHardcodedWorktree, fixedOrder);
     await writeInventoryFixture(baseWorktree, buggyInventory);
     await writeInventoryFixture(candidateWorktree, fixedInventory);
     await writeInventoryFixture(goodWorktree, fixedInventory);
@@ -532,6 +581,40 @@ async function main() {
       inventoryReservationHardcodedWorktree,
       happyPathOnlyInventory
     );
+    await writeInventoryFixture(
+      shippingEligibilityHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(baseWorktree, buggyShipping);
+    await writeShippingFixture(candidateWorktree, fixedShipping);
+    await writeShippingFixture(goodWorktree, fixedShipping);
+    await writeShippingFixture(badWorktree, fixedShipping);
+    await writeShippingFixture(hardcodedWorktree, fixedShipping);
+    await writeShippingFixture(defaultQuantityHardcodedWorktree, fixedShipping);
+    await writeShippingFixture(
+      zeroQuantityTruthinessHardcodedWorktree,
+      fixedShipping
+    );
+    await writeShippingFixture(discountHardcodedWorktree, fixedShipping);
+    await writeShippingFixture(taxHardcodedWorktree, fixedShipping);
+    await writeShippingFixture(roundingHardcodedWorktree, fixedShipping);
+    await writeShippingFixture(
+      profileVisibilityHardcodedWorktree,
+      fixedShipping
+    );
+    await writeShippingFixture(
+      profileSuspensionHardcodedWorktree,
+      fixedShipping
+    );
+    await writeShippingFixture(orderApprovalHardcodedWorktree, fixedShipping);
+    await writeShippingFixture(
+      inventoryReservationHardcodedWorktree,
+      fixedShipping
+    );
+    await writeShippingFixture(
+      shippingEligibilityHardcodedWorktree,
+      happyPathOnlyShipping
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -551,6 +634,9 @@ async function main() {
       buildInventoryReservationSemanticProposal({
         targetPath:
           'tests/adversary/inventory-reservation-supplemental.test.cjs'
+      }),
+      buildShippingEligibilitySemanticProposal({
+        targetPath: 'tests/adversary/shipping-eligibility-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -611,6 +697,10 @@ async function main() {
         buildInventoryReservationSemanticProposal({
           targetPath:
             'tests/adversary/inventory-reservation-supplemental.test.cjs'
+        }),
+        buildShippingEligibilitySemanticProposal({
+          targetPath:
+            'tests/adversary/shipping-eligibility-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -804,6 +894,13 @@ async function main() {
         'adversary-live-inventory-reservation-hardcode'
       )
     );
+    const shippingEligibilityHardcoded = await runGates(
+      await gateContext(
+        shippingEligibilityHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-shipping-eligibility-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -845,6 +942,10 @@ async function main() {
       inventoryReservationHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const shippingEligibilityHardcodedGate =
+      shippingEligibilityHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -857,7 +958,8 @@ async function main() {
       profileVisibilityHardcodedGate?.status !== 'fail' ||
       profileSuspensionHardcodedGate?.status !== 'fail' ||
       orderApprovalHardcodedGate?.status !== 'fail' ||
-      inventoryReservationHardcodedGate?.status !== 'fail'
+      inventoryReservationHardcodedGate?.status !== 'fail' ||
+      shippingEligibilityHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -872,7 +974,8 @@ async function main() {
           profileVisibilityHardcoded: profileVisibilityHardcodedGate,
           profileSuspensionHardcoded: profileSuspensionHardcodedGate,
           orderApprovalHardcoded: orderApprovalHardcodedGate,
-          inventoryReservationHardcoded: inventoryReservationHardcodedGate
+          inventoryReservationHardcoded: inventoryReservationHardcodedGate,
+          shippingEligibilityHardcoded: shippingEligibilityHardcodedGate
         })}`
       );
     }
@@ -894,7 +997,8 @@ async function main() {
         profileVisibilityHardcoded: profileVisibilityHardcodedGate.status,
         profileSuspensionHardcoded: profileSuspensionHardcodedGate.status,
         orderApprovalHardcoded: orderApprovalHardcodedGate.status,
-        inventoryReservationHardcoded: inventoryReservationHardcodedGate.status
+        inventoryReservationHardcoded: inventoryReservationHardcodedGate.status,
+        shippingEligibilityHardcoded: shippingEligibilityHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -978,6 +1082,8 @@ async function main() {
         order_approval_hardcoded_gate_status: orderApprovalHardcodedGate.status,
         inventory_reservation_hardcoded_gate_status:
           inventoryReservationHardcodedGate.status,
+        shipping_eligibility_hardcoded_gate_status:
+          shippingEligibilityHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -994,7 +1100,9 @@ async function main() {
         order_approval_hardcode_rejected:
           orderApprovalHardcodedGate.status === 'fail',
         inventory_reservation_hardcode_rejected:
-          inventoryReservationHardcodedGate.status === 'fail'
+          inventoryReservationHardcodedGate.status === 'fail',
+        shipping_eligibility_hardcode_rejected:
+          shippingEligibilityHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

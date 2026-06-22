@@ -123,7 +123,8 @@ function validAttackScenarios() {
     'profile_visibility_hardcode',
     'profile_suspension_hardcode',
     'order_approval_hardcode',
-    'inventory_reservation_hardcode'
+    'inventory_reservation_hardcode',
+    'shipping_eligibility_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -141,6 +142,8 @@ function validAttackScenarios() {
     order_approval_hardcode: 'rulepack_semantic:order_approval_semantic',
     inventory_reservation_hardcode:
       'rulepack_semantic:inventory_reservation_semantic',
+    shipping_eligibility_hardcode:
+      'rulepack_semantic:shipping_eligibility_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -2625,7 +2628,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.profile_visibility_hardcode',
         'attack_scenarios.profile_suspension_hardcode',
         'attack_scenarios.order_approval_hardcode',
-        'attack_scenarios.inventory_reservation_hardcode'
+        'attack_scenarios.inventory_reservation_hardcode',
+        'attack_scenarios.shipping_eligibility_hardcode'
       ])
     });
     expect(releaseGateExitCode(invalidAttackEvidenceReport)).toBe(1);
