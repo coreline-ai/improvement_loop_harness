@@ -232,6 +232,38 @@ describe('GitHub release evidence audit', () => {
         ]
       })
     );
+    expect(report.github.artifact_inventory).toEqual(
+      expect.objectContaining({
+        checked: true,
+        artifact_count: 1,
+        matching_count: 1,
+        replay_ready_matching_count: 1,
+        replay_blocked_matching_count: 0,
+        all_matching_replay_ready: true,
+        matching_artifacts: [
+          expect.objectContaining({
+            name: 'uat-evidence-123-2',
+            digest: SHA256_A,
+            replay_ready: true
+          })
+        ]
+      })
+    );
+    expect(report.reproducibility).toEqual(
+      expect.objectContaining({
+        download_directory: outputDir,
+        artifact_inventory_checked: true,
+        selected_artifact_count: 1,
+        selected_artifact_names: ['uat-evidence-123-2'],
+        selected_artifact_digests: [SHA256_A],
+        all_selected_artifacts_replay_ready: true,
+        audit_status: 'pass',
+        audit_required_count: 1,
+        audit_passed_count: 1,
+        audit_failed_count: 0,
+        artifact_bound_replay: true
+      })
+    );
     expect(report.audit).toEqual(
       expect.objectContaining({
         status: 'pass',
@@ -362,7 +394,23 @@ describe('GitHub release evidence audit', () => {
       expect.objectContaining({
         run_id: '999',
         run_attempt: '4',
-        run_selection: expect.objectContaining({ source: 'environment' })
+        run_selection: expect.objectContaining({ source: 'environment' }),
+        artifact_inventory: expect.objectContaining({
+          checked: false,
+          reason: 'artifact_lookup_not_requested'
+        })
+      })
+    );
+    expect(report.reproducibility).toEqual(
+      expect.objectContaining({
+        artifact_inventory_checked: false,
+        artifact_inventory_reason: 'artifact_lookup_not_requested',
+        selected_artifact_count: null,
+        selected_artifact_names: [],
+        selected_artifact_digests: [],
+        all_selected_artifacts_replay_ready: null,
+        audit_status: 'pass',
+        artifact_bound_replay: false
       })
     );
   });

@@ -133,6 +133,76 @@ function summarizeArtifact(artifact, options = {}) {
   };
 }
 
+function buildArtifactInventorySummary(attempt) {
+  const lookup = attempt?.artifact_lookup;
+  if (!lookup) {
+    return {
+      checked: false,
+      reason: 'artifact_lookup_not_requested',
+      artifact_count: null,
+      matching_count: null,
+      replay_ready_matching_count: null,
+      replay_blocked_matching_count: null,
+      all_matching_replay_ready: null,
+      matching_artifacts: []
+    };
+  }
+  if (!lookup.ok) {
+    return {
+      checked: false,
+      reason: lookup.reason ?? 'artifact_lookup_failed',
+      artifact_count: null,
+      matching_count: null,
+      replay_ready_matching_count: null,
+      replay_blocked_matching_count: null,
+      all_matching_replay_ready: null,
+      matching_artifacts: []
+    };
+  }
+  return {
+    checked: true,
+    artifact_count: lookup.artifact_count,
+    matching_count: lookup.matching_count,
+    replay_ready_matching_count: lookup.replay_ready_matching_count,
+    replay_blocked_matching_count: lookup.replay_blocked_matching_count,
+    all_matching_replay_ready: lookup.all_matching_replay_ready,
+    matching_artifacts: lookup.matching_artifacts ?? []
+  };
+}
+
+function buildReproducibilitySummary({
+  downloadDir,
+  selectedAttempt,
+  audit
+}) {
+  const artifactInventory = buildArtifactInventorySummary(selectedAttempt);
+  const selectedArtifacts = artifactInventory.matching_artifacts;
+  return {
+    download_directory: downloadDir,
+    artifact_inventory_checked: artifactInventory.checked,
+    artifact_inventory_reason: artifactInventory.reason ?? null,
+    selected_artifact_count: artifactInventory.checked
+      ? artifactInventory.matching_count
+      : null,
+    selected_artifact_names: selectedArtifacts
+      .map((artifact) => artifact.name)
+      .filter(Boolean),
+    selected_artifact_digests: selectedArtifacts
+      .map((artifact) => artifact.digest)
+      .filter(Boolean),
+    all_selected_artifacts_replay_ready:
+      artifactInventory.all_matching_replay_ready,
+    audit_status: audit.status,
+    audit_required_count: audit.audit_summary?.required_count ?? null,
+    audit_passed_count: audit.audit_summary?.passed_count ?? null,
+    audit_failed_count: audit.audit_summary?.failed_count ?? null,
+    artifact_bound_replay:
+      audit.status === 'pass' &&
+      artifactInventory.checked === true &&
+      artifactInventory.all_matching_replay_ready === true
+  };
+}
+
 function defaultRunId(env = process.env) {
   return env.VIBELOOP_GITHUB_RUN_ID ?? env.GITHUB_RUN_ID;
 }
@@ -483,18 +553,36 @@ export async function buildGitHubReleaseEvidenceAuditReport(options = {}) {
     scenarioNames: options.scenarioNames,
     allReleaseEvidence: options.allReleaseEvidence
   });
+  const selectedAttempt =
+    attemptedDownloads.find(
+      (attempt) =>
+        attempt.ok &&
+        attempt.run_id === selected.run_id &&
+        attempt.run_attempt === selected.run_attempt &&
+        attempt.artifact_pattern === selected.artifact_pattern
+    ) ?? null;
+  const artifactInventory = buildArtifactInventorySummary(selectedAttempt);
+  const reproducibility = buildReproducibilitySummary({
+    downloadDir,
+    selectedAttempt,
+    audit
+  });
 
   return {
     status: audit.status,
     scenario: 'release-evidence-audit-gh',
     mode: 'github-actions-artifact-evidence-only',
-    github,
+    github: {
+      ...github,
+      artifact_inventory: artifactInventory
+    },
     download: {
       directory: downloadDir,
       command: ['gh', ...downloadArgs],
       attempts: attemptedDownloads,
       ...commandSummary(download)
     },
+    reproducibility,
     audit,
     next_step:
       audit.status === 'pass'
