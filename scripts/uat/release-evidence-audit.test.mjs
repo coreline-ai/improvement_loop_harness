@@ -1643,6 +1643,214 @@ describe('release evidence audit', () => {
     );
   });
 
+  it('keeps real Codex semantic source repair corpus audit explicit and requires semantic evidence', async () => {
+    const scenario = 'repo-matrix-real-project-semantic-source-repair-uat';
+    const selected = selectReleaseEvidenceAuditScenarios({
+      scenarioNames: [scenario]
+    });
+    expect(selected).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        scenario,
+        expected_status: 'REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_PASS',
+        expected_ledger: {
+          min_cell_count: 2,
+          min_pass_count: 2,
+          max_fail_count: 0,
+          required_codex_repair_smoke: true,
+          required_existing_source_repair: true,
+          required_semantic_source_repair: true,
+          required_semantic_bug_repair: true,
+          required_source_code_repair: true,
+          required_real_llm_modification: true,
+          required_hidden_acceptance: true,
+          required_source_repos_read_only: true,
+          required_no_draft_pr: true
+        }
+      })
+    ]);
+    expect(
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).toContain(scenario);
+    expect(
+      ALL_RELEASE_EVIDENCE_AUDIT_SCENARIOS.map((item) => item.scenario)
+    ).not.toContain(scenario);
+
+    const root = await tempRoot();
+    await writeLedger(root, scenario, 'semantic-source-repair-run', {
+      status: 'REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_PASS',
+      evidence_missing_count: 0,
+      codex_repair_smoke: true,
+      existing_source_repair_smoke: true,
+      semantic_source_repair_smoke: true,
+      source_code_repair: true,
+      existing_source_repair: true,
+      semantic_source_repair: true,
+      semantic_bug_repair: true,
+      llm_modification: true,
+      hidden_acceptance: true,
+      source_repos_read_only: true,
+      draft_pr: false,
+      builder: {
+        real_llm: true,
+        provider: 'codex',
+        model: 'gpt-5.5'
+      },
+      cell_count: 2,
+      pass_count: 2,
+      fail_count: 0,
+      cells: [
+        {
+          id: 'sampleproject',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            repair_source: 'src/sample/simple.py',
+            existing_source: true,
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'arithmetic_increment',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'loop-harness',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            repair_source: 'scripts/uat/product-100-corpus.mjs',
+            existing_source: true,
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'product_100_corpus_summary',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        }
+      ]
+    });
+    await writeManifest(root, scenario, 'semantic-source-repair-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.evidence).toEqual([
+      expect.objectContaining({
+        gate: 'P5',
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          status: 'REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_PASS',
+          codex_repair_smoke: true,
+          existing_source_repair: true,
+          semantic_source_repair: true,
+          semantic_bug_repair: true,
+          source_code_repair: true,
+          llm_modification: true,
+          hidden_acceptance: true,
+          source_repos_read_only: true,
+          draft_pr: false
+        })
+      })
+    ]);
+
+    await writeLedger(
+      root,
+      scenario,
+      'semantic-source-repair-weakened-run',
+      {
+        status: 'REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_PASS',
+        evidence_missing_count: 0,
+        codex_repair_smoke: true,
+        existing_source_repair_smoke: true,
+        semantic_source_repair_smoke: false,
+        source_code_repair: true,
+        existing_source_repair: true,
+        semantic_source_repair: false,
+        semantic_bug_repair: false,
+        llm_modification: true,
+        hidden_acceptance: true,
+        source_repos_read_only: true,
+        draft_pr: false,
+        builder: {
+          real_llm: true,
+          provider: 'codex',
+          model: 'gpt-5.5'
+        },
+        cell_count: 2,
+        pass_count: 2,
+        fail_count: 0,
+        cells: [
+          {
+            id: 'sampleproject',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/sample/simple.py',
+              existing_source: true,
+              semantic_source_repair: false,
+              semantic_bug_repair: false,
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'loop-harness',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'scripts/uat/product-100-corpus.mjs',
+              existing_source: true,
+              semantic_source_repair: true,
+              semantic_bug_repair: true,
+              semantic_domain: 'product_100_corpus_summary',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          }
+        ]
+      },
+      new Date(Date.now() + 1000)
+    );
+    await writeManifest(root, scenario, 'semantic-source-repair-weakened-run');
+
+    const weakenedReport = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(weakenedReport.status).toBe('fail');
+    expect(weakenedReport.evidence[0].ledger_failures).toEqual(
+      expect.arrayContaining([
+        'semantic_source_repair',
+        'semantic_bug_repair',
+        'cells.sampleproject.codex_repair.semantic_source_repair',
+        'cells.sampleproject.codex_repair.semantic_bug_repair',
+        'cells.sampleproject.codex_repair.semantic_domain'
+      ])
+    );
+  });
+
   it('keeps real Codex existing-source repair draft PR corpus audit explicit and requires PR evidence', async () => {
     const scenario = 'repo-matrix-real-project-existing-source-repair-pr-uat';
     const selected = selectReleaseEvidenceAuditScenarios({

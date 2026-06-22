@@ -40,6 +40,7 @@
     "uat:repo-matrix:real-project-business-repair": "corepack pnpm build && node scripts/uat/repo-matrix-real-project-corpus-uat.mjs --business-repair-smoke",
     "uat:repo-matrix:real-project-existing-source-repair": "corepack pnpm build && node scripts/uat/repo-matrix-real-project-corpus-uat.mjs --existing-source-repair-smoke",
     "uat:repo-matrix:real-project-existing-source-repair-pr": "corepack pnpm build && node scripts/uat/repo-matrix-real-project-corpus-uat.mjs --existing-source-repair-pr-smoke",
+    "uat:repo-matrix:real-project-semantic-source-repair": "corepack pnpm build && node scripts/uat/repo-matrix-real-project-corpus-uat.mjs --semantic-source-repair-smoke",
     "uat:repo-matrix:codex-broad-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-broad-codex-live-uat.mjs",
     "uat:repo-matrix:codex-monorepo-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-monorepo-codex-live-uat.mjs",
     "uat:repo-matrix:codex-python-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/repo-matrix-python-codex-live-uat.mjs",

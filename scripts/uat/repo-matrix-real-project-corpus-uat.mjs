@@ -24,6 +24,8 @@ const EXISTING_SOURCE_REPAIR_SCENARIO =
   'repo-matrix-real-project-existing-source-repair-uat';
 const EXISTING_SOURCE_REPAIR_PR_SCENARIO =
   'repo-matrix-real-project-existing-source-repair-pr-uat';
+const SEMANTIC_SOURCE_REPAIR_SCENARIO =
+  'repo-matrix-real-project-semantic-source-repair-uat';
 const READ_ONLY_PASS_STATUS = 'REAL_PROJECT_CORPUS_PASS';
 const READ_ONLY_FAIL_STATUS = 'REAL_PROJECT_CORPUS_FAIL';
 const MODIFIABLE_COPY_PASS_STATUS = 'REAL_PROJECT_MODIFIABLE_CORPUS_PASS';
@@ -42,6 +44,10 @@ const EXISTING_SOURCE_REPAIR_PR_PASS_STATUS =
   'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PR_PASS';
 const EXISTING_SOURCE_REPAIR_PR_FAIL_STATUS =
   'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PR_FAIL';
+const SEMANTIC_SOURCE_REPAIR_PASS_STATUS =
+  'REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_PASS';
+const SEMANTIC_SOURCE_REPAIR_FAIL_STATUS =
+  'REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_FAIL';
 const BLOCKED_EXIT = 20;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_CODEX_TIMEOUT_MS = 180_000;
@@ -650,6 +656,143 @@ function buildExistingSourceHiddenVerifier({ sourcePath }) {
     '}',
     ''
   ].join('\n');
+}
+
+function buildSampleProjectAddOneVerifier(cases) {
+  return [
+    'import pathlib',
+    '',
+    'root = pathlib.Path.cwd()',
+    'source_path = root / "src" / "sample" / "simple.py"',
+    'namespace = {}',
+    'exec(compile(source_path.read_text(), str(source_path), "exec"), namespace)',
+    'add_one = namespace["add_one"]',
+    '',
+    `cases = ${JSON.stringify(cases)}`,
+    'for value, expected in cases:',
+    '    actual = add_one(value)',
+    '    if actual != expected:',
+    '        raise AssertionError(f"add_one({value}) expected {expected}, got {actual}")',
+    ''
+  ].join('\n');
+}
+
+function buildProduct100CorpusVerifier(expectedSummary) {
+  return [
+    "import { pathToFileURL } from 'node:url';",
+    '',
+    'const sourceUrl = pathToFileURL(`${process.cwd()}/scripts/uat/product-100-corpus.mjs`).href;',
+    'const mod = await import(sourceUrl);',
+    "const spec = mod.buildProduct100CorpusSpec({ generatedAt: 'semantic-source-repair' });",
+    'const summary = mod.summarizeProduct100Corpus(spec);',
+    `const expected = ${JSON.stringify(expectedSummary, null, 2)};`,
+    '',
+    'for (const [key, value] of Object.entries(expected)) {',
+    '  if (summary[key] !== value) {',
+    '    throw new Error(`${key}: expected ${value}, got ${summary[key]}`);',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
+const SEMANTIC_SOURCE_REPAIR_TARGETS = [
+  {
+    id: 'sampleproject-add-one',
+    semantic_domain: 'arithmetic_increment',
+    relativePath: 'src/sample/simple.py',
+    language: 'python',
+    originalNeedle: 'return number + 1',
+    regressionText: 'return number - 1',
+    visibleCommand: (filePath) => ({ command: 'python3', args: [filePath] }),
+    buildVisibleVerifier: () =>
+      buildSampleProjectAddOneVerifier([
+        [41, 42],
+        [1, 2]
+      ]),
+    buildHiddenVerifier: () =>
+      buildSampleProjectAddOneVerifier([
+        [-1, 0],
+        [0, 1],
+        [999, 1000]
+      ])
+  },
+  {
+    id: 'product100-corpus-summary',
+    semantic_domain: 'product_100_corpus_summary',
+    relativePath: 'scripts/uat/product-100-corpus.mjs',
+    language: 'javascript',
+    originalNeedle: 'issue_count: issues.length,',
+    regressionText: 'issue_count: 0,',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildProduct100CorpusVerifier({
+        issue_count: 10
+      }),
+    buildHiddenVerifier: () =>
+      buildProduct100CorpusVerifier({
+        repo_count: 5,
+        issue_count: 10,
+        hidden_eval_count: 10,
+        every_issue_has_visible_test: true,
+        every_issue_has_hidden_test: true,
+        every_issue_has_adversary_seed: true,
+        every_issue_has_write_scope: true
+      })
+  }
+];
+
+function buildSemanticSourceRepairPrompt({
+  targetFile,
+  targetId,
+  semanticDomain,
+  visibleCommand
+}) {
+  return [
+    'You are operating in a temporary clone of an existing real user project.',
+    `Only edit this existing tracked source file: ${targetFile}`,
+    'Do not edit tests, verifier files, fixtures, package files, lockfiles, configuration, generated files, git history, or any other file.',
+    '',
+    `A semantic regression was deliberately introduced into target ${targetId} (${semanticDomain}).`,
+    'Repair the existing source behavior while keeping the change minimal and scoped to the target file.',
+    `Run this visible semantic verifier: ${visibleCommand}`,
+    'The visible verifier is not the full acceptance suite. Implement the general behavior, not a hardcoded answer for the visible cases.',
+    '',
+    'Finish after the existing source semantic behavior is fixed.'
+  ].join('\n');
+}
+
+async function selectSemanticSourceRepairTarget(clonePath) {
+  for (const target of SEMANTIC_SOURCE_REPAIR_TARGETS) {
+    const filePath = path.join(clonePath, target.relativePath);
+    let fileStat;
+    try {
+      fileStat = await stat(filePath);
+    } catch {
+      continue;
+    }
+    if (!fileStat.isFile() || fileStat.size <= 0 || fileStat.size > 500_000) {
+      continue;
+    }
+    const sourceText = await readFile(filePath, 'utf8');
+    if (!sourceText.includes(target.originalNeedle)) {
+      continue;
+    }
+    return {
+      target: {
+        ...target,
+        filePath
+      },
+      failures: []
+    };
+  }
+  return {
+    target: null,
+    failures: ['no_curated_semantic_source_repair_target']
+  };
 }
 
 function parseCodexProbe(text) {
@@ -1860,6 +2003,324 @@ async function runCodexExistingSourceRepairSmoke(
   };
 }
 
+async function runCodexSemanticSourceRepairSmoke(
+  sourceRepoPath,
+  cellId,
+  tmpRoot,
+  options = {}
+) {
+  const cloneRoot = path.join(tmpRoot, 'semantic-source-repair-copies');
+  const clonePath = path.join(cloneRoot, cellId);
+  const logDir = path.join(tmpRoot, 'semantic-source-repair-logs', cellId);
+  const repairId = `real-project-semantic-source-repair-${cellId}`;
+  const failures = [];
+  await mkdir(cloneRoot, { recursive: true });
+  await mkdir(logDir, { recursive: true });
+
+  const [sourceHeadBefore, sourceStatusBefore] = await Promise.all([
+    git(sourceRepoPath, ['rev-parse', 'HEAD']),
+    git(sourceRepoPath, ['status', '--porcelain=v1'])
+  ]);
+
+  const clone = await git(
+    REPO_ROOT,
+    ['clone', '--quiet', '--no-hardlinks', '--', sourceRepoPath, clonePath],
+    { timeoutMs: 120_000 }
+  );
+  if (clone.code !== 0) {
+    return {
+      status: 'fail',
+      failures: ['clone_failed'],
+      clone_exit_code: clone.code,
+      clone_stderr: redact(clone.stderr).slice(0, 800)
+    };
+  }
+
+  const targetSelection = await selectSemanticSourceRepairTarget(clonePath);
+  const target = targetSelection.target;
+  if (!target) {
+    return {
+      status: 'fail',
+      source_repo_path_hash: pathHash(sourceRepoPath),
+      clone_path_hash: pathHash(clonePath),
+      semantic_source_repair: true,
+      semantic_bug_repair: true,
+      existing_source: true,
+      failures: targetSelection.failures
+    };
+  }
+
+  const visibleVerifierFile = await writeTextFile(
+    path.join(
+      logDir,
+      `${repairId}-visible-verifier.${target.language === 'python' ? 'py' : 'mjs'}`
+    ),
+    target.buildVisibleVerifier()
+  );
+  const hiddenVerifierFile = await writeTextFile(
+    path.join(
+      logDir,
+      `${repairId}-hidden-verifier.${target.language === 'python' ? 'py' : 'mjs'}`
+    ),
+    target.buildHiddenVerifier()
+  );
+  const visibleCommand = target.visibleCommand(visibleVerifierFile);
+  const hiddenCommand = target.visibleCommand(hiddenVerifierFile);
+  const visibleCommandText = [
+    visibleCommand.command,
+    ...visibleCommand.args.map((arg) => JSON.stringify(arg))
+  ].join(' ');
+
+  const originalText = await readFile(target.filePath, 'utf8');
+  const originalHash = await fileHash(target.filePath);
+  const originalVisible = await runCommand(
+    visibleCommand.command,
+    visibleCommand.args,
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const originalHidden = await runCommand(
+    hiddenCommand.command,
+    hiddenCommand.args,
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const originalVisibleLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-original-visible.json`),
+    originalVisible
+  );
+  const originalHiddenLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-original-hidden.json`),
+    originalHidden
+  );
+  if (originalVisible.code !== 0) {
+    failures.push('original_semantic_visible_check_failed');
+  }
+  if (originalHidden.code !== 0) {
+    failures.push('original_semantic_hidden_check_failed');
+  }
+
+  const regressedText = originalText.replace(
+    target.originalNeedle,
+    target.regressionText
+  );
+  if (regressedText === originalText) {
+    failures.push('semantic_regression_not_applied');
+  }
+  await writeFile(target.filePath, regressedText);
+  const seedAdd = await git(clonePath, ['add', '--', target.relativePath]);
+  const seedCommit = await git(clonePath, [
+    '-c',
+    'user.name=VibeLoop UAT',
+    '-c',
+    'user.email=vibeloop-uat@example.invalid',
+    '-c',
+    'commit.gpgsign=false',
+    'commit',
+    '--no-verify',
+    '-m',
+    'seed vibeloop semantic source regression'
+  ]);
+  const seedStatus = await git(clonePath, ['status', '--porcelain=v1']);
+  if (seedAdd.code !== 0) failures.push('seed_regression_add_failed');
+  if (seedCommit.code !== 0) failures.push('seed_regression_commit_failed');
+  if (seedStatus.code !== 0 || seedStatus.stdout.trim()) {
+    failures.push('seed_regression_dirty');
+  }
+  if (failures.length > 0) {
+    return {
+      status: 'fail',
+      source_repo_path_hash: pathHash(sourceRepoPath),
+      clone_path_hash: pathHash(clonePath),
+      repair_source: target.relativePath,
+      semantic_source_repair: true,
+      semantic_bug_repair: true,
+      semantic_domain: target.semantic_domain,
+      semantic_target_id: target.id,
+      existing_source: true,
+      failures,
+      seed: {
+        add_exit_code: seedAdd.code,
+        commit_exit_code: seedCommit.code,
+        status: redact(seedStatus.stdout).slice(0, 400),
+        stderr: {
+          add: redact(seedAdd.stderr).slice(0, 400),
+          commit: redact(seedCommit.stderr).slice(0, 800)
+        }
+      }
+    };
+  }
+
+  const regressedHash = await fileHash(target.filePath);
+  const regressedVisible = await runCommand(
+    visibleCommand.command,
+    visibleCommand.args,
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const regressedHidden = await runCommand(
+    hiddenCommand.command,
+    hiddenCommand.args,
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const regressedVisibleLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-regressed-visible.json`),
+    regressedVisible
+  );
+  const regressedHiddenLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-regressed-hidden.json`),
+    regressedHidden
+  );
+  if (regressedVisible.code === 0) {
+    failures.push('regressed_visible_unexpected_pass');
+  }
+  if (regressedHidden.code === 0) {
+    failures.push('regressed_hidden_unexpected_pass');
+  }
+
+  const codex = await runCodexPrompt({
+    clonePath,
+    requestId: repairId,
+    prompt: buildSemanticSourceRepairPrompt({
+      targetFile: target.relativePath,
+      targetId: target.id,
+      semanticDomain: target.semantic_domain,
+      visibleCommand: visibleCommandText
+    }),
+    model: options.codexModel,
+    timeoutMs: options.codexTimeoutMs,
+    logDir
+  });
+  if (codex.code !== 0) failures.push('codex_exec_failed');
+  if (codex.timedOut) failures.push('codex_exec_timeout');
+
+  const finalVisible = await runCommand(
+    visibleCommand.command,
+    visibleCommand.args,
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const finalHidden = await runCommand(
+    hiddenCommand.command,
+    hiddenCommand.args,
+    { cwd: clonePath, timeoutMs: DEFAULT_TIMEOUT_MS }
+  );
+  const finalVisibleLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-final-visible.json`),
+    finalVisible
+  );
+  const finalHiddenLog = await writeCommandResultLog(
+    path.join(logDir, `${repairId}-final-hidden.json`),
+    finalHidden
+  );
+  if (finalVisible.code !== 0) failures.push('visible_acceptance_failed');
+  if (finalHidden.code !== 0) failures.push('hidden_acceptance_failed');
+
+  const finalHash = await fileHash(target.filePath);
+  if (regressedHash === finalHash) failures.push('source_not_changed');
+  const statusAfter = await git(clonePath, ['status', '--porcelain=v1']);
+  const diffCheck = await git(clonePath, ['diff', '--check']);
+  const changedFiles = statusAfter.stdout
+    .split(/\r?\n/)
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean)
+    .sort();
+  const expectedChangedFiles = [target.relativePath];
+  if (JSON.stringify(changedFiles) !== JSON.stringify(expectedChangedFiles)) {
+    failures.push('diff_scope_not_semantic_source_only');
+  }
+  if (diffCheck.code !== 0) failures.push('diff_check_failed');
+
+  const [sourceHeadAfter, sourceStatusAfter] = await Promise.all([
+    git(sourceRepoPath, ['rev-parse', 'HEAD']),
+    git(sourceRepoPath, ['status', '--porcelain=v1'])
+  ]);
+  const sourceRepoIntegrity =
+    sourceHeadBefore.code === 0 &&
+    sourceHeadAfter.code === 0 &&
+    sourceHeadBefore.stdout.trim() === sourceHeadAfter.stdout.trim() &&
+    sourceStatusBefore.code === 0 &&
+    sourceStatusAfter.code === 0 &&
+    sourceStatusBefore.stdout === sourceStatusAfter.stdout;
+  if (!sourceRepoIntegrity) failures.push('source_repo_integrity_failed');
+
+  return {
+    status: failures.length === 0 ? 'pass' : 'fail',
+    source_repo_path_hash: pathHash(sourceRepoPath),
+    clone_path_hash: pathHash(clonePath),
+    provider: 'codex',
+    real_llm: true,
+    model: options.codexModel,
+    repair_source: target.relativePath,
+    semantic_source_repair: true,
+    semantic_bug_repair: true,
+    semantic_domain: target.semantic_domain,
+    semantic_target_id: target.id,
+    existing_source: true,
+    existing_source_language: target.language,
+    visible_check_command: [visibleCommand.command, ...visibleCommand.args],
+    base_acceptance: {
+      original_visible_status: originalVisible.code === 0 ? 'pass' : 'fail',
+      original_hidden_status: originalHidden.code === 0 ? 'pass' : 'fail',
+      visible_status:
+        regressedVisible.code === 0 ? 'unexpected_pass' : 'expected_fail',
+      hidden_status:
+        regressedHidden.code === 0 ? 'unexpected_pass' : 'expected_fail',
+      original_visible_log: originalVisibleLog,
+      original_hidden_log: originalHiddenLog,
+      visible_log: regressedVisibleLog,
+      hidden_log: regressedHiddenLog
+    },
+    visible_acceptance: {
+      status: finalVisible.code === 0 ? 'pass' : 'fail',
+      log: finalVisibleLog
+    },
+    hidden_acceptance: {
+      status: finalHidden.code === 0 ? 'pass' : 'fail',
+      checked: true,
+      verifier_file: hiddenVerifierFile,
+      log: finalHiddenLog
+    },
+    diff_scope: {
+      status:
+        JSON.stringify(changedFiles) === JSON.stringify(expectedChangedFiles)
+          ? 'pass'
+          : 'fail',
+      changed_files: changedFiles,
+      expected_files: expectedChangedFiles
+    },
+    source_changed: regressedHash !== finalHash,
+    original_source_hash: originalHash,
+    regressed_source_hash: regressedHash,
+    final_source_hash: finalHash,
+    final_matches_original: originalHash === finalHash,
+    visible_test_unchanged: true,
+    source_repo_integrity: {
+      status: sourceRepoIntegrity ? 'pass' : 'fail',
+      head_unchanged:
+        sourceHeadBefore.stdout.trim() === sourceHeadAfter.stdout.trim(),
+      status_unchanged: sourceStatusBefore.stdout === sourceStatusAfter.stdout
+    },
+    diff_check_status: diffCheck.code === 0 ? 'pass' : 'fail',
+    codex: {
+      status: codex.code === 0 && !codex.timedOut ? 'pass' : 'fail',
+      exit_code: codex.code,
+      timed_out: codex.timedOut,
+      stdout_file: codex.stdout_file,
+      stderr_file: codex.stderr_file,
+      output_file: codex.output_file
+    },
+    evidence_files: {
+      final_source: target.filePath,
+      visible_verifier: visibleVerifierFile,
+      hidden_verifier: hiddenVerifierFile,
+      original_visible_log: originalVisibleLog,
+      original_hidden_log: originalHiddenLog,
+      regressed_visible_log: regressedVisibleLog,
+      regressed_hidden_log: regressedHiddenLog,
+      final_visible_log: finalVisibleLog,
+      final_hidden_log: finalHiddenLog
+    },
+    failures
+  };
+}
+
 async function analyzeRepo(repoPath, index, options = {}) {
   const resolved = path.resolve(repoPath);
   const id = `${slug(path.basename(resolved))}-${pathHash(resolved)}`;
@@ -1948,8 +2409,14 @@ async function analyzeRepo(repoPath, index, options = {}) {
   if (codexCopy && codexCopy.status !== 'pass') {
     failures.push('codex_copy_smoke_failed');
   }
-  const codexRepair =
-    options.codexRepairSmoke || options.businessRepairSmoke
+  const codexRepair = options.semanticSourceRepairSmoke
+    ? await runCodexSemanticSourceRepairSmoke(
+        resolved,
+        `${index}-${id}`,
+        options.tmpRoot,
+        options
+      )
+    : options.codexRepairSmoke || options.businessRepairSmoke
       ? await runCodexRepairSmoke(
           resolved,
           `${index}-${id}`,
@@ -2038,6 +2505,8 @@ function parseArgs(argv, env = process.env) {
     env.VIBELOOP_REAL_PROJECT_CORPUS_EXISTING_SOURCE_REPAIR_SMOKE === '1';
   let existingSourceRepairPrSmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_EXISTING_SOURCE_REPAIR_PR_SMOKE === '1';
+  let semanticSourceRepairSmoke =
+    env.VIBELOOP_REAL_PROJECT_CORPUS_SEMANTIC_SOURCE_REPAIR_SMOKE === '1';
   let codexModel = env.VIBELOOP_REAL_PROJECT_CODEX_MODEL || 'gpt-5.5';
   let codexTimeoutMs = Number(
     env.VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS || DEFAULT_CODEX_TIMEOUT_MS
@@ -2095,6 +2564,10 @@ function parseArgs(argv, env = process.env) {
       existingSourceRepairPrSmoke = true;
       continue;
     }
+    if (arg === '--semantic-source-repair-smoke') {
+      semanticSourceRepairSmoke = true;
+      continue;
+    }
     if (arg === '--codex-model') {
       const value = argv[index + 1];
       if (!value) throw new Error('--codex-model requires a value');
@@ -2144,6 +2617,7 @@ function parseArgs(argv, env = process.env) {
     businessRepairSmoke,
     existingSourceRepairSmoke,
     existingSourceRepairPrSmoke,
+    semanticSourceRepairSmoke,
     codexModel,
     codexTimeoutMs,
     githubOwner,
@@ -2250,52 +2724,59 @@ async function main() {
     options.codexRepairSmoke,
     options.businessRepairSmoke,
     options.existingSourceRepairSmoke,
-    options.existingSourceRepairPrSmoke
+    options.existingSourceRepairPrSmoke,
+    options.semanticSourceRepairSmoke
   ].filter(Boolean).length;
   if (codexModeCount > 1) {
     throw new Error(
-      '--codex-copy-smoke, --codex-repair-smoke, --business-repair-smoke, --existing-source-repair-smoke, and --existing-source-repair-pr-smoke are mutually exclusive'
+      '--codex-copy-smoke, --codex-repair-smoke, --business-repair-smoke, --existing-source-repair-smoke, --existing-source-repair-pr-smoke, and --semantic-source-repair-smoke are mutually exclusive'
     );
   }
   const scenario = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_SCENARIO
-    : options.existingSourceRepairSmoke
-      ? EXISTING_SOURCE_REPAIR_SCENARIO
-      : options.businessRepairSmoke
-        ? BUSINESS_REPAIR_SCENARIO
-        : options.codexRepairSmoke
-          ? CODEX_REPAIR_SCENARIO
-          : options.codexCopySmoke
-            ? CODEX_COPY_SCENARIO
-            : options.modifiableCopySmoke
-              ? MODIFIABLE_COPY_SCENARIO
-              : READ_ONLY_SCENARIO;
+    : options.semanticSourceRepairSmoke
+      ? SEMANTIC_SOURCE_REPAIR_SCENARIO
+      : options.existingSourceRepairSmoke
+        ? EXISTING_SOURCE_REPAIR_SCENARIO
+        : options.businessRepairSmoke
+          ? BUSINESS_REPAIR_SCENARIO
+          : options.codexRepairSmoke
+            ? CODEX_REPAIR_SCENARIO
+            : options.codexCopySmoke
+              ? CODEX_COPY_SCENARIO
+              : options.modifiableCopySmoke
+                ? MODIFIABLE_COPY_SCENARIO
+                : READ_ONLY_SCENARIO;
   const passStatus = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_PASS_STATUS
-    : options.existingSourceRepairSmoke
-      ? EXISTING_SOURCE_REPAIR_PASS_STATUS
-      : options.businessRepairSmoke
-        ? BUSINESS_REPAIR_PASS_STATUS
-        : options.codexRepairSmoke
-          ? CODEX_REPAIR_PASS_STATUS
-          : options.codexCopySmoke
-            ? CODEX_COPY_PASS_STATUS
-            : options.modifiableCopySmoke
-              ? MODIFIABLE_COPY_PASS_STATUS
-              : READ_ONLY_PASS_STATUS;
+    : options.semanticSourceRepairSmoke
+      ? SEMANTIC_SOURCE_REPAIR_PASS_STATUS
+      : options.existingSourceRepairSmoke
+        ? EXISTING_SOURCE_REPAIR_PASS_STATUS
+        : options.businessRepairSmoke
+          ? BUSINESS_REPAIR_PASS_STATUS
+          : options.codexRepairSmoke
+            ? CODEX_REPAIR_PASS_STATUS
+            : options.codexCopySmoke
+              ? CODEX_COPY_PASS_STATUS
+              : options.modifiableCopySmoke
+                ? MODIFIABLE_COPY_PASS_STATUS
+                : READ_ONLY_PASS_STATUS;
   const failStatus = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_FAIL_STATUS
-    : options.existingSourceRepairSmoke
-      ? EXISTING_SOURCE_REPAIR_FAIL_STATUS
-      : options.businessRepairSmoke
-        ? BUSINESS_REPAIR_FAIL_STATUS
-        : options.codexRepairSmoke
-          ? CODEX_REPAIR_FAIL_STATUS
-          : options.codexCopySmoke
-            ? CODEX_COPY_FAIL_STATUS
-            : options.modifiableCopySmoke
-              ? MODIFIABLE_COPY_FAIL_STATUS
-              : READ_ONLY_FAIL_STATUS;
+    : options.semanticSourceRepairSmoke
+      ? SEMANTIC_SOURCE_REPAIR_FAIL_STATUS
+      : options.existingSourceRepairSmoke
+        ? EXISTING_SOURCE_REPAIR_FAIL_STATUS
+        : options.businessRepairSmoke
+          ? BUSINESS_REPAIR_FAIL_STATUS
+          : options.codexRepairSmoke
+            ? CODEX_REPAIR_FAIL_STATUS
+            : options.codexCopySmoke
+              ? CODEX_COPY_FAIL_STATUS
+              : options.modifiableCopySmoke
+                ? MODIFIABLE_COPY_FAIL_STATUS
+                : READ_ONLY_FAIL_STATUS;
   if (options.repos.length < options.minRepos) {
     const report = {
       status: 'blocked',
@@ -2315,7 +2796,8 @@ async function main() {
     options.codexRepairSmoke ||
     options.businessRepairSmoke ||
     options.existingSourceRepairSmoke ||
-    options.existingSourceRepairPrSmoke
+    options.existingSourceRepairPrSmoke ||
+    options.semanticSourceRepairSmoke
   ) {
     codexPreflight = await codexCopyPreflight(options);
     if (codexPreflight.ok !== true) {
@@ -2364,6 +2846,7 @@ async function main() {
           options.existingSourceRepairSmoke ||
           options.existingSourceRepairPrSmoke,
         existingSourceRepairPrSmoke: options.existingSourceRepairPrSmoke,
+        semanticSourceRepairSmoke: options.semanticSourceRepairSmoke,
         codexModel: options.codexModel,
         codexTimeoutMs: options.codexTimeoutMs,
         tmpRoot,
@@ -2392,37 +2875,42 @@ async function main() {
     run_id: runId,
     mode: options.existingSourceRepairPrSmoke
       ? 'real Codex temp-clone broad real project existing source-code repair + GitHub draft PR smoke'
-      : options.existingSourceRepairSmoke
-        ? 'real Codex temp-clone broad real project existing source-code repair smoke'
-        : options.businessRepairSmoke
-          ? 'real Codex temp-clone broad real project business bug repair fixture smoke'
-          : options.codexRepairSmoke
-            ? 'real Codex temp-clone broad real project source-code repair smoke'
-            : options.codexCopySmoke
-              ? 'real Codex temp-clone broad real project corpus smoke'
-              : options.modifiableCopySmoke
-                ? 'safe modifiable-copy broad real project corpus smoke'
-                : 'read-only broad real project corpus smoke',
+      : options.semanticSourceRepairSmoke
+        ? 'real Codex temp-clone curated real project semantic source repair smoke'
+        : options.existingSourceRepairSmoke
+          ? 'real Codex temp-clone broad real project existing source-code repair smoke'
+          : options.businessRepairSmoke
+            ? 'real Codex temp-clone broad real project business bug repair fixture smoke'
+            : options.codexRepairSmoke
+              ? 'real Codex temp-clone broad real project source-code repair smoke'
+              : options.codexCopySmoke
+                ? 'real Codex temp-clone broad real project corpus smoke'
+                : options.modifiableCopySmoke
+                  ? 'safe modifiable-copy broad real project corpus smoke'
+                  : 'read-only broad real project corpus smoke',
     scope: options.existingSourceRepairPrSmoke
       ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, source repo integrity, and GitHub draft PR publication to temporary private repos; not arbitrary business bug repair or arbitrary-repo product PASS'
-      : options.existingSourceRepairSmoke
-        ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
-        : options.businessRepairSmoke
-          ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated invoice-total business logic fixture; real Codex must repair quantity, discount, tax, and final-rounding semantics in source code only; hidden verifier checks generalized business behavior, diff scope, and source repo integrity; not GitHub draft PR, existing application business-source repair, or arbitrary-repo product PASS'
-          : options.codexRepairSmoke
-            ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
-            : options.codexCopySmoke
-              ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
-              : options.modifiableCopySmoke
-                ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
-                : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
+      : options.semanticSourceRepairSmoke
+        ? 'operator-supplied existing git repositories; source repositories remain read-only; selected temp clones must match curated existing-source semantic targets; each temp clone receives a behavioral regression in that existing tracked source file; real Codex must repair semantic behavior in that file only; visible and hidden verifiers check broader behavior, diff scope, and source repo integrity; not GitHub draft PR, arbitrary business-source coverage, or arbitrary-repo product PASS'
+        : options.existingSourceRepairSmoke
+          ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+          : options.businessRepairSmoke
+            ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated invoice-total business logic fixture; real Codex must repair quantity, discount, tax, and final-rounding semantics in source code only; hidden verifier checks generalized business behavior, diff scope, and source repo integrity; not GitHub draft PR, existing application business-source repair, or arbitrary-repo product PASS'
+            : options.codexRepairSmoke
+              ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+              : options.codexCopySmoke
+                ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
+                : options.modifiableCopySmoke
+                  ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
+                  : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
     read_only:
       !options.modifiableCopySmoke &&
       !options.codexCopySmoke &&
       !options.codexRepairSmoke &&
       !options.businessRepairSmoke &&
       !options.existingSourceRepairSmoke &&
-      !options.existingSourceRepairPrSmoke,
+      !options.existingSourceRepairPrSmoke &&
+      !options.semanticSourceRepairSmoke,
     source_repos_read_only: true,
     modifiable_copy_smoke: options.modifiableCopySmoke,
     codex_copy_smoke: options.codexCopySmoke,
@@ -2430,31 +2918,42 @@ async function main() {
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
-      options.existingSourceRepairPrSmoke,
+      options.existingSourceRepairPrSmoke ||
+      options.semanticSourceRepairSmoke,
     business_repair_smoke: options.businessRepairSmoke,
     business_bug_repair: options.businessRepairSmoke,
     existing_source_repair_smoke:
-      options.existingSourceRepairSmoke || options.existingSourceRepairPrSmoke,
+      options.existingSourceRepairSmoke ||
+      options.existingSourceRepairPrSmoke ||
+      options.semanticSourceRepairSmoke,
     existing_source_repair_pr_smoke: options.existingSourceRepairPrSmoke,
+    semantic_source_repair_smoke: options.semanticSourceRepairSmoke,
     source_code_repair:
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
-      options.existingSourceRepairPrSmoke,
+      options.existingSourceRepairPrSmoke ||
+      options.semanticSourceRepairSmoke,
     existing_source_repair:
-      options.existingSourceRepairSmoke || options.existingSourceRepairPrSmoke,
+      options.existingSourceRepairSmoke ||
+      options.existingSourceRepairPrSmoke ||
+      options.semanticSourceRepairSmoke,
+    semantic_source_repair: options.semanticSourceRepairSmoke,
+    semantic_bug_repair: options.semanticSourceRepairSmoke,
     llm_modification:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
-      options.existingSourceRepairPrSmoke,
+      options.existingSourceRepairPrSmoke ||
+      options.semanticSourceRepairSmoke,
     hidden_acceptance:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
-      options.existingSourceRepairPrSmoke,
+      options.existingSourceRepairPrSmoke ||
+      options.semanticSourceRepairSmoke,
     draft_pr: options.existingSourceRepairPrSmoke,
     github_draft_pr: options.existingSourceRepairPrSmoke,
     github_draft_pr_verified: githubDraftPrVerified,
@@ -2463,7 +2962,8 @@ async function main() {
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
       options.existingSourceRepairSmoke ||
-      options.existingSourceRepairPrSmoke
+      options.existingSourceRepairPrSmoke ||
+      options.semanticSourceRepairSmoke
         ? {
             real_llm: true,
             provider: 'codex',
@@ -2499,12 +2999,15 @@ async function main() {
           options.codexRepairSmoke ||
           options.businessRepairSmoke ||
           options.existingSourceRepairSmoke ||
-          options.existingSourceRepairPrSmoke,
+          options.existingSourceRepairPrSmoke ||
+          options.semanticSourceRepairSmoke,
         business_repair_smoke: options.businessRepairSmoke,
         business_bug_repair: options.businessRepairSmoke,
         existing_source_repair_smoke:
           options.existingSourceRepairSmoke ||
-          options.existingSourceRepairPrSmoke,
+          options.existingSourceRepairPrSmoke ||
+          options.semanticSourceRepairSmoke,
+        semantic_source_repair_smoke: options.semanticSourceRepairSmoke,
         existing_source_repair_pr_smoke: options.existingSourceRepairPrSmoke,
         modifiable_copy_smoke: options.modifiableCopySmoke
       }
