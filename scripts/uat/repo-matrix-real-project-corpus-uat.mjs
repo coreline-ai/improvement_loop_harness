@@ -142,6 +142,20 @@ async function git(cwd, args, options = {}) {
   return runCommand('git', args, { cwd, ...options });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function commandSummary(result, maxChars = 800) {
+  if (!result) return null;
+  return {
+    exit_code: result.code,
+    timed_out: result.timedOut,
+    stdout: redact(result.stdout).trim().slice(0, maxChars),
+    stderr: redact(result.stderr).trim().slice(0, maxChars)
+  };
+}
+
 async function isDirectory(filePath) {
   try {
     return (await stat(filePath)).isDirectory();
@@ -805,13 +819,22 @@ async function publishExistingSourceRepairDraftPr({
   let created = null;
   let repoExists = false;
   let publishHistory = null;
+  let renameBase = null;
+  let remoteRemove = null;
+  let remoteAdd = null;
   let basePush = null;
+  let checkout = null;
+  let add = null;
+  let commit = null;
+  const candidatePushAttempts = [];
   let prUrl = null;
+  let pr = null;
   let prVerification = null;
   let mainUnchanged = false;
+  let mainHead = null;
   let cleanup = null;
 
-  const renameBase = await git(clonePath, ['branch', '-M', baseBranch]);
+  renameBase = await git(clonePath, ['branch', '-M', baseBranch]);
   if (renameBase.code !== 0) {
     failures.push('github_base_branch_rename_failed');
   }
@@ -838,12 +861,8 @@ async function publishExistingSourceRepairDraftPr({
   }
   if (failures.length === 0) {
     const remoteUrl = `https://github.com/${fullRepo}.git`;
-    const remoteRemove = await git(clonePath, [
-      'remote',
-      'remove',
-      'vibeloop-pr'
-    ]);
-    const remoteAdd = await git(clonePath, [
+    remoteRemove = await git(clonePath, ['remote', 'remove', 'vibeloop-pr']);
+    remoteAdd = await git(clonePath, [
       'remote',
       'add',
       'vibeloop-pr',
@@ -865,9 +884,9 @@ async function publishExistingSourceRepairDraftPr({
     if (failures.length === 0) repoExists = true;
   }
   if (failures.length === 0) {
-    const checkout = await git(clonePath, ['checkout', '-b', branch]);
-    const add = await git(clonePath, ['add', '--', targetFile]);
-    const commit = await git(clonePath, [
+    checkout = await git(clonePath, ['checkout', '-b', branch]);
+    add = await git(clonePath, ['add', '--', targetFile]);
+    commit = await git(clonePath, [
       '-c',
       'user.name=VibeLoop UAT',
       '-c',
@@ -879,20 +898,32 @@ async function publishExistingSourceRepairDraftPr({
       '-m',
       'vibeloop: real-codex existing source repair'
     ]);
-    const push = await git(
+    let push = await git(
       clonePath,
       ['push', '--no-thin', '-u', 'vibeloop-pr', branch],
       {
         timeoutMs: 120_000
       }
     );
+    candidatePushAttempts.push(commandSummary(push));
+    if (push.code !== 0) {
+      await sleep(3_000);
+      push = await git(
+        clonePath,
+        ['push', '--no-thin', '-u', 'vibeloop-pr', branch],
+        {
+          timeoutMs: 120_000
+        }
+      );
+      candidatePushAttempts.push(commandSummary(push));
+    }
     if (checkout.code !== 0) failures.push('github_candidate_checkout_failed');
     if (add.code !== 0) failures.push('github_candidate_add_failed');
     if (commit.code !== 0) failures.push('github_candidate_commit_failed');
     if (push.code !== 0) failures.push('github_candidate_push_failed');
   }
   if (failures.length === 0) {
-    const pr = await runCommand(
+    pr = await runCommand(
       'gh',
       [
         'pr',
@@ -932,7 +963,7 @@ async function publishExistingSourceRepairDraftPr({
     if (prVerification.confirmed !== true) {
       failures.push('github_draft_pr_unverified');
     }
-    const mainHead = await git(clonePath, [
+    mainHead = await git(clonePath, [
       'ls-remote',
       'vibeloop-pr',
       `refs/heads/${baseBranch}`
@@ -976,6 +1007,19 @@ async function publishExistingSourceRepairDraftPr({
     publish_history: publishHistory,
     create_exit_code: created?.code ?? null,
     base_push_exit_code: basePush?.code ?? null,
+    commands: {
+      rename_base: commandSummary(renameBase),
+      repo_create: commandSummary(created),
+      remote_remove: commandSummary(remoteRemove),
+      remote_add: commandSummary(remoteAdd),
+      base_push: commandSummary(basePush),
+      candidate_checkout: commandSummary(checkout),
+      candidate_add: commandSummary(add),
+      candidate_commit: commandSummary(commit),
+      candidate_push_attempts: candidatePushAttempts,
+      pr_create: commandSummary(pr),
+      main_head: commandSummary(mainHead)
+    },
     base_branch: baseBranch,
     base_commit: baseCommit,
     branch,
