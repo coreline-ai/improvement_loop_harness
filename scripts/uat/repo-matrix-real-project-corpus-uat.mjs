@@ -941,6 +941,24 @@ function buildProduct100CorpusVerifier(expectedSummary) {
   ].join('\n');
 }
 
+function buildEscapeStringRegexpVerifier(cases) {
+  return [
+    "import { pathToFileURL } from 'node:url';",
+    '',
+    "const sourceUrl = pathToFileURL(`${process.cwd()}/index.js`).href;",
+    'const { default: escapeStringRegexp } = await import(sourceUrl);',
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = escapeStringRegexp(item.input);',
+    '  if (actual !== item.expected) {',
+    '    throw new Error(`${item.input}: expected ${item.expected}, got ${actual}`);',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildExpressNormalizeTypeVerifier(cases) {
   return [
     "import { readFile } from 'node:fs/promises';",
@@ -1506,6 +1524,47 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
         {
           input: 'json',
           expected: { value: 'application/json', quality: 1, params: {} }
+        }
+      ])
+  },
+  {
+    id: 'escape-string-regexp-hyphen-unicode',
+    semantic_domain: 'regexp_unicode_literal_escaping',
+    relativePath: 'index.js',
+    language: 'javascript',
+    originalNeedle: [
+      '\treturn string',
+      "\t\t.replace(/[|\\\\{}()[\\]^$+*?.]/g, '\\\\$&')",
+      "\t\t.replace(/-/g, '\\\\x2d');"
+    ].join('\n'),
+    regressionText: [
+      '\treturn string',
+      "\t\t.replace(/[|\\\\{}()[\\]^$+*?.]/g, '\\\\$&');"
+    ].join('\n'),
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildEscapeStringRegexpVerifier([
+        {
+          input: 'a-b',
+          expected: 'a\\x2db'
+        },
+        {
+          input: '[hello].*',
+          expected: '\\[hello\\]\\.\\*'
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildEscapeStringRegexpVerifier([
+        {
+          input: 'path/to-file?',
+          expected: 'path/to\\x2dfile\\?'
+        },
+        {
+          input: 'user-id+(draft)',
+          expected: 'user\\x2did\\+\\(draft\\)'
         }
       ])
   },

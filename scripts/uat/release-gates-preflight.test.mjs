@@ -1220,8 +1220,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         source_repos_read_only: true,
         draft_pr: false,
         builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
-        cell_count: 11,
-        pass_count: 11,
+        cell_count: 12,
+        pass_count: 12,
         fail_count: 0,
         cells: [
           {
@@ -1432,6 +1432,25 @@ ELIFECYCLE Command failed with exit code 20.`);
               visible_test_unchanged: true,
               source_repo_integrity: { status: 'pass' }
             }
+          },
+          {
+            id: 'escape-string-regexp',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'index.js',
+              existing_source: true,
+              existing_source_language: 'javascript',
+              semantic_source_repair: true,
+              semantic_bug_repair: true,
+              semantic_domain: 'regexp_unicode_literal_escaping',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
           }
         ]
       }
@@ -1549,6 +1568,14 @@ ELIFECYCLE Command failed with exit code 20.`);
             codex_repair_semantic_source_repair: true,
             codex_repair_semantic_bug_repair: true,
             codex_repair_semantic_domain: 'yaml_integer_resolution',
+            codex_repair_existing_source: true
+          },
+          {
+            id: 'escape-string-regexp',
+            codex_repair_status: 'pass',
+            codex_repair_semantic_source_repair: true,
+            codex_repair_semantic_bug_repair: true,
+            codex_repair_semantic_domain: 'regexp_unicode_literal_escaping',
             codex_repair_existing_source: true
           }
         ]
