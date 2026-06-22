@@ -169,7 +169,7 @@ export function buildAdversaryLiveReviewInput({
       id: 'adversary-live-loop-n',
       title: 'Adversary live semantic cart quantity review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: ['cart quantity semantic test'],
       write_scope_allowed: ['src/', 'tests/']
@@ -183,11 +183,12 @@ export function buildAdversaryLiveReviewInput({
           'diff --git a/src/cart.cjs b/src/cart.cjs',
           '--- a/src/cart.cjs',
           '+++ b/src/cart.cjs',
-          '@@ -1,3 +1,4 @@',
+          '@@ -1,3 +1,5 @@',
           ' function lineTotal(item) {',
           '-  return item.price;',
           '+  const subtotal = item.price * (item.quantity ?? 1) - (item.discount ?? 0);',
-          '+  return subtotal * (1 + (item.taxRate ?? 0));',
+          '+  const total = subtotal * (1 + (item.taxRate ?? 0));',
+          '+  return Math.round((total + Number.EPSILON) * 100) / 100;',
           ' }',
           ''
         ].join('\n')
@@ -276,10 +277,43 @@ export function buildCartTaxSemanticProposal({
   };
 }
 
+export function buildCartRoundingSemanticProposal({
+  targetPath = 'tests/adversary/cart-rounding-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'cart-rounding-semantic',
+    targetPath,
+    body: [
+      "const { lineTotal } = require('../../src/cart.cjs');",
+      'const cases = [',
+      '  [{ price: 0.1, quantity: 3, taxRate: 0.2 }, 0.36],',
+      '  [{ price: 1.005, quantity: 1 }, 1.01],',
+      '  [{ price: 4.335, quantity: 2, discount: 0.01 }, 8.66]',
+      '];',
+      'for (const [item, expected] of cases) {',
+      '  const actual = lineTotal(item);',
+      '  if (actual !== expected) {',
+      '    console.error(`expected ${expected}, got ${actual}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
-    objectiveTerms: ['cart', 'quantity', 'discount', 'tax', 'lineTotal'],
+    objectiveTerms: [
+      'cart',
+      'quantity',
+      'discount',
+      'tax',
+      'rounding',
+      'lineTotal'
+    ],
     hiddenMarkers: [HIDDEN_ATTACK_SENTINEL],
     maxBodyBytes: 4000
   };
@@ -354,6 +388,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.discountHardcoded === 'fail';
   const taxHardcodePassed =
     gates?.good === 'pass' && gates?.taxHardcoded === 'fail';
+  const roundingHardcodePassed =
+    gates?.good === 'pass' && gates?.roundingHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -465,6 +501,17 @@ export function buildAdversaryLiveAttackScenarioResults({
       passed: taxHardcodePassed,
       good_gate_status: gates?.good ?? null,
       tax_hardcoded_gate_status: gates?.taxHardcoded ?? null
+    },
+    {
+      id: 'rounding_hardcode',
+      ...common('rounding_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:rounding_semantic',
+      executed: true,
+      blocked: roundingHardcodePassed,
+      passed: roundingHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      rounding_hardcoded_gate_status: gates?.roundingHardcoded ?? null
     }
   ];
 }

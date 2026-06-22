@@ -315,7 +315,7 @@ corepack pnpm uat:adversary-live
 
 기대:
 
-- Docker-compatible runtime이 있으면 preflight는 `status=pass`, `uat:adversary-live`는 controlled command adversary proposal을 M2 격리 confirm → M4 replay → freeze → N+1 `builtin:rulepack-semantic` good/pass, bad/fail, visible-only hardcode/fail, default-quantity hardcode/fail, zero-quantity truthiness hardcode/fail까지 실행한다.
+- Docker-compatible runtime이 있으면 preflight는 `status=pass`, `uat:adversary-live`는 controlled command adversary proposal을 M2 격리 confirm → M4 replay → freeze → N+1 `builtin:rulepack-semantic` good/pass, bad/fail, visible-only hardcode/fail, default-quantity hardcode/fail, zero-quantity truthiness hardcode/fail, discount hardcode/fail, tax hardcode/fail, rounding hardcode/fail까지 실행한다.
 - `docker`가 없으면 둘 다 `status=blocked`, `reason=CONTAINER_RUNTIME_UNAVAILABLE`, exit 20. 이 경우 P4 live adversary PASS를 선언하지 않는다.
 
 real Codex adversary reviewer command lane을 의도적으로 켤 때는 P4 전용 wrapper를 사용한다. 이 lane은 current-loop accept/selection에 영향을 주지 않는 advisory-only proposal만 만들고, release gate는 reviewer provenance(`real_llm=true`, `provider=codex`, `proposal_source=accepted_review_proposal`, `same_model_review=false`, fixed prompt hash/version)를 확인한다.
@@ -331,7 +331,7 @@ corepack pnpm uat:adversary-live:real-reviewer
 corepack pnpm uat:release-evidence-audit -- --scenario adversary-live-real-reviewer-uat
 ```
 
-2026-06-22 local run `adversary-live-real-reviewer-58753-1782103394688`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex reviewer proposal과 supplemental discount/tax semantic rule을 M2/M4/freeze/N+1로 고정했다. Evidence는 `real_llm=true`, `provider=codex`, M2 confirmed 3, M4 replay-safe 3/3, 8/8 attack scenario PASS를 포함한다. `adversary-live-real-reviewer-uat`는 이 lane의 CI artifact 감사를 위한 별도 scenario이며, `release-evidence-audit --scenario adversary-live-real-reviewer-uat`는 real LLM reviewer provenance를 필수로 요구한다. 이 증거는 P4 cart quantity+discount+tax local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
+2026-06-22 local run `adversary-live-real-reviewer-10128-1782106132032`은 이 설정으로 `ADVERSARY_LIVE_PASS`를 남겼고, Codex reviewer proposal과 supplemental discount/tax/rounding semantic rule을 M2/M4/freeze/N+1로 고정했다. Evidence는 `real_llm=true`, `provider=codex`, M2 confirmed 4, M4 replay-safe 4/4, 9/9 attack scenario PASS를 포함한다. M2는 proposal별 staged copy에서 실행되어 이전 proposal test 파일이 다음 proposal 확인을 오염하지 않는다. `adversary-live-real-reviewer-uat`는 이 lane의 CI artifact 감사를 위한 별도 scenario이며, `release-evidence-audit --scenario adversary-live-real-reviewer-uat`는 real LLM reviewer provenance를 필수로 요구한다. 이 증거는 P4 cart quantity+discount+tax+rounding local lane PASS이며, CI에서 같은 real-reviewer env를 켠 artifact PASS나 더 큰 project-specific semantic/M4 corpus PASS는 아니다.
 
 ---
 

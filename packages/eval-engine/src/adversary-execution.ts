@@ -10,7 +10,8 @@
  *
  * See docs/SELF_IMPROVEMENT_LOOP_DESIGN.md §10.
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { runCommandInContainer } from '@vibeloop/shared';
 import {
@@ -45,17 +46,28 @@ async function stageAndRun(
   worktreePath: string,
   options: ProposalExecutionOptions
 ): Promise<'pass' | 'fail' | 'error'> {
-  const staged = path.join(worktreePath, proposal.targetPath);
-  await mkdir(path.dirname(staged), { recursive: true });
-  await writeFile(staged, proposal.body);
-  const result = await runCommandInContainer(options.testCommand, {
-    image: options.image,
-    mounts: [{ hostPath: worktreePath, containerPath: worktreePath }],
-    workdir: worktreePath,
-    network: options.network ?? 'none',
-    ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {})
-  });
-  return result.status;
+  const runRoot = await mkdtemp(
+    path.join(os.homedir(), '.vibeloop-adversary-m2-')
+  );
+  const stagedWorktree = path.join(runRoot, 'worktree');
+  try {
+    await cp(worktreePath, stagedWorktree, { recursive: true });
+    const staged = path.join(stagedWorktree, proposal.targetPath);
+    await mkdir(path.dirname(staged), { recursive: true });
+    await writeFile(staged, proposal.body);
+    const result = await runCommandInContainer(options.testCommand, {
+      image: options.image,
+      mounts: [
+        { hostPath: stagedWorktree, containerPath: stagedWorktree }
+      ],
+      workdir: stagedWorktree,
+      network: options.network ?? 'none',
+      ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {})
+    });
+    return result.status;
+  } finally {
+    await rm(runRoot, { recursive: true, force: true });
+  }
 }
 
 /**

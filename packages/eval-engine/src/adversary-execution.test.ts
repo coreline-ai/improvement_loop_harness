@@ -78,6 +78,49 @@ describe.skipIf(!dockerUp)(
       expect(out.candidate).toBe('fail');
     }, 180_000);
 
+    it('runs each proposal in a clean staged copy so prior tests do not contaminate later confirmations', async () => {
+      const candidate = await worktree('FIXED behavior');
+      const base = await worktree('BROKEN behavior');
+      const badProposal: AdversaryProposal = {
+        id: 'p-bad-edge',
+        targetPath: 'tests/bad.sh',
+        body: '#!/bin/sh\n# fixed-behavior impossible guard\ngrep -q NEVER_MATCHES value.txt\n',
+        expectation: 'fail_to_pass'
+      };
+      const goodProposal: AdversaryProposal = {
+        id: 'p-good-edge',
+        targetPath: 'tests/good.sh',
+        body: '#!/bin/sh\n# fixed-behavior edge guard\ngrep -q FIXED value.txt\n',
+        expectation: 'fail_to_pass'
+      };
+      const runAllTests = "sh -c 'for f in tests/*.sh; do sh \"$f\"; done'";
+
+      const bad = await confirmProposalUnderIsolation(
+        badProposal,
+        FILTER,
+        {
+          candidate: { worktreePath: candidate },
+          base: { worktreePath: base }
+        },
+        { image: IMAGE, testCommand: runAllTests, timeoutMs: 60_000 }
+      );
+      const good = await confirmProposalUnderIsolation(
+        goodProposal,
+        FILTER,
+        {
+          candidate: { worktreePath: candidate },
+          base: { worktreePath: base }
+        },
+        { image: IMAGE, testCommand: runAllTests, timeoutMs: 60_000 }
+      );
+
+      expect(bad.confirmed).toBe(false);
+      expect(bad.candidate).toBe('fail');
+      expect(good.confirmed).toBe(true);
+      expect(good.base).toBe('fail');
+      expect(good.candidate).toBe('pass');
+    }, 180_000);
+
     it('NEVER executes a proposal that fails the static filter (e.g. out of scope)', async () => {
       const candidate = await worktree('FIXED behavior');
       const outOfScope: AdversaryProposal = {

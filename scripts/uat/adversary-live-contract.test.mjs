@@ -9,6 +9,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
+  buildCartRoundingSemanticProposal,
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
   buildRejectedAttackProposals,
@@ -67,6 +68,21 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('lineTotal');
   });
 
+  it('adds a supplemental rounding semantic proposal for multi-rule M4 coverage', () => {
+    const proposal = buildCartRoundingSemanticProposal({
+      targetPath: 'tests/adversary/cart-line-total-rounding.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'cart-rounding-semantic',
+      targetPath: 'tests/adversary/cart-line-total-rounding.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('taxRate: 0.2');
+    expect(proposal.body).toContain('1.005');
+    expect(proposal.body).toContain('lineTotal');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -101,7 +117,8 @@ describe('adversary live contract', () => {
         defaultQuantityHardcoded: 'fail',
         zeroQuantityTruthinessHardcoded: 'fail',
         discountHardcoded: 'fail',
-        taxHardcoded: 'fail'
+        taxHardcoded: 'fail',
+        roundingHardcoded: 'fail'
       }
     });
 
@@ -161,6 +178,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:tax_semantic'
+        }),
+        expect.objectContaining({
+          id: 'rounding_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:rounding_semantic'
         })
       ])
     );
@@ -202,7 +225,8 @@ describe('adversary live contract', () => {
         'attack_scenario_default_quantity_hardcode_missing',
         'attack_scenario_zero_quantity_truthiness_hardcode_missing',
         'attack_scenario_discount_hardcode_missing',
-        'attack_scenario_tax_hardcode_missing'
+        'attack_scenario_tax_hardcode_missing',
+        'attack_scenario_rounding_hardcode_missing'
       ])
     );
   });
@@ -224,7 +248,8 @@ describe('adversary live contract', () => {
         defaultQuantityHardcoded: 'fail',
         zeroQuantityTruthinessHardcoded: 'fail',
         discountHardcoded: 'fail',
-        taxHardcoded: 'fail'
+        taxHardcoded: 'fail',
+        roundingHardcoded: 'fail'
       }
     });
 
