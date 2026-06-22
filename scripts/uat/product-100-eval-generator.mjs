@@ -160,7 +160,7 @@ function publicTask(repo, issue, options = {}) {
     },
     limits: {
       max_changed_files: options.maxChangedFiles ?? issue.quality_metrics?.max_changed_files ?? 10,
-      max_changed_lines: options.maxChangedLines ?? 400,
+      max_changed_lines: options.maxChangedLines ?? issue.quality_metrics?.max_changed_lines ?? 400,
       agent_timeout_seconds: options.agentTimeoutSeconds ?? 900
     },
     metadata: {
@@ -200,7 +200,7 @@ function evalConfig({ repo, issue, hiddenTests, options = {} }) {
     },
     limits: {
       max_changed_files: options.maxChangedFiles ?? issue.quality_metrics?.max_changed_files ?? 10,
-      max_changed_lines: options.maxChangedLines ?? 400,
+      max_changed_lines: options.maxChangedLines ?? issue.quality_metrics?.max_changed_lines ?? 400,
       agent_timeout_seconds: options.agentTimeoutSeconds ?? 900
     },
     test_integrity: {
@@ -211,7 +211,7 @@ function evalConfig({ repo, issue, hiddenTests, options = {} }) {
       required: true,
       min_evidence_present: 1,
       max_changed_files: options.maxChangedFiles ?? issue.quality_metrics?.max_changed_files ?? 10,
-      max_changed_lines: options.maxChangedLines ?? 400,
+      max_changed_lines: options.maxChangedLines ?? issue.quality_metrics?.max_changed_lines ?? 400,
       forbid_protected: true,
       target_paths: issue.expected_files,
       ...(issue.quality_metrics?.min_coverage_delta !== undefined

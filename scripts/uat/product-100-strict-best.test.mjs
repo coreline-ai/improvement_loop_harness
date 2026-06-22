@@ -83,6 +83,18 @@ describe('Product-100 strict-best selector', () => {
     expect(selection.accepted_for_product_100).toBe(true);
   });
 
+  it('accepts a converged top-score patch group even when another top candidate ties', () => {
+    const selection = selectProduct100StrictBest([
+      candidate('builder-variant', 'builder', { patch_hash: 'sha256:variant' }),
+      candidate('builder-converged', 'builder', { patch_hash: 'sha256:same' }),
+      candidate('challenger-converged', 'challenger', { patch_hash: 'sha256:same' })
+    ]);
+    expect(selection.selected_candidate_id).toBe('builder-converged');
+    expect(selection.strict_score_improvement).toBe(true);
+    expect(selection.equivalent_patch_convergence).toBe(true);
+    expect(selection.accepted_for_product_100).toBe(true);
+  });
+
   it('summarizes issue-loop requirements for Product-100 contract consumption', () => {
     const issueResults = [
       {

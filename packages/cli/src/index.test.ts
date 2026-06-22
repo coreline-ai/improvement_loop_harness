@@ -2561,6 +2561,75 @@ describe('runImprovementLoop', () => {
     expect(new Set(report.candidates.map((candidate) => candidate.patch_hash)).size).toBe(1);
   });
 
+  it('uses a converged top-score patch group when another top candidate ties', async () => {
+    const repo = await createValueRepo();
+    const dataDir = await tempDir('vibeloop-converged-subset-data-');
+    const fixtureDir = await tempDir('vibeloop-converged-subset-fixture-');
+    const { taskFile, evalFile } = await writeFixtureTaskEval({
+      dir: fixtureDir,
+      taskId: 'converged-subset'
+    });
+    const regressionTest =
+      "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n";
+    const variant = await writeScenario(fixtureDir, 'variant-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = Number(2);\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+    const converged = await writeScenario(fixtureDir, 'converged-fix', [
+      {
+        type: 'modify',
+        path: 'src/value.cjs',
+        content: 'module.exports = 2;\n'
+      },
+      {
+        type: 'create',
+        path: 'tests/regression.test.js',
+        content: regressionTest
+      }
+    ]);
+
+    const result = await runImprovementLoop({
+      repoPath: repo.repoPath,
+      taskFile,
+      evalFile,
+      dataDir,
+      loopId: 'converged-subset-1',
+      skipDependencyInstall: true,
+      builders: [`mock:${variant}`, `mock:${converged}`, `mock:${converged}`]
+    });
+
+    expect(result.selected?.candidateId).toBe('converged-subset-1-c1');
+    expect(result.selectionQuality).toMatchObject({
+      status: 'fixed_equivalent_patch_convergence',
+      strict_score_improvement: true,
+      equivalent_patch_convergence: true,
+      full_autonomous_improvement_eligible: true
+    });
+
+    const report = JSON.parse(
+      await readFile(result.selectionReportPath!, 'utf8')
+    ) as {
+      selection_quality: {
+        selected_candidate_id: string;
+        equivalent_patch_convergence: boolean;
+      };
+      candidates: Array<{ patch_hash?: string }>;
+    };
+    expect(report.selection_quality).toMatchObject({
+      selected_candidate_id: 'converged-subset-1-c1',
+      equivalent_patch_convergence: true
+    });
+    expect(new Set(report.candidates.map((candidate) => candidate.patch_hash)).size).toBe(2);
+  }, 30000);
+
   it('advisory judge cannot promote a non-tied (e.g. rejected) candidate (B1 safety)', async () => {
     const repo = await createValueRepo();
     const dataDir = await tempDir('vibeloop-tiesafe-data-');

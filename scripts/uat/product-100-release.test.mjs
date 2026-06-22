@@ -144,6 +144,12 @@ describe('Product-100 Phase6 release/evidence contract', () => {
         ['git', 'push', 'product100-origin'],
         ['gh', 'pr', 'create']
       ]);
+      expect(calls[2].args).toContain(
+        'refs/heads/product-100/run/repo/issue-1:refs/heads/product-100/run/repo/issue-1'
+      );
+      expect(calls[2].args).not.toContain(
+        'HEAD:refs/heads/product-100/run/repo/issue-1'
+      );
       expect(result.draft_prs[0]).toEqual(
         expect.objectContaining({ branch_pushed: true, url: 'https://github.com/coreline-ai/example/pull/8' })
       );

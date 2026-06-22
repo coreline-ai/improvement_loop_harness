@@ -96,23 +96,40 @@ export function selectProduct100StrictBest(candidates = []) {
   }));
   const selectable = scored.filter((item) => item.score.accepted_for_selection);
   selectable.sort((a, b) => b.score.score - a.score.score);
-  const selected = selectable[0] ?? null;
+  const topScore = selectable[0]?.score.score ?? null;
+  const topSelectable = topScore === null
+    ? []
+    : selectable.filter((item) => item.score.score === topScore);
+  const convergedTopPatchGroup = topSelectable
+    .filter((item) => item.candidate.patch_hash ?? item.candidate.patchHash)
+    .reduce((groups, item) => {
+      const hash = item.candidate.patch_hash ?? item.candidate.patchHash;
+      groups.set(hash, [...(groups.get(hash) ?? []), item]);
+      return groups;
+    }, new Map())
+    .values();
+  const selected =
+    [...convergedTopPatchGroup]
+      .filter((group) => group.length >= 2)
+      .sort(
+        (a, b) =>
+          b.length - a.length ||
+          String(a[0]?.candidate.id ?? '').localeCompare(String(b[0]?.candidate.id ?? ''))
+      )[0]?.[0] ??
+    selectable[0] ??
+    null;
   const runnerUp = selectable[1] ?? null;
   const hasRealBuilder = selectable.some((item) => item.candidate.role === 'builder');
   const hasRealChallenger = selectable.some((item) => item.candidate.role === 'challenger');
   const selectedPatchHash = selected?.candidate.patch_hash ?? selected?.candidate.patchHash;
-  const topScore = selected?.score.score ?? null;
-  const topSelectable = topScore === null
-    ? []
-    : selectable.filter((item) => item.score.score === topScore);
   const equivalentPatchConvergence = Boolean(
     selectedPatchHash &&
       topSelectable.length >= 2 &&
-      topSelectable.every(
+      topSelectable.filter(
         (item) =>
           (item.candidate.patch_hash ?? item.candidate.patchHash) ===
           selectedPatchHash
-      )
+      ).length >= 2
   );
   const strictScoreImprovement = Boolean(
     (selected && runnerUp && selected.score.score > runnerUp.score.score) ||

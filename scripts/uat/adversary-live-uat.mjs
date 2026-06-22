@@ -30,6 +30,7 @@ import {
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
+  buildRefundEligibilitySemanticProposal,
   buildShippingEligibilitySemanticProposal,
   selectAdversaryLiveReviewProposal,
   validateAdversaryReviewerProvenance,
@@ -141,6 +142,11 @@ async function writePaymentFixture(root, source) {
   await writeFile(path.join(root, 'src/payment.cjs'), source);
 }
 
+async function writeRefundFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/refund.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -227,6 +233,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
       },
       {
         path: 'src/payment.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
+        path: 'src/refund.cjs',
         status: 'modified',
         isSymlink: false,
         addedLines: 1,
@@ -319,6 +332,10 @@ async function main() {
     const paymentAuthorizationHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-payment-authorization-hardcode'
+    );
+    const refundEligibilityHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-refund-eligibility-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -527,6 +544,32 @@ async function main() {
       'module.exports = { canCapturePayment };',
       ''
     ].join('\n');
+    const buggyRefund = [
+      'function canRefundOrder(_order, _policy) {',
+      '  return true;',
+      '}',
+      'module.exports = { canRefundOrder };',
+      ''
+    ].join('\n');
+    const fixedRefund = [
+      'function canRefundOrder(order, policy) {',
+      "  if (order.status !== 'delivered') return false;",
+      '  if (order.paymentSettled !== true) return false;',
+      '  if (order.daysSinceDelivery > policy.windowDays) return false;',
+      '  if (order.amountCents < policy.minAmountCents) return false;',
+      '  if (order.digital === true && policy.allowDigital !== true) return false;',
+      '  return true;',
+      '}',
+      'module.exports = { canRefundOrder };',
+      ''
+    ].join('\n');
+    const happyPathOnlyRefund = [
+      'function canRefundOrder(order, _policy) {',
+      "  return order.status === 'delivered';",
+      '}',
+      'module.exports = { canRefundOrder };',
+      ''
+    ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
@@ -549,6 +592,7 @@ async function main() {
     await writeCartFixture(inventoryReservationHardcodedWorktree, fixedCart);
     await writeCartFixture(shippingEligibilityHardcodedWorktree, fixedCart);
     await writeCartFixture(paymentAuthorizationHardcodedWorktree, fixedCart);
+    await writeCartFixture(refundEligibilityHardcodedWorktree, fixedCart);
     await writeProfileFixture(baseWorktree, buggyProfile);
     await writeProfileFixture(candidateWorktree, fixedProfile);
     await writeProfileFixture(goodWorktree, fixedProfile);
@@ -583,6 +627,7 @@ async function main() {
       paymentAuthorizationHardcodedWorktree,
       fixedProfile
     );
+    await writeProfileFixture(refundEligibilityHardcodedWorktree, fixedProfile);
     await writeOrderFixture(baseWorktree, buggyOrder);
     await writeOrderFixture(candidateWorktree, fixedOrder);
     await writeOrderFixture(goodWorktree, fixedOrder);
@@ -602,6 +647,7 @@ async function main() {
     await writeOrderFixture(inventoryReservationHardcodedWorktree, fixedOrder);
     await writeOrderFixture(shippingEligibilityHardcodedWorktree, fixedOrder);
     await writeOrderFixture(paymentAuthorizationHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(refundEligibilityHardcodedWorktree, fixedOrder);
     await writeInventoryFixture(baseWorktree, buggyInventory);
     await writeInventoryFixture(candidateWorktree, fixedInventory);
     await writeInventoryFixture(goodWorktree, fixedInventory);
@@ -639,6 +685,10 @@ async function main() {
       paymentAuthorizationHardcodedWorktree,
       fixedInventory
     );
+    await writeInventoryFixture(
+      refundEligibilityHardcodedWorktree,
+      fixedInventory
+    );
     await writeShippingFixture(baseWorktree, buggyShipping);
     await writeShippingFixture(candidateWorktree, fixedShipping);
     await writeShippingFixture(goodWorktree, fixedShipping);
@@ -673,6 +723,10 @@ async function main() {
       paymentAuthorizationHardcodedWorktree,
       fixedShipping
     );
+    await writeShippingFixture(
+      refundEligibilityHardcodedWorktree,
+      fixedShipping
+    );
     await writePaymentFixture(baseWorktree, buggyPayment);
     await writePaymentFixture(candidateWorktree, fixedPayment);
     await writePaymentFixture(goodWorktree, fixedPayment);
@@ -701,6 +755,33 @@ async function main() {
       paymentAuthorizationHardcodedWorktree,
       happyPathOnlyPayment
     );
+    await writePaymentFixture(
+      refundEligibilityHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(baseWorktree, buggyRefund);
+    await writeRefundFixture(candidateWorktree, fixedRefund);
+    await writeRefundFixture(goodWorktree, fixedRefund);
+    await writeRefundFixture(badWorktree, fixedRefund);
+    await writeRefundFixture(hardcodedWorktree, fixedRefund);
+    await writeRefundFixture(defaultQuantityHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(
+      zeroQuantityTruthinessHardcodedWorktree,
+      fixedRefund
+    );
+    await writeRefundFixture(discountHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(taxHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(roundingHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(profileVisibilityHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(profileSuspensionHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(orderApprovalHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(inventoryReservationHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(shippingEligibilityHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(paymentAuthorizationHardcodedWorktree, fixedRefund);
+    await writeRefundFixture(
+      refundEligibilityHardcodedWorktree,
+      happyPathOnlyRefund
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -727,6 +808,10 @@ async function main() {
       buildPaymentAuthorizationSemanticProposal({
         targetPath:
           'tests/adversary/payment-authorization-supplemental.test.cjs'
+      }),
+      buildRefundEligibilitySemanticProposal({
+        targetPath:
+          'tests/adversary/refund-eligibility-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -795,6 +880,10 @@ async function main() {
         buildPaymentAuthorizationSemanticProposal({
           targetPath:
             'tests/adversary/payment-authorization-supplemental.test.cjs'
+        }),
+        buildRefundEligibilitySemanticProposal({
+          targetPath:
+            'tests/adversary/refund-eligibility-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -1002,6 +1091,13 @@ async function main() {
         'adversary-live-payment-authorization-hardcode'
       )
     );
+    const refundEligibilityHardcoded = await runGates(
+      await gateContext(
+        refundEligibilityHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-refund-eligibility-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -1051,6 +1147,10 @@ async function main() {
       paymentAuthorizationHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const refundEligibilityHardcodedGate =
+      refundEligibilityHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -1065,7 +1165,8 @@ async function main() {
       orderApprovalHardcodedGate?.status !== 'fail' ||
       inventoryReservationHardcodedGate?.status !== 'fail' ||
       shippingEligibilityHardcodedGate?.status !== 'fail' ||
-      paymentAuthorizationHardcodedGate?.status !== 'fail'
+      paymentAuthorizationHardcodedGate?.status !== 'fail' ||
+      refundEligibilityHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -1082,7 +1183,8 @@ async function main() {
           orderApprovalHardcoded: orderApprovalHardcodedGate,
           inventoryReservationHardcoded: inventoryReservationHardcodedGate,
           shippingEligibilityHardcoded: shippingEligibilityHardcodedGate,
-          paymentAuthorizationHardcoded: paymentAuthorizationHardcodedGate
+          paymentAuthorizationHardcoded: paymentAuthorizationHardcodedGate,
+          refundEligibilityHardcoded: refundEligibilityHardcodedGate
         })}`
       );
     }
@@ -1106,7 +1208,8 @@ async function main() {
         orderApprovalHardcoded: orderApprovalHardcodedGate.status,
         inventoryReservationHardcoded: inventoryReservationHardcodedGate.status,
         shippingEligibilityHardcoded: shippingEligibilityHardcodedGate.status,
-        paymentAuthorizationHardcoded: paymentAuthorizationHardcodedGate.status
+        paymentAuthorizationHardcoded: paymentAuthorizationHardcodedGate.status,
+        refundEligibilityHardcoded: refundEligibilityHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -1194,6 +1297,8 @@ async function main() {
           shippingEligibilityHardcodedGate.status,
         payment_authorization_hardcoded_gate_status:
           paymentAuthorizationHardcodedGate.status,
+        refund_eligibility_hardcoded_gate_status:
+          refundEligibilityHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -1214,7 +1319,9 @@ async function main() {
         shipping_eligibility_hardcode_rejected:
           shippingEligibilityHardcodedGate.status === 'fail',
         payment_authorization_hardcode_rejected:
-          paymentAuthorizationHardcodedGate.status === 'fail'
+          paymentAuthorizationHardcodedGate.status === 'fail',
+        refund_eligibility_hardcode_rejected:
+          refundEligibilityHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

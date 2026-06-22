@@ -590,6 +590,34 @@ function compareAccepted(a: CandidateOutcome, b: CandidateOutcome): number {
   return a.candidateId.localeCompare(b.candidateId);
 }
 
+function topEquivalentPatchGroup(
+  accepted: CandidateOutcome[],
+  preferred: CandidateOutcome | undefined
+): CandidateOutcome[] {
+  const top = preferred?.score;
+  if (!top) return [];
+  const tied = accepted.filter(
+    (candidate) =>
+      !!candidate.score &&
+      candidate.score.total === top.total &&
+      candidate.score.changed_files === top.changed_files &&
+      candidate.score.changed_lines === top.changed_lines &&
+      !!candidate.patchHash
+  );
+  const groups = new Map<string, CandidateOutcome[]>();
+  for (const candidate of tied) {
+    groups.set(candidate.patchHash!, [
+      ...(groups.get(candidate.patchHash!) ?? []),
+      candidate
+    ]);
+  }
+  return [...groups.values()]
+    .filter((group) => group.length >= 2)
+    .sort(
+      (a, b) => b.length - a.length || a[0]!.candidateId.localeCompare(b[0]!.candidateId)
+    )[0] ?? [];
+}
+
 async function writeAdversaryM2Handoff(options: {
   report: AdversaryReviewReport;
   selected: CandidateOutcome;
@@ -672,9 +700,9 @@ function buildSelectionQuality(options: {
     selected &&
       topAccepted.length >= 2 &&
       selectedPatchHash &&
-      topAccepted.every(
+      topAccepted.filter(
         (candidate) => candidate.patchHash === selectedPatchHash
-      )
+      ).length >= 2
   );
   const strictImprovementEvidence =
     strictScoreImprovement || equivalentPatchConvergence;
@@ -884,6 +912,10 @@ export async function runImprovementLoop(
   // among already-accepted, score-equal candidates — never changes correctness —
   // and its pick is still gated by the final verification below.
   let preferred = accepted[0];
+  const equivalentPatchGroup = topEquivalentPatchGroup(accepted, preferred);
+  if (equivalentPatchGroup.length > 0) {
+    preferred = equivalentPatchGroup[0];
+  }
   let advisoryTieBreak: AdvisoryTieBreak | undefined;
   if (preferred && options.qualityJudge) {
     const top = preferred.score;

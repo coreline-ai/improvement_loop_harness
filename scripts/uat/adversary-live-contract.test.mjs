@@ -12,6 +12,7 @@ import {
   buildInventoryReservationSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
+  buildRefundEligibilitySemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
   buildCartRoundingSemanticProposal,
@@ -185,6 +186,23 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('expiresAtMs: 1000');
   });
 
+  it('adds a supplemental refund eligibility semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildRefundEligibilitySemanticProposal({
+      targetPath: 'tests/adversary/refund-eligibility.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'refund-eligibility-semantic',
+      targetPath: 'tests/adversary/refund-eligibility.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canRefundOrder');
+    expect(proposal.body).toContain('paymentSettled: false');
+    expect(proposal.body).toContain('daysSinceDelivery: 31');
+    expect(proposal.body).toContain('minAmountCents');
+    expect(proposal.body).toContain('allowDigital: true');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -226,7 +244,8 @@ describe('adversary live contract', () => {
         orderApprovalHardcoded: 'fail',
         inventoryReservationHardcoded: 'fail',
         shippingEligibilityHardcoded: 'fail',
-        paymentAuthorizationHardcoded: 'fail'
+        paymentAuthorizationHardcoded: 'fail',
+        refundEligibilityHardcoded: 'fail'
       }
     });
 
@@ -328,6 +347,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:payment_authorization_semantic'
+        }),
+        expect.objectContaining({
+          id: 'refund_eligibility_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:refund_eligibility_semantic'
         })
       ])
     );
@@ -376,7 +401,8 @@ describe('adversary live contract', () => {
         'attack_scenario_order_approval_hardcode_missing',
         'attack_scenario_inventory_reservation_hardcode_missing',
         'attack_scenario_shipping_eligibility_hardcode_missing',
-        'attack_scenario_payment_authorization_hardcode_missing'
+        'attack_scenario_payment_authorization_hardcode_missing',
+        'attack_scenario_refund_eligibility_hardcode_missing'
       ])
     );
   });
@@ -405,7 +431,8 @@ describe('adversary live contract', () => {
         orderApprovalHardcoded: 'fail',
         inventoryReservationHardcoded: 'fail',
         shippingEligibilityHardcoded: 'fail',
-        paymentAuthorizationHardcoded: 'fail'
+        paymentAuthorizationHardcoded: 'fail',
+        refundEligibilityHardcoded: 'fail'
       }
     });
 

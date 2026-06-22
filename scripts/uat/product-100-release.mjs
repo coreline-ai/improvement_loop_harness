@@ -182,7 +182,7 @@ export async function createProduct100DraftPrs({
         [
           'push',
           'product100-origin',
-          `HEAD:refs/heads/${head}`,
+          `refs/heads/${head}:refs/heads/${head}`,
           '--force-with-lease'
         ],
         { cwd: issue.repo_path }

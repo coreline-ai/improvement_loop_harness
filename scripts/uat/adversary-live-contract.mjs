@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, or payment authorization semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, or refund eligibility semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -176,7 +176,8 @@ export function buildAdversaryLiveReviewInput({
         'order approval semantic test',
         'inventory reservation semantic test',
         'shipping eligibility semantic test',
-        'payment authorization semantic test'
+        'payment authorization semantic test',
+        'refund eligibility semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -265,6 +266,19 @@ export function buildAdversaryLiveReviewInput({
           '+  if (payment.currency !== order.currency) return false;',
           '+  if (payment.amountCents !== order.totalCents) return false;',
           '+  if (payment.expiresAtMs <= order.nowMs) return false;',
+          '+  return true;',
+          ' }',
+          'diff --git a/src/refund.cjs b/src/refund.cjs',
+          '--- a/src/refund.cjs',
+          '+++ b/src/refund.cjs',
+          '@@ -1,3 +1,12 @@',
+          ' function canRefundOrder(order, policy) {',
+          '-  return true;',
+          "+  if (order.status !== 'delivered') return false;",
+          '+  if (order.paymentSettled !== true) return false;',
+          '+  if (order.daysSinceDelivery > policy.windowDays) return false;',
+          '+  if (order.amountCents < policy.minAmountCents) return false;',
+          '+  if (order.digital === true && policy.allowDigital !== true) return false;',
           '+  return true;',
           ' }',
           ''
@@ -557,6 +571,38 @@ export function buildPaymentAuthorizationSemanticProposal({
   };
 }
 
+export function buildRefundEligibilitySemanticProposal({
+  targetPath = 'tests/adversary/refund-eligibility-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'refund-eligibility-semantic',
+    targetPath,
+    body: [
+      "const { canRefundOrder } = require('../../src/refund.cjs');",
+      'const policy = { windowDays: 30, minAmountCents: 100, allowDigital: false };',
+      'const baseOrder = { status: "delivered", daysSinceDelivery: 10, amountCents: 2500, paymentSettled: true, digital: false };',
+      'const cases = [',
+      '  [baseOrder, policy, true],',
+      '  [{ ...baseOrder, status: "pending" }, policy, false],',
+      '  [{ ...baseOrder, paymentSettled: false }, policy, false],',
+      '  [{ ...baseOrder, daysSinceDelivery: 31 }, policy, false],',
+      '  [{ ...baseOrder, amountCents: 99 }, policy, false],',
+      '  [{ ...baseOrder, digital: true }, policy, false],',
+      '  [{ ...baseOrder, digital: true }, { ...policy, allowDigital: true }, true]',
+      '];',
+      'for (const [order, refundPolicy, expected] of cases) {',
+      '  const actual = canRefundOrder(order, refundPolicy);',
+      '  if (actual !== expected) {',
+      '    console.error(`expected ${expected}, got ${actual}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -605,7 +651,15 @@ export function buildAdversaryLiveFilterConfig() {
       'fraudHold',
       'currency',
       'amountCents',
-      'expiresAtMs'
+      'expiresAtMs',
+      'refund',
+      'canRefundOrder',
+      'daysSinceDelivery',
+      'windowDays',
+      'minAmountCents',
+      'paymentSettled',
+      'allowDigital',
+      'digital'
     ],
     hiddenMarkers: [HIDDEN_ATTACK_SENTINEL],
     maxBodyBytes: 4000
@@ -693,6 +747,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.shippingEligibilityHardcoded === 'fail';
   const paymentAuthorizationHardcodePassed =
     gates?.good === 'pass' && gates?.paymentAuthorizationHardcoded === 'fail';
+  const refundEligibilityHardcodePassed =
+    gates?.good === 'pass' && gates?.refundEligibilityHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -889,6 +945,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       payment_authorization_hardcoded_gate_status:
         gates?.paymentAuthorizationHardcoded ?? null
+    },
+    {
+      id: 'refund_eligibility_hardcode',
+      ...common('refund_eligibility_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:refund_eligibility_semantic',
+      executed: true,
+      blocked: refundEligibilityHardcodePassed,
+      passed: refundEligibilityHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      refund_eligibility_hardcoded_gate_status:
+        gates?.refundEligibilityHardcoded ?? null
     }
   ];
 }

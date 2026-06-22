@@ -54,6 +54,8 @@ describe('Product-100 corpus metadata', () => {
 
     expect(sec001?.public_task).toContain('redactArtifact(value)');
     expect(sec001?.selection_signals).toContain('redactArtifact export');
+    expect(sec001?.selection_signals).toContain('focused string redaction');
+    expect(sec001?.quality_metrics?.max_changed_lines).toBe(80);
     expect(sec002?.public_task).toContain('buildPrBody(input)');
     expect(sec002?.selection_signals).toContain('buildPrBody export');
     expect(JSON.stringify([sec001, sec002])).not.toContain('HIDDEN_PRODUCT_100');

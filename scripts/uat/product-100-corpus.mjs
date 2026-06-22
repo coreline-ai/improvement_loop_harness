@@ -211,14 +211,14 @@ function securityArtifactLeakCell() {
         user_visible_problem:
           'A failed gate writes hidden context literals into artifact logs.',
         public_task:
-          'Update src/redact.cjs so redactArtifact(value) returns artifact-safe text by removing secret-like context/token strings without echoing raw sensitive input. Treat visible tests as fixed verifier evidence; do not edit tests.',
-        selection_signals: ['redactArtifact export', 'artifact leak guard', 'hidden literal scanner', 'implementation-only fix'],
+          'Update src/redact.cjs so redactArtifact(value) uses a small string sanitizer: replace segments containing SECRET, TOKEN, HIDDEN, CONTEXT, CREDENTIAL, PASSWORD, PRIVATE, or KEY with [REDACTED], while preserving ordinary log text. Treat visible tests as fixed verifier evidence; do not edit tests.',
+        selection_signals: ['redactArtifact export', 'focused string redaction', 'normal log text preserved', 'implementation-only fix'],
         write_scope: ['src/redact.cjs'],
         expected_files: ['src/redact.cjs'],
         visible_tests: [{ command: 'node src/redact.test.cjs', must_fail_on_base: true }],
         hidden_tests: [{ id: 'SEC-001-H1', command: 'node hidden/artifact-leak.test.cjs', secret_literal: `${HIDDEN_PREFIX}_SEC_001_ARTIFACT_LEAK` }],
         adversary_seed: { threat: 'redact stdout only, miss gate log', must_attack: ['stderr', 'gate log', 'manifest'] },
-        quality_metrics: { leak_zero: true, require_gate_log_redaction: true }
+        quality_metrics: { leak_zero: true, require_gate_log_redaction: true, max_changed_lines: 80 }
       }),
       issue('SEC-002', 'PR body includes raw reviewer prompt', {
         user_visible_problem:
