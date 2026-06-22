@@ -783,6 +783,46 @@ function buildRequestsCaseInsensitiveDictVerifier(cases) {
   ].join('\n');
 }
 
+function buildUrllib3HTTPHeaderDictVerifier(cases) {
+  return [
+    'import importlib.util',
+    'import json',
+    'import pathlib',
+    '',
+    'root = pathlib.Path.cwd()',
+    'source_path = root / "src" / "urllib3" / "_collections.py"',
+    'spec = importlib.util.spec_from_file_location("_vibeloop_urllib3_collections", source_path)',
+    'module = importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(module)',
+    'HTTPHeaderDict = module.HTTPHeaderDict',
+    '',
+    `cases = json.loads(${JSON.stringify(JSON.stringify(cases))})`,
+    'for item in cases:',
+    '    headers = HTTPHeaderDict(item.get("initial", []))',
+    '    for entry in item.get("add", []):',
+    '        key, value = entry[0], entry[1]',
+    '        combine = bool(entry[2]) if len(entry) > 2 else False',
+    '        headers.add(key, value, combine=combine)',
+    '    for key, expected in item.get("lookups", []):',
+    '        actual = headers[key]',
+    '        if actual != expected:',
+    '            raise AssertionError(f"{item}: lookup {key!r} expected {expected!r}, got {actual!r}")',
+    '    for key, expected in item.get("getlist", []):',
+    '        actual = headers.getlist(key)',
+    '        if actual != expected:',
+    '            raise AssertionError(f"{item}: getlist {key!r} expected {expected!r}, got {actual!r}")',
+    '    if "items" in item:',
+    '        actual_items = [[key, value] for key, value in headers.items()]',
+    '        if actual_items != item["items"]:',
+    '            raise AssertionError(f"{item}: items expected {item[\'items\']!r}, got {actual_items!r}")',
+    '    if "itermerged" in item:',
+    '        actual_merged = [[key, value] for key, value in headers.itermerged()]',
+    '        if actual_merged != item["itermerged"]:',
+    '            raise AssertionError(f"{item}: itermerged expected {item[\'itermerged\']!r}, got {actual_merged!r}")',
+    ''
+  ].join('\n');
+}
+
 function buildColoramaAnsiVerifier(cases) {
   return [
     'import importlib.util',
@@ -1206,6 +1246,72 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             'x-trace-id': 'abc',
             'user-agent': 'vibeloop'
           }
+        }
+      ])
+  },
+  {
+    id: 'urllib3-http-header-dict-multi-value',
+    semantic_domain: 'http_multi_value_header_preservation',
+    relativePath: 'src/urllib3/_collections.py',
+    language: 'python',
+    originalNeedle: '                vals.append(val)',
+    regressionText: '                vals[-1] = val',
+    visibleCommand: (filePath) => ({ command: 'python3', args: [filePath] }),
+    buildVisibleVerifier: () =>
+      buildUrllib3HTTPHeaderDictVerifier([
+        {
+          initial: [['Cookie', 'foo']],
+          add: [
+            ['cookie', 'bar'],
+            ['COOKIE', 'baz']
+          ],
+          lookups: [['cookie', 'foo, bar, baz']],
+          getlist: [['COOKIE', ['foo', 'bar', 'baz']]],
+          items: [
+            ['Cookie', 'foo'],
+            ['Cookie', 'bar'],
+            ['Cookie', 'baz']
+          ],
+          itermerged: [['Cookie', 'foo, bar, baz']]
+        },
+        {
+          initial: [['Accept', 'text/html']],
+          add: [['accept', 'application/json', true]],
+          lookups: [['ACCEPT', 'text/html, application/json']],
+          items: [['Accept', 'text/html, application/json']]
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildUrllib3HTTPHeaderDictVerifier([
+        {
+          initial: [],
+          add: [
+            ['Set-Cookie', 'a=1'],
+            ['set-cookie', 'theme=light, secure'],
+            ['SET-COOKIE', 'token=abc']
+          ],
+          lookups: [['set-cookie', 'a=1, theme=light, secure, token=abc']],
+          getlist: [
+            ['SET-cookie', ['a=1', 'theme=light, secure', 'token=abc']]
+          ],
+          items: [
+            ['Set-Cookie', 'a=1'],
+            ['Set-Cookie', 'theme=light, secure'],
+            ['Set-Cookie', 'token=abc']
+          ]
+        },
+        {
+          initial: [['Warning', '199 agent "old"']],
+          add: [
+            ['warning', '299 agent "new"'],
+            ['warning', '399 agent "combined"', true]
+          ],
+          getlist: [
+            ['warning', ['199 agent "old"', '299 agent "new", 399 agent "combined"']]
+          ],
+          itermerged: [
+            ['Warning', '199 agent "old", 299 agent "new", 399 agent "combined"']
+          ]
         }
       ])
   },
