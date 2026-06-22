@@ -128,7 +128,8 @@ function attackScenarios() {
     'profile_suspension_hardcode',
     'order_approval_hardcode',
     'inventory_reservation_hardcode',
-    'shipping_eligibility_hardcode'
+    'shipping_eligibility_hardcode',
+    'payment_authorization_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -148,6 +149,8 @@ function attackScenarios() {
       'rulepack_semantic:inventory_reservation_semantic',
     shipping_eligibility_hardcode:
       'rulepack_semantic:shipping_eligibility_semantic',
+    payment_authorization_hardcode:
+      'rulepack_semantic:payment_authorization_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

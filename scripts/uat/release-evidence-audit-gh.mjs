@@ -95,13 +95,41 @@ export function artifactNameMatchesPattern(name, pattern) {
   return globPatternToRegExp(pattern).test(String(name));
 }
 
-function summarizeArtifact(artifact) {
+function normalizeArtifactDigest(value) {
+  const digest = String(value ?? '').trim();
+  return /^sha256:[a-f0-9]{64}$/i.test(digest) ? digest.toLowerCase() : null;
+}
+
+export function artifactReplayReadiness(artifact, options = {}) {
+  const requireDigest = options.requireArtifactDigest !== false;
+  const blockers = [];
+  const size = Number(artifact?.size_in_bytes);
+  if (artifact?.expired === true) blockers.push('expired');
+  if (!Number.isFinite(size) || size <= 0) blockers.push('invalid_size');
+  if (requireDigest && !normalizeArtifactDigest(artifact?.digest)) {
+    blockers.push('missing_sha256_digest');
+  }
   return {
+    ok: blockers.length === 0,
+    blockers
+  };
+}
+
+function summarizeArtifact(artifact, options = {}) {
+  const summary = {
+    id: artifact?.id ?? null,
     name: artifact?.name ?? null,
     expired: artifact?.expired ?? null,
     size_in_bytes: artifact?.size_in_bytes ?? null,
+    digest: normalizeArtifactDigest(artifact?.digest),
     created_at: artifact?.created_at ?? null,
     expires_at: artifact?.expires_at ?? null
+  };
+  const readiness = artifactReplayReadiness(summary, options);
+  return {
+    ...summary,
+    replay_ready: readiness.ok,
+    replay_blockers: readiness.blockers
   };
 }
 
@@ -162,17 +190,29 @@ async function listRunArtifacts(candidate, pattern, options, runCommand) {
       : Array.isArray(parsed.artifacts)
         ? parsed.artifacts
         : []
-  ).map(summarizeArtifact);
+  ).map((artifact) => summarizeArtifact(artifact, options));
   const matchingArtifacts = artifacts.filter((artifact) =>
     artifact.name ? artifactNameMatchesPattern(artifact.name, pattern) : false
+  );
+  const replayReadyArtifacts = matchingArtifacts.filter(
+    (artifact) => artifact.replay_ready
+  );
+  const replayBlockedArtifacts = matchingArtifacts.filter(
+    (artifact) => !artifact.replay_ready
   );
   return {
     ok: true,
     command,
     artifact_count: artifacts.length,
     matching_count: matchingArtifacts.length,
+    replay_ready_matching_count: replayReadyArtifacts.length,
+    replay_blocked_matching_count: replayBlockedArtifacts.length,
+    all_matching_replay_ready:
+      matchingArtifacts.length > 0 && replayBlockedArtifacts.length === 0,
     artifacts,
-    matching_artifacts: matchingArtifacts
+    matching_artifacts: matchingArtifacts,
+    replay_ready_matching_artifacts: replayReadyArtifacts,
+    replay_blocked_matching_artifacts: replayBlockedArtifacts
   };
 }
 
@@ -358,6 +398,23 @@ export async function buildGitHubReleaseEvidenceAuditReport(options = {}) {
       });
       continue;
     }
+    if (artifactLookup?.ok && !artifactLookup.all_matching_replay_ready) {
+      attemptedDownloads.push({
+        run_id: candidate.run_id,
+        run_attempt: candidate.run_attempt,
+        artifact_pattern: pattern,
+        command: ['gh', ...args],
+        artifact_lookup: artifactLookup,
+        skipped_download: true,
+        ok: false,
+        status: 'unreplayable_artifacts',
+        exit_code: null,
+        stdout: '',
+        stderr:
+          'matching evidence artifacts are expired, empty, or missing sha256 digest metadata'
+      });
+      continue;
+    }
     const result = await runCommand('gh', args, {
       cwd: options.cwd,
       env: options.env,
@@ -460,6 +517,7 @@ export function parseArgs(argv, env = process.env) {
     workflow: env.VIBELOOP_GITHUB_WORKFLOW ?? 'CI',
     branch: env.VIBELOOP_GITHUB_BRANCH ?? env.GITHUB_REF_NAME,
     repo: env.VIBELOOP_GITHUB_REPOSITORY ?? env.GITHUB_REPOSITORY,
+    requireArtifactDigest: env.VIBELOOP_GITHUB_REQUIRE_ARTIFACT_DIGEST !== '0',
     env
   };
 
@@ -536,6 +594,10 @@ export function parseArgs(argv, env = process.env) {
     }
     if (arg === '--no-artifact-list') {
       options.artifactLookup = false;
+      continue;
+    }
+    if (arg === '--no-require-artifact-digest') {
+      options.requireArtifactDigest = false;
       continue;
     }
     if (arg === '--scenario') {

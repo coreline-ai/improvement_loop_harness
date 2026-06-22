@@ -14,6 +14,7 @@ import {
   BLOCKED_EXIT,
   artifactNameMatchesPattern,
   artifactPattern,
+  artifactReplayReadiness,
   buildGitHubReleaseEvidenceAuditReport,
   githubReleaseEvidenceAuditExitCode,
   parseArgs
@@ -24,6 +25,9 @@ import {
 } from './product-100-contract.mjs';
 
 const cleanup = [];
+const SHA256_A = `sha256:${'a'.repeat(64)}`;
+const SHA256_B = `sha256:${'b'.repeat(64)}`;
+const SHA256_C = `sha256:${'c'.repeat(64)}`;
 
 async function tempRoot() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'vibeloop-gh-audit-'));
@@ -142,7 +146,8 @@ describe('GitHub release evidence audit', () => {
               {
                 name: 'uat-evidence-123-2',
                 expired: false,
-                size_in_bytes: 1234
+                size_in_bytes: 1234,
+                digest: SHA256_A
               }
             ]
           }),
@@ -214,8 +219,16 @@ describe('GitHub release evidence audit', () => {
         ok: true,
         artifact_count: 1,
         matching_count: 1,
+        replay_ready_matching_count: 1,
+        replay_blocked_matching_count: 0,
+        all_matching_replay_ready: true,
         matching_artifacts: [
-          expect.objectContaining({ name: 'uat-evidence-123-2' })
+          expect.objectContaining({
+            name: 'uat-evidence-123-2',
+            digest: SHA256_A,
+            replay_ready: true,
+            replay_blockers: []
+          })
         ]
       })
     );
@@ -244,12 +257,14 @@ describe('GitHub release evidence audit', () => {
               {
                 name: 'product-100-evidence-123-2',
                 expired: false,
-                size_in_bytes: 4321
+                size_in_bytes: 4321,
+                digest: SHA256_A
               },
               {
                 name: 'uat-evidence-123-2',
                 expired: false,
-                size_in_bytes: 1234
+                size_in_bytes: 1234,
+                digest: SHA256_B
               }
             ]
           }),
@@ -281,7 +296,11 @@ describe('GitHub release evidence audit', () => {
     expect(
       report.download.attempts[0].artifact_lookup.matching_artifacts
     ).toEqual([
-      expect.objectContaining({ name: 'product-100-evidence-123-2' })
+      expect.objectContaining({
+        name: 'product-100-evidence-123-2',
+        digest: SHA256_A,
+        replay_ready: true
+      })
     ]);
     expect(report.audit.audit_summary.scenarios).toEqual([
       expect.objectContaining({
@@ -555,7 +574,14 @@ describe('GitHub release evidence audit', () => {
           status: 'pass',
           exit_code: 0,
           stdout: JSON.stringify({
-            artifacts: [{ name: 'unrelated-logs-222-1', expired: false }]
+            artifacts: [
+              {
+                name: 'unrelated-logs-222-1',
+                expired: false,
+                size_in_bytes: 100,
+                digest: SHA256_A
+              }
+            ]
           }),
           stderr: ''
         };
@@ -567,7 +593,12 @@ describe('GitHub release evidence audit', () => {
           exit_code: 0,
           stdout: JSON.stringify({
             artifacts: [
-              { name: 'postgres-contract-evidence-111-2', expired: false }
+              {
+                name: 'postgres-contract-evidence-111-2',
+                expired: false,
+                size_in_bytes: 100,
+                digest: SHA256_B
+              }
             ]
           }),
           stderr: ''
@@ -663,7 +694,8 @@ describe('GitHub release evidence audit', () => {
         artifact_lookup: expect.objectContaining({
           ok: true,
           artifact_count: 1,
-          matching_count: 0
+          matching_count: 0,
+          replay_ready_matching_count: 0
         })
       }),
       expect.objectContaining({
@@ -671,11 +703,206 @@ describe('GitHub release evidence audit', () => {
         ok: true,
         artifact_lookup: expect.objectContaining({
           matching_count: 1,
+          replay_ready_matching_count: 1,
           matching_artifacts: [
             expect.objectContaining({
-              name: 'postgres-contract-evidence-111-2'
+              name: 'postgres-contract-evidence-111-2',
+              replay_ready: true
             })
           ]
+        })
+      })
+    ]);
+  });
+
+  it('skips matching artifacts that are not replay-ready before downloading latest evidence', async () => {
+    const outputDir = await tempRoot();
+    const calls = [];
+    const runCommand = async (command, args) => {
+      calls.push([command, args]);
+      if (args[0] === 'run' && args[1] === 'list') {
+        return {
+          ok: true,
+          status: 'pass',
+          exit_code: 0,
+          stdout: JSON.stringify([
+            {
+              databaseId: 333,
+              attempt: 1,
+              status: 'completed',
+              conclusion: 'success',
+              headBranch: 'main',
+              workflowName: 'CI',
+              displayTitle: 'expired evidence run',
+              createdAt: '2026-06-17T00:00:00Z'
+            },
+            {
+              databaseId: 222,
+              attempt: 1,
+              status: 'completed',
+              conclusion: 'success',
+              headBranch: 'main',
+              workflowName: 'CI',
+              displayTitle: 'digestless evidence run',
+              createdAt: '2026-06-16T00:00:00Z'
+            },
+            {
+              databaseId: 111,
+              attempt: 2,
+              status: 'completed',
+              conclusion: 'success',
+              headBranch: 'main',
+              workflowName: 'CI',
+              displayTitle: 'replay-ready evidence run',
+              createdAt: '2026-06-15T00:00:00Z'
+            }
+          ]),
+          stderr: ''
+        };
+      }
+      if (args[0] === 'api' && args[1].includes('/333/')) {
+        return {
+          ok: true,
+          status: 'pass',
+          exit_code: 0,
+          stdout: JSON.stringify({
+            artifacts: [
+              {
+                name: 'uat-evidence-333-1',
+                expired: true,
+                size_in_bytes: 100,
+                digest: SHA256_A
+              }
+            ]
+          }),
+          stderr: ''
+        };
+      }
+      if (args[0] === 'api' && args[1].includes('/222/')) {
+        return {
+          ok: true,
+          status: 'pass',
+          exit_code: 0,
+          stdout: JSON.stringify({
+            artifacts: [
+              {
+                name: 'uat-evidence-222-1',
+                expired: false,
+                size_in_bytes: 100
+              }
+            ]
+          }),
+          stderr: ''
+        };
+      }
+      if (args[0] === 'api' && args[1].includes('/111/')) {
+        return {
+          ok: true,
+          status: 'pass',
+          exit_code: 0,
+          stdout: JSON.stringify({
+            artifacts: [
+              {
+                name: 'uat-evidence-111-2',
+                expired: false,
+                size_in_bytes: 100,
+                digest: SHA256_C
+              }
+            ]
+          }),
+          stderr: ''
+        };
+      }
+      await writeLedger(
+        outputDir,
+        'skill-real-user-codex-live-uat',
+        'live-run',
+        'REAL_USER_RUN_PASS'
+      );
+      await writeManifest(
+        outputDir,
+        'skill-real-user-codex-live-uat',
+        'live-run'
+      );
+      return {
+        ok: true,
+        status: 'pass',
+        exit_code: 0,
+        stdout: 'downloaded',
+        stderr: ''
+      };
+    };
+
+    const report = await buildGitHubReleaseEvidenceAuditReport({
+      latest: true,
+      latestLimit: 3,
+      workflow: 'CI',
+      branch: 'main',
+      repo: 'coreline-ai/improvement_loop_harness',
+      outputDir,
+      scenarioNames: ['skill-real-user-codex-live-uat'],
+      runCommand
+    });
+
+    expect(
+      calls.filter(
+        ([command, args]) =>
+          command === 'gh' && args[0] === 'run' && args[1] === 'download'
+      )
+    ).toEqual([
+      [
+        'gh',
+        [
+          'run',
+          'download',
+          '111',
+          '--pattern',
+          '*evidence-111-2',
+          '--dir',
+          outputDir,
+          '--repo',
+          'coreline-ai/improvement_loop_harness'
+        ]
+      ]
+    ]);
+    expect(report.status).toBe('pass');
+    expect(report.github.run_id).toBe('111');
+    expect(report.download.attempts).toEqual([
+      expect.objectContaining({
+        run_id: '333',
+        status: 'unreplayable_artifacts',
+        skipped_download: true,
+        artifact_lookup: expect.objectContaining({
+          matching_count: 1,
+          replay_ready_matching_count: 0,
+          replay_blocked_matching_artifacts: [
+            expect.objectContaining({
+              name: 'uat-evidence-333-1',
+              replay_blockers: ['expired']
+            })
+          ]
+        })
+      }),
+      expect.objectContaining({
+        run_id: '222',
+        status: 'unreplayable_artifacts',
+        skipped_download: true,
+        artifact_lookup: expect.objectContaining({
+          matching_count: 1,
+          replay_ready_matching_count: 0,
+          replay_blocked_matching_artifacts: [
+            expect.objectContaining({
+              name: 'uat-evidence-222-1',
+              replay_blockers: ['missing_sha256_digest']
+            })
+          ]
+        })
+      }),
+      expect.objectContaining({
+        run_id: '111',
+        ok: true,
+        artifact_lookup: expect.objectContaining({
+          all_matching_replay_ready: true
         })
       })
     ]);
@@ -741,7 +968,9 @@ describe('GitHub release evidence audit', () => {
       })
     );
 
-    expect(parseArgs(['--latest'], { GITHUB_REPOSITORY: 'owner/repo' })).toEqual(
+    expect(
+      parseArgs(['--latest'], { GITHUB_REPOSITORY: 'owner/repo' })
+    ).toEqual(
       expect.objectContaining({
         latest: true,
         repo: 'owner/repo'
@@ -769,6 +998,16 @@ describe('GitHub release evidence audit', () => {
         branch: 'main'
       })
     );
+
+    expect(
+      parseArgs(['--no-require-artifact-digest'], {
+        GITHUB_RUN_ID: '789'
+      })
+    ).toEqual(
+      expect.objectContaining({
+        requireArtifactDigest: false
+      })
+    );
   });
 
   it('rejects conflicting explicit and latest run selection', async () => {
@@ -789,12 +1028,51 @@ describe('GitHub release evidence audit', () => {
     expect(
       artifactPattern({ runId: '1', artifactPattern: 'custom-evidence-*' })
     ).toBe('custom-evidence-*');
-    expect(artifactNameMatchesPattern('uat-evidence-1-2', '*evidence-1-2')).toBe(
-      true
-    );
+    expect(
+      artifactNameMatchesPattern('uat-evidence-1-2', '*evidence-1-2')
+    ).toBe(true);
     expect(artifactNameMatchesPattern('unrelated-1-2', '*evidence-1-2')).toBe(
       false
     );
+  });
+
+  it('classifies artifact replay readiness from GitHub artifact metadata', () => {
+    expect(
+      artifactReplayReadiness({
+        expired: false,
+        size_in_bytes: 12,
+        digest: SHA256_A
+      })
+    ).toEqual({ ok: true, blockers: [] });
+    expect(
+      artifactReplayReadiness({
+        expired: true,
+        size_in_bytes: 12,
+        digest: SHA256_A
+      })
+    ).toEqual({ ok: false, blockers: ['expired'] });
+    expect(
+      artifactReplayReadiness({
+        expired: false,
+        size_in_bytes: 0,
+        digest: SHA256_A
+      })
+    ).toEqual({ ok: false, blockers: ['invalid_size'] });
+    expect(
+      artifactReplayReadiness({
+        expired: false,
+        size_in_bytes: 12
+      })
+    ).toEqual({ ok: false, blockers: ['missing_sha256_digest'] });
+    expect(
+      artifactReplayReadiness(
+        {
+          expired: false,
+          size_in_bytes: 12
+        },
+        { requireArtifactDigest: false }
+      )
+    ).toEqual({ ok: true, blockers: [] });
   });
 
   it('requires a run id when environment defaults are unavailable', async () => {

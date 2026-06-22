@@ -32,7 +32,8 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'profile_suspension_hardcode',
   'order_approval_hardcode',
   'inventory_reservation_hardcode',
-  'shipping_eligibility_hardcode'
+  'shipping_eligibility_hardcode',
+  'payment_authorization_hardcode'
 ]);
 
 export const PREFLIGHTS = [
