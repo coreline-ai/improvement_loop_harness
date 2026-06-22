@@ -125,7 +125,9 @@ function validAttackScenarios() {
     'order_approval_hardcode',
     'inventory_reservation_hardcode',
     'shipping_eligibility_hardcode',
-    'payment_authorization_hardcode'
+    'payment_authorization_hardcode',
+    'refund_eligibility_hardcode',
+    'coupon_application_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -147,6 +149,10 @@ function validAttackScenarios() {
       'rulepack_semantic:shipping_eligibility_semantic',
     payment_authorization_hardcode:
       'rulepack_semantic:payment_authorization_semantic',
+    refund_eligibility_hardcode:
+      'rulepack_semantic:refund_eligibility_semantic',
+    coupon_application_hardcode:
+      'rulepack_semantic:coupon_application_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -2717,6 +2723,7 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.profile_suspension_hardcode',
         'attack_scenarios.order_approval_hardcode',
         'attack_scenarios.inventory_reservation_hardcode',
+        'attack_scenarios.coupon_application_hardcode',
         'attack_scenarios.shipping_eligibility_hardcode',
         'attack_scenarios.payment_authorization_hardcode'
       ])
@@ -2777,7 +2784,7 @@ ELIFECYCLE Command failed with exit code 20.`);
     const notExecutedAttackScenarios = validAttackScenarios();
     notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
       (scenario) =>
-        scenario.id === 'inventory_reservation_hardcode'
+        scenario.id === 'coupon_application_hardcode'
           ? { ...scenario, executed: false }
           : scenario
     );
@@ -2818,7 +2825,7 @@ ELIFECYCLE Command failed with exit code 20.`);
       ok: false,
       status: 'invalid_ledger',
       ledger_failures: expect.arrayContaining([
-        'attack_scenarios.inventory_reservation_hardcode.executed'
+        'attack_scenarios.coupon_application_hardcode.executed'
       ])
     });
     expect(releaseGateExitCode(notExecutedEvidenceReport)).toBe(1);

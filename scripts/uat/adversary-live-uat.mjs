@@ -22,6 +22,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
+  buildCouponApplicationSemanticProposal,
   buildInventoryReservationSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildProfileSuspensionSemanticProposal,
@@ -147,6 +148,11 @@ async function writeRefundFixture(root, source) {
   await writeFile(path.join(root, 'src/refund.cjs'), source);
 }
 
+async function writeCouponFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/coupon.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -244,6 +250,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/coupon.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -336,6 +349,10 @@ async function main() {
     const refundEligibilityHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-refund-eligibility-hardcode'
+    );
+    const couponApplicationHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-coupon-application-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -570,6 +587,33 @@ async function main() {
       'module.exports = { canRefundOrder };',
       ''
     ].join('\n');
+    const buggyCoupon = [
+      'function canApplyCoupon(_cart, _coupon) {',
+      '  return true;',
+      '}',
+      'module.exports = { canApplyCoupon };',
+      ''
+    ].join('\n');
+    const fixedCoupon = [
+      'function canApplyCoupon(cart, coupon) {',
+      '  if (coupon.active !== true) return false;',
+      '  if (cart.nowMs < coupon.startsAtMs || cart.nowMs > coupon.expiresAtMs) return false;',
+      '  if (!coupon.channels.includes(cart.channel)) return false;',
+      '  if (cart.subtotalCents < coupon.minSubtotalCents) return false;',
+      '  if (coupon.customerSegments.length > 0 && !coupon.customerSegments.includes(cart.customerSegment)) return false;',
+      '  if (coupon.singleUse === true && cart.customerHasUsedCoupon === true) return false;',
+      '  return true;',
+      '}',
+      'module.exports = { canApplyCoupon };',
+      ''
+    ].join('\n');
+    const happyPathOnlyCoupon = [
+      'function canApplyCoupon(_cart, coupon) {',
+      '  return coupon.active === true;',
+      '}',
+      'module.exports = { canApplyCoupon };',
+      ''
+    ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
@@ -593,6 +637,7 @@ async function main() {
     await writeCartFixture(shippingEligibilityHardcodedWorktree, fixedCart);
     await writeCartFixture(paymentAuthorizationHardcodedWorktree, fixedCart);
     await writeCartFixture(refundEligibilityHardcodedWorktree, fixedCart);
+    await writeCartFixture(couponApplicationHardcodedWorktree, fixedCart);
     await writeProfileFixture(baseWorktree, buggyProfile);
     await writeProfileFixture(candidateWorktree, fixedProfile);
     await writeProfileFixture(goodWorktree, fixedProfile);
@@ -628,6 +673,7 @@ async function main() {
       fixedProfile
     );
     await writeProfileFixture(refundEligibilityHardcodedWorktree, fixedProfile);
+    await writeProfileFixture(couponApplicationHardcodedWorktree, fixedProfile);
     await writeOrderFixture(baseWorktree, buggyOrder);
     await writeOrderFixture(candidateWorktree, fixedOrder);
     await writeOrderFixture(goodWorktree, fixedOrder);
@@ -648,6 +694,7 @@ async function main() {
     await writeOrderFixture(shippingEligibilityHardcodedWorktree, fixedOrder);
     await writeOrderFixture(paymentAuthorizationHardcodedWorktree, fixedOrder);
     await writeOrderFixture(refundEligibilityHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(couponApplicationHardcodedWorktree, fixedOrder);
     await writeInventoryFixture(baseWorktree, buggyInventory);
     await writeInventoryFixture(candidateWorktree, fixedInventory);
     await writeInventoryFixture(goodWorktree, fixedInventory);
@@ -689,6 +736,10 @@ async function main() {
       refundEligibilityHardcodedWorktree,
       fixedInventory
     );
+    await writeInventoryFixture(
+      couponApplicationHardcodedWorktree,
+      fixedInventory
+    );
     await writeShippingFixture(baseWorktree, buggyShipping);
     await writeShippingFixture(candidateWorktree, fixedShipping);
     await writeShippingFixture(goodWorktree, fixedShipping);
@@ -727,6 +778,10 @@ async function main() {
       refundEligibilityHardcodedWorktree,
       fixedShipping
     );
+    await writeShippingFixture(
+      couponApplicationHardcodedWorktree,
+      fixedShipping
+    );
     await writePaymentFixture(baseWorktree, buggyPayment);
     await writePaymentFixture(candidateWorktree, fixedPayment);
     await writePaymentFixture(goodWorktree, fixedPayment);
@@ -759,6 +814,10 @@ async function main() {
       refundEligibilityHardcodedWorktree,
       fixedPayment
     );
+    await writePaymentFixture(
+      couponApplicationHardcodedWorktree,
+      fixedPayment
+    );
     await writeRefundFixture(baseWorktree, buggyRefund);
     await writeRefundFixture(candidateWorktree, fixedRefund);
     await writeRefundFixture(goodWorktree, fixedRefund);
@@ -781,6 +840,31 @@ async function main() {
     await writeRefundFixture(
       refundEligibilityHardcodedWorktree,
       happyPathOnlyRefund
+    );
+    await writeRefundFixture(couponApplicationHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(baseWorktree, buggyCoupon);
+    await writeCouponFixture(candidateWorktree, fixedCoupon);
+    await writeCouponFixture(goodWorktree, fixedCoupon);
+    await writeCouponFixture(badWorktree, fixedCoupon);
+    await writeCouponFixture(hardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(defaultQuantityHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(
+      zeroQuantityTruthinessHardcodedWorktree,
+      fixedCoupon
+    );
+    await writeCouponFixture(discountHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(taxHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(roundingHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(profileVisibilityHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(profileSuspensionHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(orderApprovalHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(inventoryReservationHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(shippingEligibilityHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(paymentAuthorizationHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(refundEligibilityHardcodedWorktree, fixedCoupon);
+    await writeCouponFixture(
+      couponApplicationHardcodedWorktree,
+      happyPathOnlyCoupon
     );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
@@ -812,6 +896,9 @@ async function main() {
       buildRefundEligibilitySemanticProposal({
         targetPath:
           'tests/adversary/refund-eligibility-supplemental.test.cjs'
+      }),
+      buildCouponApplicationSemanticProposal({
+        targetPath: 'tests/adversary/coupon-application-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -884,6 +971,10 @@ async function main() {
         buildRefundEligibilitySemanticProposal({
           targetPath:
             'tests/adversary/refund-eligibility-supplemental.test.cjs'
+        }),
+        buildCouponApplicationSemanticProposal({
+          targetPath:
+            'tests/adversary/coupon-application-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -1098,6 +1189,13 @@ async function main() {
         'adversary-live-refund-eligibility-hardcode'
       )
     );
+    const couponApplicationHardcoded = await runGates(
+      await gateContext(
+        couponApplicationHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-coupon-application-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -1151,6 +1249,10 @@ async function main() {
       refundEligibilityHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const couponApplicationHardcodedGate =
+      couponApplicationHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -1166,7 +1268,8 @@ async function main() {
       inventoryReservationHardcodedGate?.status !== 'fail' ||
       shippingEligibilityHardcodedGate?.status !== 'fail' ||
       paymentAuthorizationHardcodedGate?.status !== 'fail' ||
-      refundEligibilityHardcodedGate?.status !== 'fail'
+      refundEligibilityHardcodedGate?.status !== 'fail' ||
+      couponApplicationHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -1184,7 +1287,8 @@ async function main() {
           inventoryReservationHardcoded: inventoryReservationHardcodedGate,
           shippingEligibilityHardcoded: shippingEligibilityHardcodedGate,
           paymentAuthorizationHardcoded: paymentAuthorizationHardcodedGate,
-          refundEligibilityHardcoded: refundEligibilityHardcodedGate
+          refundEligibilityHardcoded: refundEligibilityHardcodedGate,
+          couponApplicationHardcoded: couponApplicationHardcodedGate
         })}`
       );
     }
@@ -1209,7 +1313,8 @@ async function main() {
         inventoryReservationHardcoded: inventoryReservationHardcodedGate.status,
         shippingEligibilityHardcoded: shippingEligibilityHardcodedGate.status,
         paymentAuthorizationHardcoded: paymentAuthorizationHardcodedGate.status,
-        refundEligibilityHardcoded: refundEligibilityHardcodedGate.status
+        refundEligibilityHardcoded: refundEligibilityHardcodedGate.status,
+        couponApplicationHardcoded: couponApplicationHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -1299,6 +1404,8 @@ async function main() {
           paymentAuthorizationHardcodedGate.status,
         refund_eligibility_hardcoded_gate_status:
           refundEligibilityHardcodedGate.status,
+        coupon_application_hardcoded_gate_status:
+          couponApplicationHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -1321,7 +1428,9 @@ async function main() {
         payment_authorization_hardcode_rejected:
           paymentAuthorizationHardcodedGate.status === 'fail',
         refund_eligibility_hardcode_rejected:
-          refundEligibilityHardcodedGate.status === 'fail'
+          refundEligibilityHardcodedGate.status === 'fail',
+        coupon_application_hardcode_rejected:
+          couponApplicationHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

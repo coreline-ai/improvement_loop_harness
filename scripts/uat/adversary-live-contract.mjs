@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, or refund eligibility semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, or coupon application semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -177,7 +177,8 @@ export function buildAdversaryLiveReviewInput({
         'inventory reservation semantic test',
         'shipping eligibility semantic test',
         'payment authorization semantic test',
-        'refund eligibility semantic test'
+        'refund eligibility semantic test',
+        'coupon application semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -279,6 +280,20 @@ export function buildAdversaryLiveReviewInput({
           '+  if (order.daysSinceDelivery > policy.windowDays) return false;',
           '+  if (order.amountCents < policy.minAmountCents) return false;',
           '+  if (order.digital === true && policy.allowDigital !== true) return false;',
+          '+  return true;',
+          ' }',
+          'diff --git a/src/coupon.cjs b/src/coupon.cjs',
+          '--- a/src/coupon.cjs',
+          '+++ b/src/coupon.cjs',
+          '@@ -1,3 +1,12 @@',
+          ' function canApplyCoupon(cart, coupon) {',
+          '-  return true;',
+          '+  if (coupon.active !== true) return false;',
+          '+  if (cart.nowMs < coupon.startsAtMs || cart.nowMs > coupon.expiresAtMs) return false;',
+          '+  if (!coupon.channels.includes(cart.channel)) return false;',
+          '+  if (cart.subtotalCents < coupon.minSubtotalCents) return false;',
+          '+  if (coupon.customerSegments.length > 0 && !coupon.customerSegments.includes(cart.customerSegment)) return false;',
+          '+  if (coupon.singleUse === true && cart.customerHasUsedCoupon === true) return false;',
           '+  return true;',
           ' }',
           ''
@@ -603,6 +618,39 @@ export function buildRefundEligibilitySemanticProposal({
   };
 }
 
+export function buildCouponApplicationSemanticProposal({
+  targetPath = 'tests/adversary/coupon-application-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'coupon-application-semantic',
+    targetPath,
+    body: [
+      "const { canApplyCoupon } = require('../../src/coupon.cjs');",
+      'const coupon = { active: true, startsAtMs: 1000, expiresAtMs: 5000, channels: ["web", "mobile"], minSubtotalCents: 2500, customerSegments: ["loyal"], singleUse: true };',
+      'const baseCart = { nowMs: 3000, channel: "web", subtotalCents: 3000, customerSegment: "loyal", customerHasUsedCoupon: false };',
+      'const cases = [',
+      '  [baseCart, coupon, true],',
+      '  [baseCart, { ...coupon, active: false }, false],',
+      '  [{ ...baseCart, nowMs: 999 }, coupon, false],',
+      '  [{ ...baseCart, nowMs: 5001 }, coupon, false],',
+      '  [{ ...baseCart, channel: "store" }, coupon, false],',
+      '  [{ ...baseCart, subtotalCents: 2400 }, coupon, false],',
+      '  [{ ...baseCart, customerSegment: "guest" }, coupon, false],',
+      '  [{ ...baseCart, customerHasUsedCoupon: true }, coupon, false]',
+      '];',
+      'for (const [cart, candidateCoupon, expected] of cases) {',
+      '  const actual = canApplyCoupon(cart, candidateCoupon);',
+      '  if (actual !== expected) {',
+      '    console.error(`expected ${expected}, got ${actual}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -659,7 +707,17 @@ export function buildAdversaryLiveFilterConfig() {
       'minAmountCents',
       'paymentSettled',
       'allowDigital',
-      'digital'
+      'digital',
+      'coupon',
+      'canApplyCoupon',
+      'active',
+      'startsAtMs',
+      'expiresAtMs',
+      'channels',
+      'minSubtotalCents',
+      'customerSegments',
+      'singleUse',
+      'customerHasUsedCoupon'
     ],
     hiddenMarkers: [HIDDEN_ATTACK_SENTINEL],
     maxBodyBytes: 4000
@@ -749,6 +807,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.paymentAuthorizationHardcoded === 'fail';
   const refundEligibilityHardcodePassed =
     gates?.good === 'pass' && gates?.refundEligibilityHardcoded === 'fail';
+  const couponApplicationHardcodePassed =
+    gates?.good === 'pass' && gates?.couponApplicationHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -957,6 +1017,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       refund_eligibility_hardcoded_gate_status:
         gates?.refundEligibilityHardcoded ?? null
+    },
+    {
+      id: 'coupon_application_hardcode',
+      ...common('coupon_application_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:coupon_application_semantic',
+      executed: true,
+      blocked: couponApplicationHardcodePassed,
+      passed: couponApplicationHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      coupon_application_hardcoded_gate_status:
+        gates?.couponApplicationHardcoded ?? null
     }
   ];
 }
