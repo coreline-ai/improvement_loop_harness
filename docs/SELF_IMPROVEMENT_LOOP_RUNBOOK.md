@@ -771,7 +771,7 @@ corepack pnpm uat:release-evidence-audit:gh -- \
   --scenario adversary-live-real-reviewer-uat
 ```
 
-R27/R28/R29/R32 real-project repair CI artifact는 Codex ChatGPT login이 있는 runner와 실제 git repo corpus가 필요하다. `secondary_repo`와 `additional_repos`는 `OWNER/REPO` 또는 URL을 받으며, private repo면 `REAL_PROJECT_CORPUS_GH_TOKEN` secret이 그 repo를 읽을 수 있어야 한다. 기본 `repair_mode=existing-source` 설정은 current repo를 포함해 R27 `repo-matrix-real-project-existing-source-repair-uat` artifact를 만들고 즉시 다운로드 감사한다. `publish_draft_prs=true`를 주면 R28 `repo-matrix-real-project-existing-source-repair-pr-uat` artifact로 전환하고, private evidence repo 생성 + branch push + draft PR verification까지 포함한다. `include_current_repo=false`, `additional_repos`, `min_repos=4`를 쓰면 R29 public broad corpus처럼 current repo 없이 public repo 4개 이상으로 non-PR existing-source repair artifact를 만들 수 있다. `repair_mode=business-fixture`를 쓰면 R32 `repo-matrix-real-project-business-repair-uat` artifact와 downloaded artifact audit을 만든다. 최신 credentialed PASS artifact는 R29 non-PR public broad workflow run `27947984264`, R28 draft PR workflow run `27949790976`, R33 business fixture workflow run `27946183282`다. 단 이 CI evidence도 syntactic regression repair 또는 dedicated business fixture repair 범위이며, 기존 애플리케이션 업무 source 임의 bug repair PASS는 아니다.
+R27/R28/R29/R32/R35 real-project repair CI artifact는 Codex ChatGPT login이 있는 runner와 실제 git repo corpus가 필요하다. `secondary_repo`와 `additional_repos`는 `OWNER/REPO` 또는 URL을 받으며, private repo면 `REAL_PROJECT_CORPUS_GH_TOKEN` secret이 그 repo를 읽을 수 있어야 한다. 기본 `repair_mode=existing-source` 설정은 current repo를 포함해 R27 `repo-matrix-real-project-existing-source-repair-uat` artifact를 만들고 즉시 다운로드 감사한다. `publish_draft_prs=true`를 주면 R28 `repo-matrix-real-project-existing-source-repair-pr-uat` artifact로 전환하고, private evidence repo 생성 + branch push + draft PR verification까지 포함한다. `include_current_repo=false`, `additional_repos`, `min_repos=4`를 쓰면 R29 public broad corpus처럼 current repo 없이 public repo 4개 이상으로 non-PR existing-source repair artifact를 만들 수 있다. `repair_mode=business-fixture`를 쓰면 R32 `repo-matrix-real-project-business-repair-uat` artifact와 downloaded artifact audit을 만든다. `repair_mode=semantic-source`를 쓰면 R35 `repo-matrix-real-project-semantic-source-repair-uat` artifact와 downloaded artifact audit을 만든다. 최신 credentialed PASS artifact는 R29 non-PR public broad workflow run `27947984264`, R28 draft PR workflow run `27949790976`, R33 business fixture workflow run `27946183282`다. R35 semantic-source credentialed artifact는 후속 run에서 고정한다. 단 이 CI evidence도 syntactic regression repair, dedicated business fixture repair, 또는 curated semantic target repair 범위이며, 기존 애플리케이션 업무 source 임의 bug repair PASS는 아니다.
 
 ```bash
 gh workflow run real-project-existing-source-repair-live.yml \
@@ -881,7 +881,24 @@ corepack pnpm uat:release-evidence-audit -- \
   --scenario repo-matrix-real-project-business-repair-uat
 ```
 
-기존 non-PR artifact를 재감사할 때는 replay input만 지정한다. R28 artifact는 replay에도 `repair_mode=existing-source`, `publish_draft_prs=true`를 같이 넘겨 PR scenario로 감사한다. R32 artifact는 replay에도 `repair_mode=business-fixture`를 같이 넘긴다.
+R35 semantic source repair artifact를 재현할 때는 `repair_mode=semantic-source`를 지정한다. 이 모드는 curated semantic target registry에 매칭되는 repo가 필요하며, GitHub draft PR publish를 하지 않으므로 `publish_draft_prs=false`를 사용한다. 현재 재현 예시는 current repo + public `pypa/sampleproject` 2셀이다.
+
+```bash
+gh workflow run real-project-existing-source-repair-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=true \
+  -f repair_mode=semantic-source \
+  -f runner_label=self-hosted \
+  -f include_current_repo=true \
+  -f secondary_repo=pypa/sampleproject \
+  -f secondary_repo_ref=main \
+  -f min_repos=2 \
+  -f publish_draft_prs=false \
+  -f codex_model=gpt-5.5 \
+  -f codex_timeout_ms=240000
+```
+
+기존 non-PR artifact를 재감사할 때는 replay input만 지정한다. R28 artifact는 replay에도 `repair_mode=existing-source`, `publish_draft_prs=true`를 같이 넘겨 PR scenario로 감사한다. R32 artifact는 replay에도 `repair_mode=business-fixture`를 같이 넘긴다. R35 artifact는 replay에도 `repair_mode=semantic-source`, `publish_draft_prs=false`를 같이 넘긴다.
 
 ```bash
 gh workflow run real-project-existing-source-repair-live.yml \
@@ -909,6 +926,17 @@ gh workflow run real-project-existing-source-repair-live.yml \
   --repo coreline-ai/improvement_loop_harness \
   -f run_live=false \
   -f repair_mode=business-fixture \
+  -f replay_run_id=<run_id> \
+  -f replay_run_attempt=1 \
+  -f replay_repo=coreline-ai/improvement_loop_harness
+```
+
+```bash
+gh workflow run real-project-existing-source-repair-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=false \
+  -f repair_mode=semantic-source \
+  -f publish_draft_prs=false \
   -f replay_run_id=<run_id> \
   -f replay_run_attempt=1 \
   -f replay_repo=coreline-ai/improvement_loop_harness

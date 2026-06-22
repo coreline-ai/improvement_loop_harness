@@ -15,6 +15,7 @@ on:
         default: existing-source
         options:
           - existing-source
+          - semantic-source
           - business-fixture
       runner_label:
         description: Runner label with Codex ChatGPT login available.
@@ -213,6 +214,14 @@ jobs:
             scenario="repo-matrix-real-project-business-repair-uat"
             script="uat:repo-matrix:real-project-business-repair"
             extra_args=()
+          elif [ "${REPAIR_MODE}" = "semantic-source" ]; then
+            if [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
+              echo "publish_draft_prs=true is only supported with repair_mode=existing-source" >&2
+              exit 20
+            fi
+            scenario="repo-matrix-real-project-semantic-source-repair-uat"
+            script="uat:repo-matrix:real-project-semantic-source-repair"
+            extra_args=()
           elif [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
             scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
             script="uat:repo-matrix:real-project-existing-source-repair-pr"
@@ -259,6 +268,15 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 14
+      - name: Upload semantic-source repair evidence
+        if: ${{ always() && inputs.repair_mode == 'semantic-source' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-project-semantic-source-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence-real-project-repair
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
       - name: Upload existing-source repair PR evidence
         if: ${{ always() && inputs.repair_mode == 'existing-source' && inputs.publish_draft_prs }}
         uses: actions/upload-artifact@v4
@@ -295,6 +313,14 @@ jobs:
           pattern: real-project-existing-source-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: .ci-real-project-repair-evidence
           merge-multiple: true
+      - name: Download semantic-source repair evidence
+        if: ${{ inputs.repair_mode == 'semantic-source' }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: real-project-semantic-source-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-real-project-repair-evidence
+          merge-multiple: true
       - name: Download existing-source repair PR evidence
         if: ${{ inputs.repair_mode == 'existing-source' && inputs.publish_draft_prs }}
         uses: actions/download-artifact@v4
@@ -310,6 +336,8 @@ jobs:
         run: |
           if [ "${REPAIR_MODE}" = "business-fixture" ]; then
             scenario="repo-matrix-real-project-business-repair-uat"
+          elif [ "${REPAIR_MODE}" = "semantic-source" ]; then
+            scenario="repo-matrix-real-project-semantic-source-repair-uat"
           elif [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
             scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
           else
@@ -356,6 +384,9 @@ jobs:
           if [ "${REPAIR_MODE}" = "business-fixture" ]; then
             scenario="repo-matrix-real-project-business-repair-uat"
             artifact_pattern="real-project-business-repair-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}"
+          elif [ "${REPAIR_MODE}" = "semantic-source" ]; then
+            scenario="repo-matrix-real-project-semantic-source-repair-uat"
+            artifact_pattern="real-project-semantic-source-repair-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}"
           elif [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
             scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
             artifact_pattern="real-project-existing-source-repair-pr-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}"
