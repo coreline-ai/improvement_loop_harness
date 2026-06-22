@@ -1214,8 +1214,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         source_repos_read_only: true,
         draft_pr: false,
         builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
-        cell_count: 4,
-        pass_count: 4,
+        cell_count: 5,
+        pass_count: 5,
         fail_count: 0,
         cells: [
           {
@@ -1248,6 +1248,25 @@ ELIFECYCLE Command failed with exit code 20.`);
               semantic_source_repair: true,
               semantic_bug_repair: true,
               semantic_domain: 'product_100_corpus_summary',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'markupsafe',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/markupsafe/__init__.py',
+              existing_source: true,
+              existing_source_language: 'python',
+              semantic_source_repair: true,
+              semantic_bug_repair: true,
+              semantic_domain: 'html_escape_optional_none',
               visible_acceptance: { status: 'pass' },
               hidden_acceptance: { status: 'pass' },
               diff_scope: { status: 'pass' },
@@ -1338,6 +1357,14 @@ ELIFECYCLE Command failed with exit code 20.`);
             codex_repair_semantic_source_repair: true,
             codex_repair_semantic_bug_repair: true,
             codex_repair_semantic_domain: 'product_100_corpus_summary',
+            codex_repair_existing_source: true
+          },
+          {
+            id: 'markupsafe',
+            codex_repair_status: 'pass',
+            codex_repair_semantic_source_repair: true,
+            codex_repair_semantic_bug_repair: true,
+            codex_repair_semantic_domain: 'html_escape_optional_none',
             codex_repair_existing_source: true
           },
           {

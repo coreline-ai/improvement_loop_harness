@@ -677,6 +677,39 @@ function buildSampleProjectAddOneVerifier(cases) {
   ].join('\n');
 }
 
+function buildMarkupSafeEscapeSilentVerifier(cases) {
+  return [
+    'import json',
+    'import pathlib',
+    'import sys',
+    '',
+    'root = pathlib.Path.cwd()',
+    'sys.path.insert(0, str(root / "src"))',
+    'from markupsafe import Markup, escape, escape_silent',
+    '',
+    `cases = json.loads(${JSON.stringify(JSON.stringify(cases))})`,
+    '',
+    'def run_case(item):',
+    '    op = item["op"]',
+    '    if op == "escape_silent":',
+    '        return escape_silent(item.get("value"))',
+    '    if op == "escape":',
+    '        return escape(item["value"])',
+    '    if op == "markup_add":',
+    '        return Markup(item["left"]) + item["right"]',
+    '    raise AssertionError(f"unknown op {op}")',
+    '',
+    'for item in cases:',
+    '    actual = run_case(item)',
+    '    expected = item["expected"]',
+    '    if str(actual) != expected:',
+    '        raise AssertionError(f"{item}: expected {expected!r}, got {str(actual)!r}")',
+    '    if item.get("expect_markup") and not isinstance(actual, Markup):',
+    '        raise AssertionError(f"{item}: expected Markup result, got {type(actual).__name__}")',
+    ''
+  ].join('\n');
+}
+
 function buildProduct100CorpusVerifier(expectedSummary) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -865,6 +898,62 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
         every_issue_has_adversary_seed: true,
         every_issue_has_write_scope: true
       })
+  },
+  {
+    id: 'markupsafe-escape-silent-none',
+    semantic_domain: 'html_escape_optional_none',
+    relativePath: 'src/markupsafe/__init__.py',
+    language: 'python',
+    originalNeedle: [
+      '    if s is None:',
+      '        return Markup()',
+      '',
+      '    return escape(s)'
+    ].join('\n'),
+    regressionText: [
+      '    if s is None:',
+      '        return escape(s)',
+      '',
+      '    return escape(s)'
+    ].join('\n'),
+    visibleCommand: (filePath) => ({ command: 'python3', args: [filePath] }),
+    buildVisibleVerifier: () =>
+      buildMarkupSafeEscapeSilentVerifier([
+        {
+          op: 'escape_silent',
+          value: null,
+          expected: '',
+          expect_markup: true
+        },
+        {
+          op: 'escape_silent',
+          value: '<em>x</em>',
+          expected: '&lt;em&gt;x&lt;/em&gt;',
+          expect_markup: true
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildMarkupSafeEscapeSilentVerifier([
+        {
+          op: 'escape_silent',
+          value: null,
+          expected: '',
+          expect_markup: true
+        },
+        {
+          op: 'escape',
+          value: 'Tom & Jerry',
+          expected: 'Tom &amp; Jerry',
+          expect_markup: true
+        },
+        {
+          op: 'markup_add',
+          left: '<b>x</b>',
+          right: '<i>',
+          expected: '<b>x</b>&lt;i&gt;',
+          expect_markup: true
+        }
+      ])
   },
   {
     id: 'express-normalize-type',
