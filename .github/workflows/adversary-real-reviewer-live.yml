@@ -71,6 +71,12 @@ jobs:
       - run: pnpm exec prisma generate
       - run: pnpm build
       - run: docker pull node:22-alpine
+      - name: Configure Docker-shareable P4 work root
+        run: |
+          work_root="$HOME/.vibeloop/uat-worktrees-actions/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "$work_root"
+          echo "VIBELOOP_ADVERSARY_LIVE_WORK_ROOT=$work_root" >> "$GITHUB_ENV"
+          echo "P4 work root: $work_root"
       - name: Check Codex reviewer login
         run: |
           codex --version
@@ -85,6 +91,12 @@ jobs:
           if-no-files-found: warn
           include-hidden-files: true
           retention-days: 14
+      - name: Cleanup P4 work root
+        if: always()
+        run: |
+          if [ -n "${VIBELOOP_ADVERSARY_LIVE_WORK_ROOT:-}" ]; then
+            rm -rf "$VIBELOOP_ADVERSARY_LIVE_WORK_ROOT"
+          fi
 
   live-artifact-audit:
     name: audit live P4 real reviewer artifact

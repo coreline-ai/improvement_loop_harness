@@ -58,6 +58,14 @@ const BUILDER_AGENT_SPEC =
   'mock:adversary-live-controlled';
 const KEEP_TMP = process.env.VIBELOOP_UAT_KEEP_TMP === '1';
 
+function resolveAdversaryLiveWorkRoot({ bundle, scenario, runId, env }) {
+  const configured = env.VIBELOOP_ADVERSARY_LIVE_WORK_ROOT;
+  if (configured) {
+    return path.join(path.resolve(configured), scenario, runId, 'worktrees');
+  }
+  return path.join(bundle, 'worktrees');
+}
+
 const safetyPlan = buildAdversaryLiveSafetyPlan({
   image: IMAGE,
   timeoutMs: TIMEOUT_MS
@@ -196,7 +204,12 @@ async function main() {
   const tmpRoot = await mkdtemp(
     path.join(os.homedir(), '.vibeloop-adversary-live-')
   );
-  const workRoot = path.join(bundle, 'worktrees');
+  const workRoot = resolveAdversaryLiveWorkRoot({
+    bundle,
+    scenario: SCENARIO,
+    runId: RUN_ID,
+    env: process.env
+  });
   const artifactRoot = path.join(bundle, 'artifacts');
   await mkdir(workRoot, { recursive: true });
   await mkdir(artifactRoot, { recursive: true });
@@ -678,6 +691,7 @@ async function main() {
       adversary_reviewer: adversaryReviewerProvenance,
       image: IMAGE,
       evidence_bundle: bundle,
+      worktree_root: workRoot,
       artifacts: {
         selected_patch: selectedPatchFile,
         ...(adversaryReview ? { adversary_review: reviewFile } : {}),

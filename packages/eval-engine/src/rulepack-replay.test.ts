@@ -77,7 +77,11 @@ describe.skipIf(!dockerUp)(
       // A regressed rule set: a case that should pass actually fails.
       const regressed: ReplayCase[] = [
         ...SAFE_CORPUS,
-        { id: 'regression', command: 'exit 1', expect: 'pass' }
+        {
+          id: 'regression',
+          command: 'echo replay-regression >&2; exit 1',
+          expect: 'pass'
+        }
       ];
       const replay = await replayCorpusUnderIsolation(regressed, {
         worktreePath,
@@ -87,6 +91,15 @@ describe.skipIf(!dockerUp)(
       });
       expect(replay.replaySafe).toBe(false);
       expect(replay.mismatches.map((m) => m.id)).toContain('regression');
+      expect(
+        replay.mismatches.find((m) => m.id === 'regression')
+      ).toMatchObject({
+        actual: 'fail',
+        exit_code: 1,
+        timed_out: false,
+        worktree_path: worktreePath,
+        stderr_excerpt: 'replay-regression'
+      });
 
       const decision = decideShadowPromotion({
         diff: diffRulepack([], [{ id: 'x', hash: 'h' }]),

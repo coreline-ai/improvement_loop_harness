@@ -36,6 +36,12 @@ export interface ReplayMismatch {
   id: string;
   expected: 'pass' | 'fail';
   actual: 'pass' | 'fail' | 'error';
+  exit_code?: number | null | undefined;
+  timed_out?: boolean | undefined;
+  duration_ms?: number | undefined;
+  worktree_path?: string | undefined;
+  stdout_excerpt?: string | undefined;
+  stderr_excerpt?: string | undefined;
 }
 
 export interface ReplayCorpusResult {
@@ -43,6 +49,12 @@ export interface ReplayCorpusResult {
   total: number;
   matched: number;
   mismatches: ReplayMismatch[];
+}
+
+function excerpt(value: string, maxChars = 2000): string | undefined {
+  if (!value) return undefined;
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, maxChars)}\n...[truncated]`;
 }
 
 /**
@@ -70,7 +82,13 @@ export async function replayCorpusUnderIsolation(
       mismatches.push({
         id: replayCase.id,
         expected: replayCase.expect,
-        actual
+        actual,
+        exit_code: result.exitCode,
+        timed_out: result.timedOut,
+        duration_ms: result.durationMs,
+        worktree_path: options.worktreePath,
+        stdout_excerpt: excerpt(result.stdout),
+        stderr_excerpt: excerpt(result.stderr)
       });
     }
   }
