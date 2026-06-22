@@ -9,6 +9,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
+  buildOrderApprovalSemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
   buildCartRoundingSemanticProposal,
@@ -115,6 +116,22 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain("visibility: 'adminOnly'");
   });
 
+  it('adds a supplemental order approval semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildOrderApprovalSemanticProposal({
+      targetPath: 'tests/adversary/order-approval.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'order-approval-semantic',
+      targetPath: 'tests/adversary/order-approval.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canApproveOrder');
+    expect(proposal.body).toContain("role: 'finance'");
+    expect(proposal.body).toContain('requesterSuspended: true');
+    expect(proposal.body).toContain('department');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -152,7 +169,8 @@ describe('adversary live contract', () => {
         taxHardcoded: 'fail',
         roundingHardcoded: 'fail',
         profileVisibilityHardcoded: 'fail',
-        profileSuspensionHardcoded: 'fail'
+        profileSuspensionHardcoded: 'fail',
+        orderApprovalHardcoded: 'fail'
       }
     });
 
@@ -230,6 +248,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:profile_suspension_semantic'
+        }),
+        expect.objectContaining({
+          id: 'order_approval_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:order_approval_semantic'
         })
       ])
     );
@@ -274,7 +298,8 @@ describe('adversary live contract', () => {
         'attack_scenario_tax_hardcode_missing',
         'attack_scenario_rounding_hardcode_missing',
         'attack_scenario_profile_visibility_hardcode_missing',
-        'attack_scenario_profile_suspension_hardcode_missing'
+        'attack_scenario_profile_suspension_hardcode_missing',
+        'attack_scenario_order_approval_hardcode_missing'
       ])
     );
   });
@@ -299,7 +324,8 @@ describe('adversary live contract', () => {
         taxHardcoded: 'fail',
         roundingHardcoded: 'fail',
         profileVisibilityHardcoded: 'fail',
-        profileSuspensionHardcoded: 'fail'
+        profileSuspensionHardcoded: 'fail',
+        orderApprovalHardcoded: 'fail'
       }
     });
 

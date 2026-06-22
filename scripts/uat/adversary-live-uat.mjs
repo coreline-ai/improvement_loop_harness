@@ -22,6 +22,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
+  buildOrderApprovalSemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
   buildCartRoundingSemanticProposal,
@@ -117,6 +118,11 @@ async function writeProfileFixture(root, source) {
   await writeFile(path.join(root, 'src/profile.cjs'), source);
 }
 
+async function writeOrderFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/order.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -175,6 +181,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
       },
       {
         path: 'src/profile.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
+        path: 'src/order.cjs',
         status: 'modified',
         isSymlink: false,
         addedLines: 1,
@@ -251,6 +264,10 @@ async function main() {
     const profileSuspensionHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-profile-suspension-hardcode'
+    );
+    const orderApprovalHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-order-approval-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -350,6 +367,33 @@ async function main() {
       'module.exports = { canViewProfile };',
       ''
     ].join('\n');
+    const buggyOrder = [
+      'function canApproveOrder(_user, _order) {',
+      '  return true;',
+      '}',
+      'module.exports = { canApproveOrder };',
+      ''
+    ].join('\n');
+    const fixedOrder = [
+      'function canApproveOrder(user, order) {',
+      "  if (order.status !== 'pending') return false;",
+      '  if (order.requesterSuspended === true) return false;',
+      "  if (user.role === 'finance') return order.total <= 10000;",
+      "  if (user.role === 'manager') {",
+      '    return user.department === order.department && order.total <= 5000;',
+      '  }',
+      '  return false;',
+      '}',
+      'module.exports = { canApproveOrder };',
+      ''
+    ].join('\n');
+    const happyPathOnlyOrder = [
+      'function canApproveOrder(user, _order) {',
+      "  return user.role === 'finance' || user.role === 'manager';",
+      '}',
+      'module.exports = { canApproveOrder };',
+      ''
+    ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
@@ -368,6 +412,7 @@ async function main() {
     await writeCartFixture(roundingHardcodedWorktree, roundingHardcodedCart);
     await writeCartFixture(profileVisibilityHardcodedWorktree, fixedCart);
     await writeCartFixture(profileSuspensionHardcodedWorktree, fixedCart);
+    await writeCartFixture(orderApprovalHardcodedWorktree, fixedCart);
     await writeProfileFixture(baseWorktree, buggyProfile);
     await writeProfileFixture(candidateWorktree, fixedProfile);
     await writeProfileFixture(goodWorktree, fixedProfile);
@@ -389,6 +434,23 @@ async function main() {
       profileSuspensionHardcodedWorktree,
       noSuspensionProfile
     );
+    await writeProfileFixture(orderApprovalHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(baseWorktree, buggyOrder);
+    await writeOrderFixture(candidateWorktree, fixedOrder);
+    await writeOrderFixture(goodWorktree, fixedOrder);
+    await writeOrderFixture(badWorktree, fixedOrder);
+    await writeOrderFixture(hardcodedWorktree, fixedOrder);
+    await writeOrderFixture(defaultQuantityHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(
+      zeroQuantityTruthinessHardcodedWorktree,
+      fixedOrder
+    );
+    await writeOrderFixture(discountHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(taxHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(roundingHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(profileVisibilityHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(profileSuspensionHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(orderApprovalHardcodedWorktree, happyPathOnlyOrder);
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -401,6 +463,9 @@ async function main() {
       }),
       buildProfileSuspensionSemanticProposal({
         targetPath: 'tests/adversary/profile-suspension-supplemental.test.cjs'
+      }),
+      buildOrderApprovalSemanticProposal({
+        targetPath: 'tests/adversary/order-approval-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -454,6 +519,9 @@ async function main() {
         }),
         buildProfileSuspensionSemanticProposal({
           targetPath: 'tests/adversary/profile-suspension-supplemental.test.cjs'
+        }),
+        buildOrderApprovalSemanticProposal({
+          targetPath: 'tests/adversary/order-approval-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -633,6 +701,13 @@ async function main() {
         'adversary-live-profile-suspension-hardcode'
       )
     );
+    const orderApprovalHardcoded = await runGates(
+      await gateContext(
+        orderApprovalHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-order-approval-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -667,6 +742,9 @@ async function main() {
       profileSuspensionHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const orderApprovalHardcodedGate = orderApprovalHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -677,7 +755,8 @@ async function main() {
       taxHardcodedGate?.status !== 'fail' ||
       roundingHardcodedGate?.status !== 'fail' ||
       profileVisibilityHardcodedGate?.status !== 'fail' ||
-      profileSuspensionHardcodedGate?.status !== 'fail'
+      profileSuspensionHardcodedGate?.status !== 'fail' ||
+      orderApprovalHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -690,7 +769,8 @@ async function main() {
           taxHardcoded: taxHardcodedGate,
           roundingHardcoded: roundingHardcodedGate,
           profileVisibilityHardcoded: profileVisibilityHardcodedGate,
-          profileSuspensionHardcoded: profileSuspensionHardcodedGate
+          profileSuspensionHardcoded: profileSuspensionHardcodedGate,
+          orderApprovalHardcoded: orderApprovalHardcodedGate
         })}`
       );
     }
@@ -710,7 +790,8 @@ async function main() {
         taxHardcoded: taxHardcodedGate.status,
         roundingHardcoded: roundingHardcodedGate.status,
         profileVisibilityHardcoded: profileVisibilityHardcodedGate.status,
-        profileSuspensionHardcoded: profileSuspensionHardcodedGate.status
+        profileSuspensionHardcoded: profileSuspensionHardcodedGate.status,
+        orderApprovalHardcoded: orderApprovalHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -791,6 +872,7 @@ async function main() {
           profileVisibilityHardcodedGate.status,
         profile_suspension_hardcoded_gate_status:
           profileSuspensionHardcodedGate.status,
+        order_approval_hardcoded_gate_status: orderApprovalHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -803,7 +885,9 @@ async function main() {
         profile_visibility_hardcode_rejected:
           profileVisibilityHardcodedGate.status === 'fail',
         profile_suspension_hardcode_rejected:
-          profileSuspensionHardcodedGate.status === 'fail'
+          profileSuspensionHardcodedGate.status === 'fail',
+        order_approval_hardcode_rejected:
+          orderApprovalHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

@@ -121,7 +121,8 @@ function validAttackScenarios() {
     'tax_hardcode',
     'rounding_hardcode',
     'profile_visibility_hardcode',
-    'profile_suspension_hardcode'
+    'profile_suspension_hardcode',
+    'order_approval_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -136,6 +137,7 @@ function validAttackScenarios() {
       'rulepack_semantic:profile_visibility_semantic',
     profile_suspension_hardcode:
       'rulepack_semantic:profile_suspension_semantic',
+    order_approval_hardcode: 'rulepack_semantic:order_approval_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -1209,8 +1211,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         source_repos_read_only: true,
         draft_pr: false,
         builder: { real_llm: true, provider: 'codex', model: 'gpt-5.5' },
-        cell_count: 2,
-        pass_count: 2,
+        cell_count: 4,
+        pass_count: 4,
         fail_count: 0,
         cells: [
           {
@@ -1243,6 +1245,44 @@ ELIFECYCLE Command failed with exit code 20.`);
               semantic_source_repair: true,
               semantic_bug_repair: true,
               semantic_domain: 'product_100_corpus_summary',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'express',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'lib/utils.js',
+              existing_source: true,
+              existing_source_language: 'javascript',
+              semantic_source_repair: true,
+              semantic_bug_repair: true,
+              semantic_domain: 'http_content_type_normalization',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'js-yaml',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              repair_source: 'src/tag/scalar/int_core.ts',
+              existing_source: true,
+              existing_source_language: 'javascript',
+              semantic_source_repair: true,
+              semantic_bug_repair: true,
+              semantic_domain: 'yaml_integer_resolution',
               visible_acceptance: { status: 'pass' },
               hidden_acceptance: { status: 'pass' },
               diff_scope: { status: 'pass' },
@@ -1295,6 +1335,22 @@ ELIFECYCLE Command failed with exit code 20.`);
             codex_repair_semantic_source_repair: true,
             codex_repair_semantic_bug_repair: true,
             codex_repair_semantic_domain: 'product_100_corpus_summary',
+            codex_repair_existing_source: true
+          },
+          {
+            id: 'express',
+            codex_repair_status: 'pass',
+            codex_repair_semantic_source_repair: true,
+            codex_repair_semantic_bug_repair: true,
+            codex_repair_semantic_domain: 'http_content_type_normalization',
+            codex_repair_existing_source: true
+          },
+          {
+            id: 'js-yaml',
+            codex_repair_status: 'pass',
+            codex_repair_semantic_source_repair: true,
+            codex_repair_semantic_bug_repair: true,
+            codex_repair_semantic_domain: 'yaml_integer_resolution',
             codex_repair_existing_source: true
           }
         ]
@@ -2456,7 +2512,8 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.tax_hardcode',
         'attack_scenarios.rounding_hardcode',
         'attack_scenarios.profile_visibility_hardcode',
-        'attack_scenarios.profile_suspension_hardcode'
+        'attack_scenarios.profile_suspension_hardcode',
+        'attack_scenarios.order_approval_hardcode'
       ])
     });
     expect(releaseGateExitCode(invalidAttackEvidenceReport)).toBe(1);
@@ -2515,7 +2572,7 @@ ELIFECYCLE Command failed with exit code 20.`);
     const notExecutedAttackScenarios = validAttackScenarios();
     notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
       (scenario) =>
-        scenario.id === 'profile_suspension_hardcode'
+        scenario.id === 'order_approval_hardcode'
           ? { ...scenario, executed: false }
           : scenario
     );
@@ -2556,7 +2613,7 @@ ELIFECYCLE Command failed with exit code 20.`);
       ok: false,
       status: 'invalid_ledger',
       ledger_failures: expect.arrayContaining([
-        'attack_scenarios.profile_suspension_hardcode.executed'
+        'attack_scenarios.order_approval_hardcode.executed'
       ])
     });
     expect(releaseGateExitCode(notExecutedEvidenceReport)).toBe(1);

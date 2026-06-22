@@ -696,6 +696,129 @@ function buildProduct100CorpusVerifier(expectedSummary) {
   ].join('\n');
 }
 
+function buildExpressNormalizeTypeVerifier(cases) {
+  return [
+    "import { readFile } from 'node:fs/promises';",
+    "import vm from 'node:vm';",
+    "import { createRequire } from 'node:module';",
+    '',
+    'const realRequire = createRequire(import.meta.url);',
+    '',
+    'function parseContentType(value) {',
+    '  const [type, ...parts] = String(value).split(";");',
+    '  const parameters = {};',
+    '  for (const part of parts) {',
+    '    const index = part.indexOf("=");',
+    '    if (index === -1) continue;',
+    '    parameters[part.slice(0, index).trim()] = part.slice(index + 1).trim();',
+    '  }',
+    '  return { type: type.trim(), parameters };',
+    '}',
+    '',
+    'function stubRequire(name) {',
+    "  if (name === 'content-type') {",
+    '    return {',
+    '      parse: parseContentType,',
+    '      format(parsed) {',
+    '        const params = Object.entries(parsed.parameters || {})',
+    '          .map(([key, value]) => `${key}=${value}`)',
+    '          .join("; ");',
+    '        return params ? `${parsed.type}; ${params}` : parsed.type;',
+    '      }',
+    '    };',
+    '  }',
+    "  if (name === 'etag') {",
+    '    return (buf, options) => `"${options?.weak ? "weak" : "strong"}-${buf.length}"`;',
+    '  }',
+    "  if (name === 'mime-types') {",
+    '    return {',
+    '      lookup(type) {',
+    "        return { html: 'text/html', json: 'application/json', txt: 'text/plain' }[type] || false;",
+    '      }',
+    '    };',
+    '  }',
+    "  if (name === 'proxy-addr') return { compile: () => () => false };",
+    "  if (name === 'qs') return { parse: (value) => ({ parsed: value }) };",
+    '  return realRequire(name);',
+    '}',
+    '',
+    "const source = await readFile(`${process.cwd()}/lib/utils.js`, 'utf8');",
+    'const module = { exports: {} };',
+    'const sandbox = {',
+    '  module,',
+    '  exports: module.exports,',
+    '  require: stubRequire,',
+    '  console,',
+    '  process',
+    '};',
+    "vm.runInNewContext(source, sandbox, { filename: 'lib/utils.js' });",
+    'const utils = module.exports;',
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = utils.normalizeType(item.input);',
+    '  const expected = item.expected;',
+    '  if (actual.value !== expected.value) {',
+    '    throw new Error(`${item.input}: value expected ${expected.value}, got ${actual.value}`);',
+    '  }',
+    '  if ((actual.quality ?? 1) !== (expected.quality ?? 1)) {',
+    '    throw new Error(`${item.input}: quality expected ${expected.quality ?? 1}, got ${actual.quality ?? 1}`);',
+    '  }',
+    '  if (JSON.stringify(actual.params || {}) !== JSON.stringify(expected.params || {})) {',
+    '    throw new Error(`${item.input}: params expected ${JSON.stringify(expected.params || {})}, got ${JSON.stringify(actual.params || {})}`);',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
+function buildJsYamlIntCoreVerifier(cases) {
+  return [
+    "import { readFile } from 'node:fs/promises';",
+    "import vm from 'node:vm';",
+    '',
+    'const sourcePath = `${process.cwd()}/src/tag/scalar/int_core.ts`;',
+    "let source = await readFile(sourcePath, 'utf8');",
+    "source = source.replace(/^import .*$/gm, '');",
+    "source = source.replace(/^export \\{.*$/gm, '');",
+    "source = source.replace(/: string/g, '');",
+    "source = source.replace(/: boolean/g, '');",
+    "source = source.replace(/: number/g, '');",
+    'source += "\\nglobalThis.__intCoreTag = intCoreTag;";',
+    '',
+    'const NOT_RESOLVED = Symbol("NOT_RESOLVED");',
+    'function defineScalarTag(name, spec) {',
+    '  return { name, ...spec };',
+    '}',
+    '',
+    'const sandbox = {',
+    '  NOT_RESOLVED,',
+    '  defineScalarTag,',
+    '  Number,',
+    '  Object,',
+    '  RegExp,',
+    '  parseInt',
+    '};',
+    'vm.runInNewContext(source, sandbox, { filename: "src/tag/scalar/int_core.ts" });',
+    'const tag = sandbox.__intCoreTag;',
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = tag.resolve(item.source, item.explicit);',
+    '  if (item.expected === "NOT_RESOLVED") {',
+    '    if (actual !== NOT_RESOLVED) {',
+    '      throw new Error(`${item.source}: expected NOT_RESOLVED, got ${String(actual)}`);',
+    '    }',
+    '    continue;',
+    '  }',
+    '  if (actual !== item.expected) {',
+    '    throw new Error(`${item.source}: expected ${item.expected}, got ${String(actual)}`);',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 const SEMANTIC_SOURCE_REPAIR_TARGETS = [
   {
     id: 'sampleproject-add-one',
@@ -742,6 +865,81 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
         every_issue_has_adversary_seed: true,
         every_issue_has_write_scope: true
       })
+  },
+  {
+    id: 'express-normalize-type',
+    semantic_domain: 'http_content_type_normalization',
+    relativePath: 'lib/utils.js',
+    language: 'javascript',
+    originalNeedle: [
+      "return ~type.indexOf('/')",
+      '    ? acceptParams(type)',
+      "    : { value: (mime.lookup(type) || 'application/octet-stream'), params: {} }"
+    ].join('\n'),
+    regressionText: [
+      "return ~type.indexOf('/')",
+      '    ? { value: type, params: {} }',
+      "    : { value: (mime.lookup(type) || 'application/octet-stream'), params: {} }"
+    ].join('\n'),
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildExpressNormalizeTypeVerifier([
+        {
+          input: 'html',
+          expected: { value: 'text/html', quality: 1, params: {} }
+        },
+        {
+          input: 'text/plain; charset=utf-8',
+          expected: {
+            value: 'text/plain',
+            quality: 1,
+            params: { charset: 'utf-8' }
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildExpressNormalizeTypeVerifier([
+        {
+          input: 'application/vnd.api+json; version=2; q=0.7',
+          expected: {
+            value: 'application/vnd.api+json',
+            quality: 0.7,
+            params: { version: '2' }
+          }
+        },
+        {
+          input: 'json',
+          expected: { value: 'application/json', quality: 1, params: {} }
+        }
+      ])
+  },
+  {
+    id: 'js-yaml-core-int',
+    semantic_domain: 'yaml_integer_resolution',
+    relativePath: 'src/tag/scalar/int_core.ts',
+    language: 'javascript',
+    originalNeedle:
+      "if (value.startsWith('0x')) return sign * parseInt(value.slice(2), 16)",
+    regressionText:
+      "if (value.startsWith('0x')) return sign * parseInt(value.slice(2), 10)",
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildJsYamlIntCoreVerifier([
+        { source: '0x1A', explicit: false, expected: 26 },
+        { source: '0o17', explicit: false, expected: 15 }
+      ]),
+    buildHiddenVerifier: () =>
+      buildJsYamlIntCoreVerifier([
+        { source: '-0x10', explicit: true, expected: -16 },
+        { source: '+0b1010', explicit: true, expected: 10 },
+        { source: '0b1010', explicit: false, expected: 'NOT_RESOLVED' }
+      ])
   }
 ];
 

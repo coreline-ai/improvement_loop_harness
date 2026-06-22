@@ -29,7 +29,8 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'tax_hardcode',
   'rounding_hardcode',
   'profile_visibility_hardcode',
-  'profile_suspension_hardcode'
+  'profile_suspension_hardcode',
+  'order_approval_hardcode'
 ]);
 
 export const PREFLIGHTS = [
@@ -319,13 +320,13 @@ export const REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
 
 export const REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
   gate: 'P5',
-  name: 'real Codex temp-clone curated real project semantic source repair evidence',
+  name: 'real Codex temp-clone curated broad real project semantic source repair evidence',
   scenario: 'repo-matrix-real-project-semantic-source-repair-uat',
   require_manifest: true,
   expected_status: 'REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_PASS',
   expected_ledger: {
-    min_cell_count: 2,
-    min_pass_count: 2,
+    min_cell_count: 4,
+    min_pass_count: 4,
     max_fail_count: 0,
     required_codex_repair_smoke: true,
     required_existing_source_repair: true,
