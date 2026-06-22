@@ -13,6 +13,11 @@ on:
         required: true
         type: string
         default: ubuntu-latest
+      include_current_repo:
+        description: Include the checked-out improvement_loop_harness repo as one corpus cell.
+        required: true
+        type: boolean
+        default: true
       secondary_repo:
         description: OWNER/REPO or URL for a second real git repo accessible to this run.
         required: false
@@ -23,6 +28,16 @@ on:
         required: false
         type: string
         default: ''
+      additional_repos:
+        description: Optional newline- or comma-separated OWNER/REPO or URL entries for broad corpus cells.
+        required: false
+        type: string
+        default: ''
+      min_repos:
+        description: Minimum corpus repo count required by the live UAT.
+        required: true
+        type: string
+        default: '2'
       publish_draft_prs:
         description: Publish each repaired temp clone to a private GitHub evidence repo and verify draft PRs.
         required: true
@@ -105,27 +120,81 @@ jobs:
         run: |
           codex --version
           codex -c service_tier=fast login status
-      - name: Clone secondary real project repo
+      - name: Prepare real project corpus repos
         env:
+          INCLUDE_CURRENT_REPO: ${{ inputs.include_current_repo }}
           SECONDARY_REPO: ${{ inputs.secondary_repo }}
           SECONDARY_REPO_REF: ${{ inputs.secondary_repo_ref }}
+          ADDITIONAL_REPOS: ${{ inputs.additional_repos }}
         run: |
-          if [ -z "${SECONDARY_REPO}" ]; then
-            echo "secondary_repo is required when run_live=true" >&2
+          repo_root="${RUNNER_TEMP}/vibeloop-real-project-corpus"
+          repo_list="${RUNNER_TEMP}/vibeloop-real-project-corpus.txt"
+          rm -rf "${repo_root}"
+          mkdir -p "${repo_root}"
+          : > "${repo_list}"
+
+          add_repo_path() {
+            local repo_path="$1"
+            if [ -n "${repo_path}" ]; then
+              printf '%s\n' "${repo_path}" >> "${repo_list}"
+            fi
+          }
+
+          clone_repo_spec() {
+            local repo_spec="$1"
+            local clone_ref="${2:-}"
+            local index="$3"
+            local safe_name
+            safe_name="$(printf '%s' "${repo_spec}" | sed 's#/*$##' | sed 's#.*[:/]##' | tr -c 'A-Za-z0-9._-' '-')"
+            local clone_dir="${repo_root}/${index}-${safe_name}"
+            if [[ "${repo_spec}" == http://* || "${repo_spec}" == https://* || "${repo_spec}" == git@* ]]; then
+              if [ -n "${clone_ref}" ]; then
+                git clone --depth 1 --branch "${clone_ref}" "${repo_spec}" "${clone_dir}"
+              else
+                git clone --depth 1 "${repo_spec}" "${clone_dir}"
+              fi
+            else
+              if [ -n "${clone_ref}" ]; then
+                gh repo clone "${repo_spec}" "${clone_dir}" -- --depth 1 --branch "${clone_ref}"
+              else
+                gh repo clone "${repo_spec}" "${clone_dir}" -- --depth 1
+              fi
+            fi
+            add_repo_path "${clone_dir}"
+          }
+
+          if [ "${INCLUDE_CURRENT_REPO}" = "true" ]; then
+            add_repo_path "${GITHUB_WORKSPACE}"
+          fi
+
+          repo_index=1
+          if [ -n "${SECONDARY_REPO}" ]; then
+            clone_repo_spec "${SECONDARY_REPO}" "${SECONDARY_REPO_REF}" "${repo_index}"
+            repo_index=$((repo_index + 1))
+          fi
+
+          while IFS= read -r repo_spec; do
+            repo_spec="$(printf '%s' "${repo_spec}" | xargs)"
+            if [ -z "${repo_spec}" ]; then
+              continue
+            fi
+            clone_repo_spec "${repo_spec}" "" "${repo_index}"
+            repo_index=$((repo_index + 1))
+          done < <(printf '%s\n' "${ADDITIONAL_REPOS}" | tr ',' '\n')
+
+          repo_count="$(wc -l < "${repo_list}" | xargs)"
+          if [ "${repo_count}" -eq 0 ]; then
+            echo "At least one corpus repo is required when run_live=true" >&2
             exit 20
           fi
-          secondary_dir="${RUNNER_TEMP}/vibeloop-secondary-real-project"
-          rm -rf "${secondary_dir}"
-          if [ -n "${SECONDARY_REPO_REF}" ]; then
-            gh repo clone "${SECONDARY_REPO}" "${secondary_dir}" -- --depth 1 --branch "${SECONDARY_REPO_REF}"
-          else
-            gh repo clone "${SECONDARY_REPO}" "${secondary_dir}" -- --depth 1
-          fi
-          echo "VIBELOOP_SECONDARY_REAL_PROJECT=${secondary_dir}" >> "${GITHUB_ENV}"
+          echo "Prepared ${repo_count} corpus repo(s):"
+          cat "${repo_list}"
+          echo "VIBELOOP_REAL_PROJECT_REPO_LIST=${repo_list}" >> "${GITHUB_ENV}"
       - name: Run live existing-source repair corpus
         env:
           PUBLISH_DRAFT_PRS: ${{ inputs.publish_draft_prs }}
           KEEP_REMOTE: ${{ inputs.keep_remote }}
+          MIN_REPOS: ${{ inputs.min_repos }}
         run: |
           if [ "${PUBLISH_DRAFT_PRS}" = "true" ]; then
             scenario="repo-matrix-real-project-existing-source-repair-pr-uat"
@@ -141,10 +210,16 @@ jobs:
           fi
 
           echo "VIBELOOP_REAL_PROJECT_EXISTING_SOURCE_SCENARIO=${scenario}" >> "${GITHUB_ENV}"
+          repo_args=()
+          while IFS= read -r repo_path; do
+            if [ -n "${repo_path}" ]; then
+              repo_args+=(--repo "${repo_path}")
+            fi
+          done < "${VIBELOOP_REAL_PROJECT_REPO_LIST}"
+
           corepack pnpm "${script}" -- \
-            --repo "${GITHUB_WORKSPACE}" \
-            --repo "${VIBELOOP_SECONDARY_REAL_PROJECT}" \
-            --min-repos 2 \
+            "${repo_args[@]}" \
+            --min-repos "${MIN_REPOS}" \
             --codex-model "${VIBELOOP_REAL_PROJECT_CODEX_MODEL}" \
             --codex-timeout-ms "${VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS}" \
             "${extra_args[@]}"
