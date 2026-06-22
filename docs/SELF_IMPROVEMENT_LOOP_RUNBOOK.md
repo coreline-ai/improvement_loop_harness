@@ -230,6 +230,14 @@ corepack pnpm uat:live-preflight
 
 기대: `codex-cli 0.139.0`, `Logged in using ChatGPT`, preflight JSON `status=pass`, `required_failures=[]`. 직접 `pnpm` shim이 없다는 경고(`pnpm_shim`)는 `corepack pnpm`이 통과하면 필수 실패가 아니다.
 
+CI credentialed live workflow를 수동 실행하기 전에는 runner label도 별도로 확인한다.
+
+```bash
+node scripts/uat/ci-runner-preflight.mjs --runner-label <label> --repo <owner/repo>
+```
+
+기대: GitHub-hosted label은 `status=pass`, custom/self-hosted label은 matching online runner가 없으면 `status=blocked`, `reason=SELF_HOSTED_RUNNER_UNAVAILABLE`. 두 credentialed workflow는 같은 preflight를 먼저 실행하고 `*-live-runner-preflight-*` artifact를 남기므로, runner 부재는 live evidence PASS가 아니라 환경 차단으로 해석한다.
+
 stdout의 `github` 블록 기대:
 
 ```jsonc
