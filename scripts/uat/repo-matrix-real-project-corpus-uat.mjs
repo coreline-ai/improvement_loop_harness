@@ -783,6 +783,37 @@ function buildRequestsCaseInsensitiveDictVerifier(cases) {
   ].join('\n');
 }
 
+function buildColoramaAnsiVerifier(cases) {
+  return [
+    'import importlib.util',
+    'import json',
+    'import pathlib',
+    '',
+    'root = pathlib.Path.cwd()',
+    'source_path = root / "colorama" / "ansi.py"',
+    'spec = importlib.util.spec_from_file_location("_vibeloop_colorama_ansi", source_path)',
+    'module = importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(module)',
+    '',
+    'def resolve(item):',
+    '    kind = item["kind"]',
+    '    if kind == "function":',
+    '        return getattr(module, item["name"])(*item.get("args", []))',
+    '    if kind == "attr":',
+    '        target = getattr(module, item["object"])',
+    '        return getattr(target, item["attr"])',
+    '    raise AssertionError(f"unknown colorama verifier kind {kind!r}")',
+    '',
+    `cases = json.loads(${JSON.stringify(JSON.stringify(cases))})`,
+    'for item in cases:',
+    '    actual = resolve(item)',
+    '    expected = item["expected"]',
+    '    if actual != expected:',
+    '        raise AssertionError(f"{item}: expected {expected!r}, got {actual!r}")',
+    ''
+  ].join('\n');
+}
+
 function buildProduct100CorpusVerifier(expectedSummary) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1107,6 +1138,69 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             'x-trace-id': 'abc',
             'user-agent': 'vibeloop'
           }
+        }
+      ])
+  },
+  {
+    id: 'colorama-ansi-code-to-chars',
+    semantic_domain: 'ansi_escape_sequence_generation',
+    relativePath: 'colorama/ansi.py',
+    language: 'python',
+    originalNeedle: "    return CSI + str(code) + 'm'",
+    regressionText: '    return CSI + str(code)',
+    visibleCommand: (filePath) => ({ command: 'python3', args: [filePath] }),
+    buildVisibleVerifier: () =>
+      buildColoramaAnsiVerifier([
+        {
+          kind: 'function',
+          name: 'code_to_chars',
+          args: [31],
+          expected: '\u001b[31m'
+        },
+        {
+          kind: 'attr',
+          object: 'Fore',
+          attr: 'RED',
+          expected: '\u001b[31m'
+        },
+        {
+          kind: 'attr',
+          object: 'Style',
+          attr: 'RESET_ALL',
+          expected: '\u001b[0m'
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildColoramaAnsiVerifier([
+        {
+          kind: 'attr',
+          object: 'Back',
+          attr: 'LIGHTBLUE_EX',
+          expected: '\u001b[104m'
+        },
+        {
+          kind: 'attr',
+          object: 'Fore',
+          attr: 'LIGHTWHITE_EX',
+          expected: '\u001b[97m'
+        },
+        {
+          kind: 'function',
+          name: 'clear_screen',
+          args: [],
+          expected: '\u001b[2J'
+        },
+        {
+          kind: 'function',
+          name: 'clear_line',
+          args: [1],
+          expected: '\u001b[1K'
+        },
+        {
+          kind: 'function',
+          name: 'set_title',
+          args: ['VibeLoop'],
+          expected: '\u001b]2;VibeLoop\u0007'
         }
       ])
   },
