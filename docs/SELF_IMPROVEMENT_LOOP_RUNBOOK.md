@@ -640,11 +640,12 @@ corepack pnpm uat:product-100:preflight
 
 ### CI artifact 재현성
 
-실제 GitHub Actions artifact까지 재현하려면 `Product-100 Live Evidence` 또는 `P4 Real Reviewer Live Evidence` workflow를 수동 실행한다. 두 workflow는 opt-in일 때만 live Codex/GitHub 또는 live Codex reviewer run을 수행하고, 같은 run에서 업로드된 artifact를 다시 다운로드해 명시 scenario로 감사한다.
+실제 GitHub Actions artifact까지 재현하려면 `Product-100 Live Evidence`, `P4 Real Reviewer Live Evidence`, 또는 `Real Project Existing Source Repair Evidence` workflow를 수동 실행한다. 세 workflow는 opt-in일 때만 live Codex/GitHub, live Codex reviewer, 또는 real-project existing-source repair run을 수행하고, 같은 run에서 업로드된 artifact를 다시 다운로드해 명시 scenario로 감사한다.
 
 사전 조건:
 
 - repository secret `PRODUCT100_GH_TOKEN`: private corpus repo 생성, branch push, draft PR 생성을 할 수 있는 PAT.
+- 선택적 repository secret `REAL_PROJECT_CORPUS_GH_TOKEN`: R27 CI workflow가 current repo 밖의 private secondary repo를 clone해야 할 때 사용한다. public secondary repo면 기본 `github.token`으로 충분할 수 있다.
 - Codex CLI/OAuth 또는 해당 환경의 live Codex 인증. 이 인증이 없으면 preflight 또는 live runner가 fail-closed한다.
 - Docker runtime with `node:22-alpine` and `python:3.12-alpine`.
 
@@ -679,6 +680,30 @@ corepack pnpm uat:release-evidence-audit:gh -- \
   --repo coreline-ai/improvement_loop_harness \
   --artifact-pattern adversary-real-reviewer-evidence-27935528811-1 \
   --scenario adversary-live-real-reviewer-uat
+```
+
+R27 real-project existing-source repair CI artifact는 Codex ChatGPT login이 있는 runner와, 현재 repo 외에 접근 가능한 두 번째 실제 git repo가 필요하다. `secondary_repo`는 `OWNER/REPO` 또는 URL을 받으며, private repo면 `REAL_PROJECT_CORPUS_GH_TOKEN` secret이 그 repo를 읽을 수 있어야 한다. 이 workflow는 `repo-matrix-real-project-existing-source-repair-uat` artifact를 만들고 즉시 다운로드 감사한다. 실제 run id가 PASS로 남기 전까지는 R27 CI artifact PASS로 보지 않는다.
+
+```bash
+gh workflow run real-project-existing-source-repair-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=true \
+  -f runner_label=self-hosted \
+  -f secondary_repo=<owner>/<repo> \
+  -f secondary_repo_ref=main \
+  -f codex_model=gpt-5.5 \
+  -f codex_timeout_ms=180000
+```
+
+기존 R27 artifact를 재감사할 때는 replay input만 지정한다.
+
+```bash
+gh workflow run real-project-existing-source-repair-live.yml \
+  --repo coreline-ai/improvement_loop_harness \
+  -f run_live=false \
+  -f replay_run_id=<run_id> \
+  -f replay_run_attempt=1 \
+  -f replay_repo=coreline-ai/improvement_loop_harness
 ```
 
 ```bash

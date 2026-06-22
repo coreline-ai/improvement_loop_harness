@@ -1,0 +1,175 @@
+name: Real Project Existing Source Repair Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: Run the live real-project existing-source repair evidence job.
+        required: true
+        type: boolean
+        default: false
+      runner_label:
+        description: Runner label with Codex ChatGPT login available.
+        required: true
+        type: string
+        default: ubuntu-latest
+      secondary_repo:
+        description: OWNER/REPO or URL for a second real git repo accessible to this run.
+        required: false
+        type: string
+        default: ''
+      secondary_repo_ref:
+        description: Optional branch, tag, or SHA for secondary_repo.
+        required: false
+        type: string
+        default: ''
+      codex_model:
+        description: Codex model used for the repair command.
+        required: true
+        type: string
+        default: gpt-5.5
+      codex_timeout_ms:
+        description: Per-repo Codex repair timeout in milliseconds.
+        required: true
+        type: string
+        default: '180000'
+      replay_run_id:
+        description: Optional existing run id to download and audit instead of running live.
+        required: false
+        type: string
+        default: ''
+      replay_run_attempt:
+        description: Attempt for replay_run_id.
+        required: false
+        type: string
+        default: '1'
+      replay_repo:
+        description: OWNER/REPO for replay artifacts.
+        required: true
+        type: string
+        default: coreline-ai/improvement_loop_harness
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  live-evidence:
+    name: live real project existing-source repair evidence
+    if: ${{ inputs.run_live }}
+    runs-on: ${{ inputs.runner_label }}
+    env:
+      GH_TOKEN: ${{ secrets.REAL_PROJECT_CORPUS_GH_TOKEN || github.token }}
+      VIBELOOP_UAT_EVIDENCE_DIR: ${{ github.workspace }}/.uat-evidence-real-project-existing-source
+      VIBELOOP_REAL_PROJECT_CODEX_MODEL: ${{ inputs.codex_model }}
+      VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS: ${{ inputs.codex_timeout_ms }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate
+      - run: pnpm build
+      - name: Check Codex login
+        run: |
+          codex --version
+          codex -c service_tier=fast login status
+      - name: Clone secondary real project repo
+        env:
+          SECONDARY_REPO: ${{ inputs.secondary_repo }}
+          SECONDARY_REPO_REF: ${{ inputs.secondary_repo_ref }}
+        run: |
+          if [ -z "${SECONDARY_REPO}" ]; then
+            echo "secondary_repo is required when run_live=true" >&2
+            exit 20
+          fi
+          secondary_dir="${RUNNER_TEMP}/vibeloop-secondary-real-project"
+          rm -rf "${secondary_dir}"
+          if [ -n "${SECONDARY_REPO_REF}" ]; then
+            gh repo clone "${SECONDARY_REPO}" "${secondary_dir}" -- --depth 1 --branch "${SECONDARY_REPO_REF}"
+          else
+            gh repo clone "${SECONDARY_REPO}" "${secondary_dir}" -- --depth 1
+          fi
+          echo "VIBELOOP_SECONDARY_REAL_PROJECT=${secondary_dir}" >> "${GITHUB_ENV}"
+      - name: Run live existing-source repair corpus
+        run: |
+          corepack pnpm uat:repo-matrix:real-project-existing-source-repair -- \
+            --repo "${GITHUB_WORKSPACE}" \
+            --repo "${VIBELOOP_SECONDARY_REAL_PROJECT}" \
+            --min-repos 2 \
+            --codex-model "${VIBELOOP_REAL_PROJECT_CODEX_MODEL}" \
+            --codex-timeout-ms "${VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS}"
+      - run: corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-uat
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-project-existing-source-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence-real-project-existing-source
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  live-artifact-audit:
+    name: audit live real project existing-source repair artifact
+    if: ${{ always() && inputs.run_live }}
+    runs-on: ubuntu-latest
+    needs: [live-evidence]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: real-project-existing-source-repair-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-real-project-existing-source-evidence
+          merge-multiple: true
+      - name: Audit downloaded real project existing-source repair evidence
+        run: |
+          mkdir -p .ci-real-project-existing-source-audit
+          set +e
+          node scripts/uat/release-evidence-audit.mjs \
+            --evidence-root .ci-real-project-existing-source-evidence \
+            --scenario repo-matrix-real-project-existing-source-repair-uat \
+            > .ci-real-project-existing-source-audit/release-evidence-audit.json \
+            2> .ci-real-project-existing-source-audit/release-evidence-audit.stderr
+          status=$?
+          cat .ci-real-project-existing-source-audit/release-evidence-audit.json
+          if [ -s .ci-real-project-existing-source-audit/release-evidence-audit.stderr ]; then
+            cat .ci-real-project-existing-source-audit/release-evidence-audit.stderr >&2
+          fi
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-project-existing-source-repair-artifact-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-real-project-existing-source-audit
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  replay-artifact-audit:
+    name: replay real project existing-source repair artifact audit
+    if: ${{ inputs.replay_run_id != '' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Download and audit real project existing-source repair evidence from a prior run
+        run: |
+          node scripts/uat/release-evidence-audit-gh.mjs \
+            --run-id "${{ inputs.replay_run_id }}" \
+            --run-attempt "${{ inputs.replay_run_attempt }}" \
+            --repo "${{ inputs.replay_repo }}" \
+            --artifact-pattern "real-project-existing-source-repair-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}" \
+            --scenario repo-matrix-real-project-existing-source-repair-uat
