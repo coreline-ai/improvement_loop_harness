@@ -2,6 +2,8 @@
 
 이 문서는 `vibeloop-harness`의 **자가개선 루프 시나리오를 누구나 다시 실행하고 직접 검증**할 수 있게 만든 재현 런북이다. "왜/무엇을" 설명은 [SKILL_SELF_IMPROVEMENT_LOOP_UAT.md](SKILL_SELF_IMPROVEMENT_LOOP_UAT.md), 설계 불변식은 [SELF_IMPROVEMENT_LOOP_DESIGN.md](SELF_IMPROVEMENT_LOOP_DESIGN.md)를 본다. 여기서는 **명령 → 기대 출력 → 수동 확인 방법**만 다룬다.
 
+목적 경계: 이 런북의 핵심은 GitHub나 CI를 통과시키는 것이 아니라 **내부 개선 루프가 issue를 하나씩 처리하며 후보 생성→검증→선택→최종 재검증을 끝내는지 확인하는 것**이다. L3 GitHub 단계는 선택된 개선분을 draft PR로 출판해 diff/evidence를 사람이 확인하는 도구일 뿐이며, PR 생성 자체가 accept 근거가 아니다.
+
 검증 레벨은 3단계다. 위에서 아래로 갈수록 신뢰도가 높아진다.
 
 | 레벨           | 무엇을                                       | 네트워크   | 소요  |

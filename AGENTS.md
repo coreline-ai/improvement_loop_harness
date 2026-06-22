@@ -33,6 +33,7 @@ AI가 코드를 작성했는가?
 | LLM이 스스로 수정하고 스스로 통과시키는 구조 | 수정은 agent가 할 수 있지만, 최종 판정은 deterministic decision engine만 한다. |
 | 장바구니 예제 앱 프로젝트                    | 장바구니는 하네스 실사용 UAT fixture다.                                        |
 | 웹 UI 중심 제품                              | 핵심은 CLI/SDK 기반 verification kernel이다. UI는 관리 계층이다.               |
+| GitHub/CI/PR을 통과시키는 것이 목적          | GitHub와 CI는 출판·회귀 확인 도구일 뿐이다. 목적은 내부 루프가 개선을 증명하는 것이다. |
 
 ## 3. 제품 목표
 
@@ -40,13 +41,14 @@ AI가 코드를 작성했는가?
 
 ```text
 문제 발견 또는 사용자 task
-→ 한 번에 1개 candidate 선택
+→ 한 번에 1개 문제 선택
 → isolated git worktree 생성
 → builder agent가 write_scope 안에서 수정
 → guards/eval/hidden acceptance/evidence 검증
 → deterministic decision
-→ accept면 PR 후보
-→ 다음 candidate로 반복
+→ accepted 후보 중 best-known 개선분 선택
+→ 선택 개선분을 PR 후보로 출판
+→ 다음 문제로 반복
 ```
 
 단, 완전 자율 반복 루프는 검증 커널 안정화 이후 단계다. 현재 우선순위는 **검증 커널 모듈화 + Skill-first 제품화**다.
