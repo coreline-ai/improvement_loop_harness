@@ -528,10 +528,12 @@ corepack pnpm uat:release-evidence-audit -- \
 최근 확인 evidence:
 
 ```text
-/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-existing-source-repair-uat/real-project-corpus-27749-1782114194641/ledger.json
+/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-existing-source-repair-uat/real-project-corpus-53414-1782118179984/ledger.json
 ```
 
 2026-06-22 R27 real project Codex existing-source repair는 기존 로컬 repo 2개(`improvement_loop_harness`, `build-server-cli`)에서 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`, `cell_count=2`, `pass_count=2`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 기존 tracked source file(`apps/server/scripts/postgres-connection-check.mjs`, `web/help-content.js`)만 수정했으며, original parse pass, regressed visible/hidden expected fail, final visible/hidden pass, existing-source-only diff, 원본 repo integrity를 검증했다. `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-uat`도 manifest-backed evidence를 PASS로 감사했다.
+
+2026-06-22 R29 public broad real project existing-source repair는 public 실제 repo 4개(`pypa/sampleproject`, `pallets/click`, `expressjs/express`, `nodeca/js-yaml`)에서 `REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS`, `cell_count=4`, `pass_count=4`, `fail_count=0`을 남겼다. 각 repo는 원본 read-only metadata/discover smoke를 통과했고, temp clone에서 실제 Codex가 기존 tracked source file(`noxfile.py`, `docs/conf.py`, `examples/auth/index.js`, `benchmark/benchmark.mjs`)만 수정했으며, original parse pass, regressed visible/hidden expected fail, final visible/hidden pass, existing-source-only diff, 원본 repo integrity를 검증했다. Evidence는 `/Users/iriver/.vibeloop/uat-evidence/repo-matrix-real-project-existing-source-repair-uat/real-project-corpus-53414-1782118179984`에 copied 42/missing 0(manifest copied 43)으로 보존됐고, `corepack pnpm uat:release-evidence-audit -- --scenario repo-matrix-real-project-existing-source-repair-uat`도 manifest-backed evidence를 PASS로 감사했다. 단 이 증거는 syntactic regression repair smoke이며, GitHub draft PR·임의 업무 bug repair·임의/대형 repo 전체 PASS를 의미하지 않는다.
 
 기존 source repair 결과를 GitHub private evidence repo + draft PR까지 publish하려면 existing-source repair PR smoke lane을 사용한다. 이 lane은 원본 repo를 수정하지 않고 temp clone의 regressed base를 GitHub private repo `main`으로 push한 뒤, 실제 Codex가 복구한 기존 source file만 candidate branch에 commit하고 draft PR을 만든다. Shallow source clone은 publish 전에 upstream `fetch --unshallow`로 보강한다.
 
