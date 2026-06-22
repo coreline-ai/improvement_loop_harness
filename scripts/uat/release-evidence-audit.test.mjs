@@ -1662,8 +1662,8 @@ describe('release evidence audit', () => {
         scenario,
         expected_status: 'REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 8,
-          min_pass_count: 8,
+          min_cell_count: 9,
+          min_pass_count: 9,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_existing_source_repair: true,
@@ -1704,8 +1704,8 @@ describe('release evidence audit', () => {
         provider: 'codex',
         model: 'gpt-5.5'
       },
-      cell_count: 8,
-      pass_count: 8,
+      cell_count: 9,
+      pass_count: 9,
       fail_count: 0,
       cells: [
         {
@@ -1808,6 +1808,24 @@ describe('release evidence audit', () => {
             semantic_source_repair: true,
             semantic_bug_repair: true,
             semantic_domain: 'ansi_escape_sequence_generation',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'itsdangerous',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            repair_source: 'src/itsdangerous/encoding.py',
+            existing_source: true,
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'url_safe_base64_padding',
             visible_acceptance: { status: 'pass' },
             hidden_acceptance: { status: 'pass' },
             diff_scope: { status: 'pass' },

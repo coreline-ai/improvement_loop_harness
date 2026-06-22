@@ -814,6 +814,43 @@ function buildColoramaAnsiVerifier(cases) {
   ].join('\n');
 }
 
+function buildItsdangerousBase64Verifier(cases) {
+  return [
+    'import importlib.util',
+    'import json',
+    'import pathlib',
+    'import sys',
+    'import types',
+    '',
+    'root = pathlib.Path.cwd()',
+    'package = types.ModuleType("itsdangerous")',
+    'package.__path__ = [str(root / "src" / "itsdangerous")]',
+    'sys.modules["itsdangerous"] = package',
+    'source_path = root / "src" / "itsdangerous" / "encoding.py"',
+    'spec = importlib.util.spec_from_file_location("itsdangerous.encoding", source_path)',
+    'module = importlib.util.module_from_spec(spec)',
+    'sys.modules["itsdangerous.encoding"] = module',
+    'spec.loader.exec_module(module)',
+    '',
+    `cases = json.loads(${JSON.stringify(JSON.stringify(cases))})`,
+    'for item in cases:',
+    '    value = item["value"]',
+    '    if item.get("as_bytes"):',
+    '        value = value.encode("utf-8")',
+    '    encoded = module.base64_encode(value)',
+    '    expected_encoded = item["encoded"].encode("ascii")',
+    '    if encoded != expected_encoded:',
+    '        raise AssertionError(f"{item}: encoded expected {expected_encoded!r}, got {encoded!r}")',
+    '    if b"=" in encoded:',
+    '        raise AssertionError(f"{item}: URL-safe encoding must not include padding: {encoded!r}")',
+    '    decoded = module.base64_decode(encoded)',
+    '    expected_decoded = item["decoded"].encode("utf-8")',
+    '    if decoded != expected_decoded:',
+    '        raise AssertionError(f"{item}: decoded expected {expected_decoded!r}, got {decoded!r}")',
+    ''
+  ].join('\n');
+}
+
 function buildProduct100CorpusVerifier(expectedSummary) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1201,6 +1238,47 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
           name: 'set_title',
           args: ['VibeLoop'],
           expected: '\u001b]2;VibeLoop\u0007'
+        }
+      ])
+  },
+  {
+    id: 'itsdangerous-url-safe-base64-padding',
+    semantic_domain: 'url_safe_base64_padding',
+    relativePath: 'src/itsdangerous/encoding.py',
+    language: 'python',
+    originalNeedle: '    return base64.urlsafe_b64encode(string).rstrip(b"=")',
+    regressionText: '    return base64.urlsafe_b64encode(string)',
+    visibleCommand: (filePath) => ({ command: 'python3', args: [filePath] }),
+    buildVisibleVerifier: () =>
+      buildItsdangerousBase64Verifier([
+        {
+          value: 'hello',
+          encoded: 'aGVsbG8',
+          decoded: 'hello'
+        },
+        {
+          value: 'payload?',
+          encoded: 'cGF5bG9hZD8',
+          decoded: 'payload?'
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildItsdangerousBase64Verifier([
+        {
+          value: 'hidden-case',
+          encoded: 'aGlkZGVuLWNhc2U',
+          decoded: 'hidden-case'
+        },
+        {
+          value: 'byte-input!',
+          encoded: 'Ynl0ZS1pbnB1dCE',
+          decoded: 'byte-input!',
+          as_bytes: true
+        },
+        {
+          value: 'pad!',
+          encoded: 'cGFkIQ',
+          decoded: 'pad!'
         }
       ])
   },
