@@ -5,6 +5,7 @@ import {
   annotateScope,
   checkDiffScope,
   checkGitMetadataIntegrity,
+  checkHiddenSelfInspection,
   checkLimits,
   checkProtectedFiles,
   checkTestIntegrity,
@@ -78,6 +79,17 @@ async function runBuiltinCheck(
         context.changedFiles,
         context.evalConfig.test_integrity ?? {},
         { baseCommit: context.baseCommit }
+      );
+    case 'hidden-self-inspection':
+      return checkHiddenSelfInspection(
+        context.worktreeRoot,
+        context.changedFiles,
+        {
+          hiddenTargetPaths:
+            context.evalConfig.hidden_acceptance?.tests?.map(
+              (test) => test.target_path
+            ) ?? []
+        }
       );
     case 'artifact-leak': {
       // Scan runs in the kernel (where agent stdout/stderr is available); this

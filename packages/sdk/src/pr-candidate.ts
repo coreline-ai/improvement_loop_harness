@@ -3,7 +3,13 @@ export interface PrCandidateEvidence {
   allPass?: boolean | null | undefined;
   qualified?: boolean | null | undefined;
   selected?: unknown;
-  finalVerification?: { passed?: boolean | null | undefined } | null | undefined;
+  finalVerification?:
+    | {
+        passed?: boolean | null | undefined;
+        reverified?: boolean | null | undefined;
+      }
+    | null
+    | undefined;
 }
 
 export function isPrCandidate(evidence: PrCandidateEvidence): boolean {
@@ -26,7 +32,8 @@ export function isPrCandidate(evidence: PrCandidateEvidence): boolean {
   }
   if (
     'finalVerification' in evidence &&
-    evidence.finalVerification?.passed !== true
+    (evidence.finalVerification?.passed !== true ||
+      evidence.finalVerification?.reverified !== true)
   ) {
     return false;
   }

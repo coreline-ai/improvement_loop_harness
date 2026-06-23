@@ -1396,8 +1396,10 @@ describe('Product-100 adversary reviewer Phase5 contract', () => {
   });
 
   it('keeps aggregate Phase5 failing when any Product-100 issue is missing Phase5 proof', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'p100-phase5-missing-proof-'));
     const aggregate = await runProduct100Phase5LiveForIssues({
       phase4: {
+        tmp_root: tmp,
         issue_count: 2,
         expected_issue_count: 2,
         issues: [

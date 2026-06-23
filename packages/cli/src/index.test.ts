@@ -1293,6 +1293,79 @@ it('improve can promote the selected final-verified patch to a local PR-candidat
   process.exitCode = 0;
 });
 
+it('improve does not promote when final reverify is skipped', async () => {
+  const repo = await createValueRepo();
+  const dataDir = await tempDir('vibeloop-cli-skiprv-promote-data-');
+  const fixtureDir = await tempDir('vibeloop-cli-skiprv-promote-fixture-');
+  const { taskFile, evalFile } = await writeFixtureTaskEval({
+    dir: fixtureDir,
+    taskId: 'cli-skiprv-promote'
+  });
+  const scenario = await writeScenario(fixtureDir, 'cli-skiprv-agent', [
+    { type: 'modify', path: 'src/value.cjs', content: 'module.exports = 2;\n' },
+    {
+      type: 'create',
+      path: 'tests/regression.test.js',
+      content:
+        "const value = require('../src/value.cjs');\nif (value !== 2) process.exit(1);\n"
+    }
+  ]);
+
+  const logs: string[] = [];
+  const spy = vi
+    .spyOn(console, 'log')
+    .mockImplementation((value: string) => logs.push(value));
+  try {
+    await createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'improve',
+      '--repo',
+      repo.repoPath,
+      '--task',
+      taskFile,
+      '--eval',
+      evalFile,
+      '--agent',
+      `mock:${scenario}`,
+      '--out',
+      dataDir,
+      '--loop-id',
+      'cli-skiprv-promote-1',
+      '--promote-branch',
+      'pr-candidate/cli-skiprv-promote-1',
+      '--skip-dependency-install',
+      '--skip-final-reverify'
+    ]);
+  } finally {
+    spy.mockRestore();
+  }
+
+  const output = JSON.parse(logs.join('\n')) as {
+    selected_candidate_id: string | null;
+    pr_candidate: boolean;
+    promotion: unknown;
+    final_verification: {
+      passed: boolean;
+      reverified: boolean;
+      reverify_attempted: boolean;
+    };
+  };
+  expect(output.selected_candidate_id).toBe('cli-skiprv-promote-1-c0');
+  expect(output.final_verification).toMatchObject({
+    passed: true,
+    reverified: false,
+    reverify_attempted: false
+  });
+  expect(output.pr_candidate).toBe(false);
+  expect(output.promotion).toBeNull();
+  await expect(
+    repo.git(['rev-parse', '--verify', 'pr-candidate/cli-skiprv-promote-1'])
+  ).rejects.toThrow();
+  expect(process.exitCode).toBe(EXIT_CODES.accept);
+  process.exitCode = 0;
+});
+
 it('improve can push the selected final-verified patch and create a GitHub draft PR', async () => {
   const repo = await createValueRepo();
   const bareRemote = await tempDir('vibeloop-cli-draft-remote-');
@@ -1351,7 +1424,9 @@ it('improve can push the selected final-verified patch and create a GitHub draft
         JSON.stringify({
           html_url:
             'https://github.com/coreline-ai/improvement_loop_harness/pull/9',
-          number: 9
+          number: 9,
+          draft: true,
+          auto_merge: null
         })
       );
       return;
@@ -2558,7 +2633,9 @@ describe('runImprovementLoop', () => {
       equivalent_patch_convergence: true,
       full_autonomous_improvement_eligible: true
     });
-    expect(new Set(report.candidates.map((candidate) => candidate.patch_hash)).size).toBe(1);
+    expect(
+      new Set(report.candidates.map((candidate) => candidate.patch_hash)).size
+    ).toBe(1);
   });
 
   it('uses a converged top-score patch group when another top candidate ties', async () => {
@@ -2627,7 +2704,9 @@ describe('runImprovementLoop', () => {
       selected_candidate_id: 'converged-subset-1-c1',
       equivalent_patch_convergence: true
     });
-    expect(new Set(report.candidates.map((candidate) => candidate.patch_hash)).size).toBe(2);
+    expect(
+      new Set(report.candidates.map((candidate) => candidate.patch_hash)).size
+    ).toBe(2);
   }, 30000);
 
   it('advisory judge cannot promote a non-tied (e.g. rejected) candidate (B1 safety)', async () => {
@@ -4185,7 +4264,9 @@ describe('orchestrate (auto mode)', () => {
         res.end(
           JSON.stringify({
             html_url: `https://github.com/coreline-ai/improvement_loop_harness/pull/${prNumber}`,
-            number: prNumber
+            number: prNumber,
+            draft: true,
+            auto_merge: null
           })
         );
         return;

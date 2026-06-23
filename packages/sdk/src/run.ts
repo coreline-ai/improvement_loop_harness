@@ -63,6 +63,7 @@ import {
   loadTask,
   mergeLimits,
   type EvalConfig,
+  type EvalGate,
   type TaskDefinition
 } from '@vibeloop/task-protocol';
 import {
@@ -395,20 +396,33 @@ async function finalizeIfRunning(
 }
 
 function inferGateGroups(evalConfig: EvalConfig): EvalConfig {
+  const inferredGates: EvalGate[] = evalConfig.gates.map((gate) => {
+    if (gate.group) return gate;
+    if (gate.type === 'hidden_acceptance')
+      return { ...gate, group: 'hidden_acceptance' as const };
+    if (
+      gate.required &&
+      ['task_acceptance', 'regression', 'hard'].includes(gate.type)
+    ) {
+      return { ...gate, group: 'pass_to_pass' as const };
+    }
+    return gate;
+  });
+  const needsHiddenSelfInspection =
+    (evalConfig.hidden_acceptance?.tests?.length ?? 0) > 0 &&
+    !inferredGates.some((gate) => gate.name === 'hidden_self_inspection');
+  const hiddenSelfInspectionGate: EvalGate = {
+    name: 'hidden_self_inspection',
+    type: 'integrity',
+    command: 'builtin:hidden-self-inspection',
+    required: true,
+    group: 'hidden_acceptance'
+  };
   return {
     ...evalConfig,
-    gates: evalConfig.gates.map((gate) => {
-      if (gate.group) return gate;
-      if (gate.type === 'hidden_acceptance')
-        return { ...gate, group: 'hidden_acceptance' as const };
-      if (
-        gate.required &&
-        ['task_acceptance', 'regression', 'hard'].includes(gate.type)
-      ) {
-        return { ...gate, group: 'pass_to_pass' as const };
-      }
-      return gate;
-    })
+    gates: needsHiddenSelfInspection
+      ? [hiddenSelfInspectionGate, ...inferredGates]
+      : inferredGates
   };
 }
 

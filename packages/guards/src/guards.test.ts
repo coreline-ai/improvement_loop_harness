@@ -7,6 +7,7 @@ import { createTempGitRepo } from '../../../tests/helpers/repo.js';
 import { annotateScope, checkDiffScope } from './diff-scope.js';
 import { applyPatch, extractDiff } from './diff.js';
 import { checkGitMetadataIntegrity } from './git-meta-integrity.js';
+import { checkHiddenSelfInspection } from './hidden-self-inspection.js';
 import { checkLimits } from './limits.js';
 import { pathMatchesPattern } from './path-match.js';
 import { checkProtectedFiles } from './protected-files.js';
@@ -92,10 +93,7 @@ describe('extractDiff', () => {
 describe('builtin guard checks', () => {
   it('matches recursive globstar write scopes without leaking to sibling scopes', () => {
     expect(
-      pathMatchesPattern(
-        'packages/cart/src/quantity.cjs',
-        'packages/cart/**'
-      )
+      pathMatchesPattern('packages/cart/src/quantity.cjs', 'packages/cart/**')
     ).toBe(true);
     expect(
       pathMatchesPattern(
@@ -104,10 +102,7 @@ describe('builtin guard checks', () => {
       )
     ).toBe(true);
     expect(
-      pathMatchesPattern(
-        'packages/catalog/src/index.cjs',
-        'packages/cart/**'
-      )
+      pathMatchesPattern('packages/catalog/src/index.cjs', 'packages/cart/**')
     ).toBe(false);
     expect(pathMatchesPattern('src/quantity.cjs', 'src/**')).toBe(true);
     expect(pathMatchesPattern('src/nested/file.ts', 'src/**/*.ts')).toBe(true);
@@ -141,9 +136,9 @@ describe('builtin guard checks', () => {
     });
 
     expect(result.status).toBe('pass');
-    expect(
-      annotated.every((file) => file.allowedByWriteScope === true)
-    ).toBe(true);
+    expect(annotated.every((file) => file.allowedByWriteScope === true)).toBe(
+      true
+    );
   });
 
   it('blocks protected recursive globstar paths', () => {
@@ -161,6 +156,32 @@ describe('builtin guard checks', () => {
 
     expect(result.status).toBe('fail');
     expect(result.code).toBe('GUARD_PROTECTED_PATH');
+  });
+
+  it('blocks candidate code that inspects hidden acceptance runtime paths', async () => {
+    const repo = await createTempGitRepo();
+    await repo.write(
+      'src/cart.cjs',
+      "const fs = require('node:fs');\nmodule.exports = fs.readFileSync('tests/hidden/cart-hidden.test.cjs', 'utf8');\n"
+    );
+
+    const result = await checkHiddenSelfInspection(
+      repo.repoPath,
+      [
+        {
+          path: 'src/cart.cjs',
+          status: 'modified',
+          isSymlink: false,
+          addedLines: 2,
+          deletedLines: 0
+        }
+      ],
+      { hiddenTargetPaths: ['tests/hidden/cart-hidden.test.cjs'] }
+    );
+
+    expect(result.status).toBe('fail');
+    expect(result.code).toBe('GUARD_HIDDEN_SELF_INSPECTION');
+    expect(result.violations[0]?.message).not.toContain('cart-hidden.test.cjs');
   });
 
   it('fails git-meta-integrity when .git/hooks changes', async () => {
@@ -358,7 +379,8 @@ describe('builtin guard checks', () => {
     expect(result.violations).toContainEqual(
       expect.objectContaining({
         code: 'GUARD_TEST_INTEGRITY',
-        message: "test assertion removed: assert.equal(source.includes('private.cjs'), false);"
+        message:
+          "test assertion removed: assert.equal(source.includes('private.cjs'), false);"
       })
     );
   });

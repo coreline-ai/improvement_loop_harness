@@ -520,6 +520,62 @@ describe('builtin:artifact-leak gate (fail-open invariant)', () => {
   });
 });
 
+describe('builtin:hidden-self-inspection gate', () => {
+  it('fails when candidate code references hidden runtime paths', async () => {
+    const context = await contextFor({
+      gates: [
+        {
+          name: 'hidden_self_inspection',
+          type: 'integrity',
+          command: 'builtin:hidden-self-inspection',
+          required: true
+        },
+        {
+          name: 'visible_regression',
+          type: 'regression',
+          command: 'node tests/visible.test.js',
+          required: true
+        }
+      ],
+      changedFiles: [
+        {
+          path: 'src/cart.cjs',
+          status: 'modified',
+          isSymlink: false,
+          addedLines: 2,
+          deletedLines: 0
+        }
+      ]
+    });
+    context.evalConfig.hidden_acceptance = {
+      tests: [
+        {
+          name: 'hidden_cart',
+          source_path: '/hidden/cart.test.cjs',
+          target_path: 'tests/hidden/cart.test.cjs'
+        }
+      ]
+    };
+    await mkdir(path.join(context.worktreeRoot, 'src'), { recursive: true });
+    await writeFile(
+      path.join(context.worktreeRoot, 'src/cart.cjs'),
+      "require('node:fs').readFileSync('tests/hidden/cart.test.cjs', 'utf8');\n"
+    );
+
+    const result = await runGates(context);
+
+    expect(result.report.gates[0]).toMatchObject({
+      name: 'hidden_self_inspection',
+      status: 'fail',
+      summary: expect.stringContaining('hidden runtime self-inspection')
+    });
+    expect(result.report.gates[1]).toMatchObject({
+      name: 'visible_regression',
+      status: 'skipped'
+    });
+  });
+});
+
 describe('builtin:rulepack-lock gate (next-loop frozen rulepack invariant)', () => {
   const rulepackGate: EvalConfig['gates'] = [
     {

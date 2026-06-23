@@ -9,6 +9,7 @@ import {
   buildPullRequestBody,
   createDraftPullRequest,
   GitHubApiError,
+  GitHubPrReuseError,
   parseGitHubRepo
 } from './pull-request.js';
 import {
@@ -85,9 +86,7 @@ describe('GitHub draft PR integration', () => {
     const remoteHead = (
       await repo.git(['ls-remote', bareRemote, branch.branchName])
     ).trim();
-    const currentBranch = (
-      await repo.git(['branch', '--show-current'])
-    ).trim();
+    const currentBranch = (await repo.git(['branch', '--show-current'])).trim();
     const originalReadme = await readFile(
       path.join(repo.repoPath, 'README.md'),
       'utf8'
@@ -212,6 +211,19 @@ describe('GitHub draft PR integration', () => {
           provenance_verified: true,
           hidden_acceptance_status: 'passed',
           verifier_status: 'passed'
+        },
+        provenance: {
+          candidate_patch_hash: createHash('sha256')
+            .update('candidate patch')
+            .digest('hex')
+        },
+        final_verification: {
+          passed: true,
+          reverified: true,
+          provenance_ok: true,
+          candidate_patch_hash: createHash('sha256')
+            .update('candidate patch')
+            .digest('hex')
         }
       },
       {
@@ -232,6 +244,9 @@ describe('GitHub draft PR integration', () => {
     expect(body).toContain('Decision impact: none');
     expect(body).toContain('Human review signal: yes');
     expect(body).toContain('medium: Add an edge-case test.');
+    expect(body).toContain('Candidate patch artifact hash');
+    expect(body).toContain('not the GitHub PR diff');
+    expect(body).toContain('Final reverify: passed with fresh re-execution');
 
     nock('https://api.github.com')
       .get('/repos/coreline-ai/improvement_loop_harness/pulls')
@@ -252,7 +267,9 @@ describe('GitHub draft PR integration', () => {
       .reply(201, {
         html_url:
           'https://github.com/coreline-ai/improvement_loop_harness/pull/7',
-        number: 7
+        number: 7,
+        draft: true,
+        auto_merge: null
       });
 
     const result = await createDraftPullRequest({
@@ -274,6 +291,7 @@ describe('GitHub draft PR integration', () => {
   });
 
   it('reuses an existing open PR and does not create duplicates on retry', async () => {
+    const body = 'body';
     nock('https://api.github.com')
       .get('/repos/coreline-ai/improvement_loop_harness/pulls')
       .query({ head: 'coreline-ai:vibeloop/loop-1', state: 'open' })
@@ -281,7 +299,12 @@ describe('GitHub draft PR integration', () => {
         {
           html_url:
             'https://github.com/coreline-ai/improvement_loop_harness/pull/8',
-          number: 8
+          number: 8,
+          draft: true,
+          auto_merge: null,
+          base: { ref: 'main' },
+          head: { ref: 'vibeloop/loop-1' },
+          body
         }
       ]);
 
@@ -292,7 +315,7 @@ describe('GitHub draft PR integration', () => {
       headBranch: 'vibeloop/loop-1',
       baseBranch: 'main',
       title: 'VibeLoop: fix issue',
-      body: 'body'
+      body
     });
 
     expect(result).toEqual({
@@ -300,6 +323,108 @@ describe('GitHub draft PR integration', () => {
       number: 8,
       reused: true
     });
+    expect(nock.isDone()).toBe(true);
+  });
+
+  it('refuses to reuse a non-draft open PR', async () => {
+    nock('https://api.github.com')
+      .get('/repos/coreline-ai/improvement_loop_harness/pulls')
+      .query({ head: 'coreline-ai:vibeloop/loop-1', state: 'open' })
+      .reply(200, [
+        {
+          html_url:
+            'https://github.com/coreline-ai/improvement_loop_harness/pull/8',
+          number: 8,
+          draft: false,
+          auto_merge: null,
+          base: { ref: 'main' },
+          head: { ref: 'vibeloop/loop-1' },
+          body: 'body'
+        }
+      ]);
+
+    await expect(
+      createDraftPullRequest({
+        owner: 'coreline-ai',
+        repo: 'improvement_loop_harness',
+        token: 'server-token',
+        headBranch: 'vibeloop/loop-1',
+        baseBranch: 'main',
+        title: 'VibeLoop: fix issue',
+        body: 'body'
+      })
+    ).rejects.toMatchObject({
+      name: 'GitHubPrReuseError',
+      reason: 'existing_pull_request_is_not_draft'
+    } satisfies Partial<GitHubPrReuseError>);
+    expect(nock.isDone()).toBe(true);
+  });
+
+  it('refuses to reuse an open PR with auto-merge enabled', async () => {
+    nock('https://api.github.com')
+      .get('/repos/coreline-ai/improvement_loop_harness/pulls')
+      .query({ head: 'coreline-ai:vibeloop/loop-1', state: 'open' })
+      .reply(200, [
+        {
+          html_url:
+            'https://github.com/coreline-ai/improvement_loop_harness/pull/8',
+          number: 8,
+          draft: true,
+          auto_merge: { enabled_by: { login: 'octocat' } },
+          base: { ref: 'main' },
+          head: { ref: 'vibeloop/loop-1' },
+          body: 'body'
+        }
+      ]);
+
+    await expect(
+      createDraftPullRequest({
+        owner: 'coreline-ai',
+        repo: 'improvement_loop_harness',
+        token: 'server-token',
+        headBranch: 'vibeloop/loop-1',
+        baseBranch: 'main',
+        title: 'VibeLoop: fix issue',
+        body: 'body'
+      })
+    ).rejects.toMatchObject({
+      name: 'GitHubPrReuseError',
+      reason: 'existing_pull_request_has_auto_merge_enabled'
+    } satisfies Partial<GitHubPrReuseError>);
+    expect(nock.isDone()).toBe(true);
+  });
+
+  it('refuses to reuse an open PR with stale base or body evidence', async () => {
+    nock('https://api.github.com')
+      .get('/repos/coreline-ai/improvement_loop_harness/pulls')
+      .query({ head: 'coreline-ai:vibeloop/loop-1', state: 'open' })
+      .reply(200, [
+        {
+          html_url:
+            'https://github.com/coreline-ai/improvement_loop_harness/pull/8',
+          number: 8,
+          draft: true,
+          auto_merge: null,
+          base: { ref: 'release' },
+          head: { ref: 'vibeloop/loop-1' },
+          body: 'old body'
+        }
+      ]);
+
+    await expect(
+      createDraftPullRequest({
+        owner: 'coreline-ai',
+        repo: 'improvement_loop_harness',
+        token: 'server-token',
+        headBranch: 'vibeloop/loop-1',
+        baseBranch: 'main',
+        title: 'VibeLoop: fix issue',
+        body: 'body'
+      })
+    ).rejects.toMatchObject({
+      name: 'GitHubPrReuseError',
+      reason: 'existing_pull_request_base_is_stale'
+    } satisfies Partial<GitHubPrReuseError>);
     expect(nock.isDone()).toBe(true);
   });
 

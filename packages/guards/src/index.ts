@@ -2,6 +2,7 @@ export * from './artifact-leak.js';
 export * from './diff.js';
 export * from './diff-scope.js';
 export * from './git-meta-integrity.js';
+export * from './hidden-self-inspection.js';
 export * from './limits.js';
 export * from './path-match.js';
 export * from './protected-files.js';

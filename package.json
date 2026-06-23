@@ -51,6 +51,7 @@
     "uat:skill-loop:self-improvement": "corepack pnpm build && node scripts/uat/skill-self-improvement-loop-uat.mjs",
     "test:skill-loop:self-improvement": "corepack pnpm build && vitest run --passWithNoTests tests/e2e/skill-productization/skill-self-improvement-loop.e2e.test.ts",
     "bundle:skill": "corepack pnpm build && node scripts/bundle-skill.mjs",
+    "uat:skill-loop:clean-codex-home": "corepack pnpm bundle:skill && node scripts/uat/skill-clean-codex-home-smoke.mjs",
     "uat:skill-loop:full": "corepack pnpm bundle:skill && node scripts/uat/skill-real-user-full-uat.mjs",
     "uat:skill-loop:codex-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-codex-live-uat.mjs",
     "uat:skill-loop:codex-skill-prompt": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-codex-skill-prompt-uat.mjs",

@@ -1100,8 +1100,18 @@ export function registerOrchestrateCommand(program: Command): void {
                   'patches/candidate.patch'
                 )
               : null;
+            const prCandidate = isPrCandidate({
+              decision: result.selected?.decision ?? null,
+              allPass: result.selected?.decision === 'accept',
+              qualified: result.selected?.qualified ?? null,
+              selected: result.selected,
+              finalVerification: result.finalVerification ?? null
+            });
             const promotion =
-              result.selected && selectedPatch && options.promoteBranch
+              result.selected &&
+              selectedPatch &&
+              options.promoteBranch &&
+              prCandidate
                 ? await commitSelectedPatchOnCurrentBranch({
                     repoPath: options.repo,
                     patchPath: selectedPatch,
@@ -1115,6 +1125,7 @@ export function registerOrchestrateCommand(program: Command): void {
             const draftPr =
               result.selected &&
               selectedPatch &&
+              prCandidate &&
               options.githubDraftPr &&
               options.githubRepo &&
               githubToken
@@ -1159,13 +1170,7 @@ export function registerOrchestrateCommand(program: Command): void {
               source: candidate.source,
               task_id: generated.task.id,
               selected_candidate_id: result.selected?.candidateId ?? null,
-              pr_candidate: isPrCandidate({
-                decision: result.selected?.decision ?? null,
-                allPass: result.selected?.decision === 'accept',
-                qualified: result.selected?.qualified ?? null,
-                selected: result.selected,
-                finalVerification: result.finalVerification ?? null
-              }),
+              pr_candidate: prCandidate,
               issue_eval_file: issueEvalPath,
               selected_patch: selectedPatch,
               final_verification: result.finalVerification ?? null,

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -60,6 +61,124 @@ async function seedLoop(
   return { task, loop };
 }
 
+function sha256Text(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+interface TrustedReportOptions {
+  artifactRoot?: string;
+  patch?: string;
+  qualityMet?: boolean;
+  provenanceVerified?: boolean;
+  candidatePatchHash?: string;
+  finalVerification?: Record<string, unknown> | null;
+  omitFinalVerification?: boolean;
+}
+
+async function writeTrustedArtifacts(
+  options: TrustedReportOptions = {}
+): Promise<{ artifactRoot: string; patchHash: string }> {
+  const artifactRoot =
+    options.artifactRoot ??
+    (await mkdtemp(path.join(os.tmpdir(), 'vibeloop-pr-artifacts-')));
+  const patch =
+    options.patch ??
+    [
+      'diff --git a/src/value.ts b/src/value.ts',
+      'index 0000000..1111111 100644',
+      '--- a/src/value.ts',
+      '+++ b/src/value.ts',
+      '@@ -1 +1 @@',
+      '-export const value = 1;',
+      '+export const value = 2;',
+      ''
+    ].join('\n');
+  const patchHash = sha256Text(patch);
+  await mkdir(path.join(artifactRoot, 'patches'), { recursive: true });
+  await mkdir(path.join(artifactRoot, 'reports'), { recursive: true });
+  await writeFile(path.join(artifactRoot, 'patches', 'candidate.patch'), patch);
+  await writeFile(
+    path.join(artifactRoot, 'reports', 'quality-report.json'),
+    `${JSON.stringify({ met: options.qualityMet ?? true }, null, 2)}\n`
+  );
+  return { artifactRoot, patchHash };
+}
+
+function trustedEvalReportJson(
+  decision: string,
+  patchHash: string,
+  options: TrustedReportOptions = {}
+): Record<string, unknown> {
+  const candidatePatchHash = options.candidatePatchHash ?? patchHash;
+  const finalVerification = options.omitFinalVerification
+    ? null
+    : (options.finalVerification ?? {
+        passed: true,
+        reverified: true,
+        provenance_ok: true,
+        candidate_patch_hash: candidatePatchHash
+      });
+  return {
+    schema_version: '1.1',
+    decision,
+    decision_reasons: [
+      { code: 'ALL_PASS', message: 'All required gates passed.' }
+    ],
+    gate_runs: [
+      {
+        name: 'unit_tests',
+        type: 'test',
+        required: true,
+        status: 'pass',
+        exit_code: 0
+      }
+    ],
+    changed_files: [
+      {
+        path: 'src/value.ts',
+        status: 'modified',
+        allowed_by_write_scope: true,
+        protected: false
+      }
+    ],
+    improvement_evidence: [{ type: 'adds_regression_test', status: 'present' }],
+    provenance: {
+      harness_version: '0.1.0',
+      decision_engine_version: 'decision-rules-1.1',
+      task_hash: sha256Text('task'),
+      eval_config_hash: sha256Text('eval'),
+      candidate_patch_hash: candidatePatchHash,
+      gate_artifact_hashes: {},
+      generated_by: 'harness'
+    },
+    trust_summary: {
+      deterministic_authority: 'decision_engine',
+      provenance_verified: options.provenanceVerified ?? true,
+      hidden_acceptance_status: 'not_configured',
+      verifier_status: 'passed'
+    },
+    ...(finalVerification ? { final_verification: finalVerification } : {}),
+    artifact_refs: ['patches/candidate.patch', 'reports/quality-report.json']
+  };
+}
+
+async function persistTrustedEvalReport(
+  store: Store,
+  loop: LoopRunRecord,
+  decision: string,
+  options: TrustedReportOptions = {}
+): Promise<{ artifactRoot: string; patchHash: string }> {
+  const artifacts = await writeTrustedArtifacts(options);
+  await store.createReport({
+    loopRunId: loop.id,
+    type: 'eval',
+    status: 'complete',
+    reportJson: trustedEvalReportJson(decision, artifacts.patchHash, options),
+    artifactRef: 'reports/eval-report.json'
+  });
+  return artifacts;
+}
+
 class FakePullRequestManager implements PullRequestManager {
   calls = 0;
   createdPrCount = 0;
@@ -84,43 +203,23 @@ class FakePullRequestManager implements PullRequestManager {
 
 async function seedAcceptedLoopWithReport(
   store: Store,
-  status = 'accepted'
-): Promise<{ loop: LoopRunRecord }> {
-  const { loop } = await seedLoop(store, status);
+  status = 'accepted',
+  options: TrustedReportOptions = {}
+): Promise<{ loop: LoopRunRecord; artifactRoot: string; patchHash: string }> {
+  const artifacts = await writeTrustedArtifacts(options);
+  const { loop } = await seedLoop(store, status, artifacts.artifactRoot);
   await store.createReport({
     loopRunId: loop.id,
     type: 'eval',
     status: 'complete',
-    reportJson: {
-      decision:
-        status === 'approved' || status === 'accepted' ? 'accept' : 'reject',
-      decision_reasons: [
-        { code: 'ALL_PASS', message: 'All required gates passed.' }
-      ],
-      gate_runs: [
-        {
-          name: 'unit_tests',
-          type: 'test',
-          required: true,
-          status: 'pass',
-          exit_code: 0
-        }
-      ],
-      changed_files: [
-        {
-          path: 'src/value.ts',
-          status: 'modified',
-          allowed_by_write_scope: true,
-          protected: false
-        }
-      ],
-      improvement_evidence: [
-        { type: 'adds_regression_test', status: 'present' }
-      ],
-      artifact_refs: ['patches/candidate.patch']
-    }
+    reportJson: trustedEvalReportJson(
+      status === 'approved' || status === 'accepted' ? 'accept' : 'reject',
+      artifacts.patchHash,
+      options
+    ),
+    artifactRef: 'reports/eval-report.json'
   });
-  return { loop };
+  return { loop, ...artifacts };
 }
 
 async function seedCandidate(
@@ -168,7 +267,10 @@ class SequencedRunner {
   maxActive = 0;
   calls: string[] = [];
 
-  constructor(private readonly results: LoopRunnerResult[]) {}
+  constructor(
+    private readonly results: LoopRunnerResult[],
+    private readonly store?: Store
+  ) {}
 
   run = async (input: LoopRunnerInput): Promise<LoopRunnerResult> => {
     this.active += 1;
@@ -176,7 +278,22 @@ class SequencedRunner {
     this.calls.push(input.task.id);
     await new Promise((resolve) => setTimeout(resolve, 1));
     this.active -= 1;
-    return this.results.shift() ?? { status: 'accepted', decision: 'accept' };
+    const result = this.results.shift() ?? {
+      status: 'accepted',
+      decision: 'accept'
+    };
+    if (this.store && result.artifactRoot) {
+      await persistTrustedEvalReport(
+        this.store,
+        input.loop,
+        result.decision ?? 'accept',
+        {
+          artifactRoot: result.artifactRoot,
+          qualityMet: result.qualified ?? true
+        }
+      );
+    }
+    return result;
   };
 }
 
@@ -580,20 +697,23 @@ describe('Fastify API auth and loop orchestration', () => {
       title: 'tests/two.test.js: second failure',
       priority: 80
     });
-    const runner = new SequencedRunner([
-      {
-        status: 'accepted',
-        decision: 'accept',
-        artifactRoot: '/tmp/run-1',
-        tokenUsageTotal: 10
-      },
-      {
-        status: 'accepted',
-        decision: 'accept',
-        artifactRoot: '/tmp/run-2',
-        tokenUsageTotal: 15
-      }
-    ]);
+    const runner = new SequencedRunner(
+      [
+        {
+          status: 'accepted',
+          decision: 'accept',
+          artifactRoot: '/tmp/run-1',
+          tokenUsageTotal: 10
+        },
+        {
+          status: 'accepted',
+          decision: 'accept',
+          artifactRoot: '/tmp/run-2',
+          tokenUsageTotal: 15
+        }
+      ],
+      store
+    );
     const manager = new FakePullRequestManager();
     const app = await createApp({
       token: TOKEN,
@@ -1067,6 +1187,95 @@ describe('Fastify API auth and loop orchestration', () => {
       prNumber: 1
     });
     expect(manager.calls).toBe(1);
+  });
+
+  it('rejects PR creation when final verification was not reverified', async () => {
+    const store = new MemoryStore();
+    const patch = 'diff --git a/src/value.ts b/src/value.ts\n';
+    const patchHash = sha256Text(patch);
+    const { loop } = await seedAcceptedLoopWithReport(store, 'accepted', {
+      patch,
+      finalVerification: {
+        passed: true,
+        reverified: false,
+        provenance_ok: true,
+        candidate_patch_hash: patchHash
+      }
+    });
+    const manager = new FakePullRequestManager();
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      pullRequestManager: manager
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: { code: 'PR_FORBIDDEN_TRUST_FLOOR' }
+    });
+    expect(manager.calls).toBe(0);
+  });
+
+  it('rejects PR creation when final verification evidence is missing', async () => {
+    const store = new MemoryStore();
+    const { loop } = await seedAcceptedLoopWithReport(store, 'accepted', {
+      omitFinalVerification: true
+    });
+    const manager = new FakePullRequestManager();
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      pullRequestManager: manager
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: { code: 'PR_FORBIDDEN_TRUST_FLOOR' }
+    });
+    expect(manager.calls).toBe(0);
+  });
+
+  it('rejects PR creation when the candidate patch hash is stale', async () => {
+    const store = new MemoryStore();
+    const { loop } = await seedAcceptedLoopWithReport(store, 'accepted', {
+      candidatePatchHash: sha256Text('stale patch')
+    });
+    const manager = new FakePullRequestManager();
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      pullRequestManager: manager
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: { code: 'PR_FORBIDDEN_TRUST_FLOOR' }
+    });
+    expect(manager.calls).toBe(0);
   });
 
   it('rejects pull request creation for forbidden loop states', async () => {

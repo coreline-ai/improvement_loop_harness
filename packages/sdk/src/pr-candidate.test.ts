@@ -50,7 +50,7 @@ describe('isPrCandidate', () => {
         allPass: true,
         qualified: true,
         selected: { candidateId: 'c0' },
-        finalVerification: { passed: true }
+        finalVerification: { passed: true, reverified: true }
       })
     ).toBe(true);
     expect(
@@ -59,7 +59,7 @@ describe('isPrCandidate', () => {
         allPass: true,
         qualified: true,
         selected: null,
-        finalVerification: { passed: true }
+        finalVerification: { passed: true, reverified: true }
       })
     ).toBe(false);
     expect(
@@ -69,6 +69,15 @@ describe('isPrCandidate', () => {
         qualified: true,
         selected: { candidateId: 'c0' },
         finalVerification: { passed: false }
+      })
+    ).toBe(false);
+    expect(
+      isPrCandidate({
+        decision: 'accept',
+        allPass: true,
+        qualified: true,
+        selected: { candidateId: 'c0' },
+        finalVerification: { passed: true, reverified: false }
       })
     ).toBe(false);
     expect(

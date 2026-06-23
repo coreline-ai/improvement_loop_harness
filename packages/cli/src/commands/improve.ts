@@ -432,9 +432,17 @@ export function registerImproveCommand(program: Command): void {
         const selectedPatch = result.selected
           ? path.join(result.selected.artifactRoot, 'patches/candidate.patch')
           : null;
+        const prCandidate = isPrCandidate({
+          decision: result.selected?.decision ?? null,
+          allPass: result.selected?.decision === 'accept',
+          qualified: result.selected?.qualified ?? null,
+          selected: result.selected,
+          finalVerification: result.finalVerification ?? null
+        });
         const promotionArtifactLeak =
           result.selected &&
           selectedPatch &&
+          prCandidate &&
           (options.promoteBranch || options.githubDraftPr)
             ? (
                 evalSource.evalConfig ??
@@ -442,7 +450,10 @@ export function registerImproveCommand(program: Command): void {
               ).artifact_leak
             : undefined;
         const promotion =
-          result.selected && options.promoteBranch && selectedPatch
+          result.selected &&
+          options.promoteBranch &&
+          selectedPatch &&
+          prCandidate
             ? await promoteSelectedPatch({
                 repoPath: options.repo,
                 baseCommit: result.baseCommit,
@@ -457,7 +468,10 @@ export function registerImproveCommand(program: Command): void {
               })
             : null;
         const draftPr =
-          result.selected && selectedPatch && options.githubDraftPr
+          result.selected &&
+          selectedPatch &&
+          options.githubDraftPr &&
+          prCandidate
             ? await (async () => {
                 if (!options.githubRepo) {
                   throw new Error(
@@ -522,13 +536,7 @@ export function registerImproveCommand(program: Command): void {
               selected_artifact_root: result.selected?.artifactRoot ?? null,
               selected_report: result.selected?.reportPath ?? null,
               selected_patch: selectedPatch,
-              pr_candidate: isPrCandidate({
-                decision: result.selected?.decision ?? null,
-                allPass: result.selected?.decision === 'accept',
-                qualified: result.selected?.qualified ?? null,
-                selected: result.selected,
-                finalVerification: result.finalVerification ?? null
-              }),
+              pr_candidate: prCandidate,
               promotion,
               draft_pr: draftPr,
               final_verification: result.finalVerification ?? null,
