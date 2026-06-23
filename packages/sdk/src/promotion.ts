@@ -6,7 +6,8 @@ import {
   deleteRemoteBranch,
   parseGitHubRepo,
   prepareBranchAndPush,
-  type EvalReportSummaryInput
+  type EvalReportSummaryInput,
+  type SelectionEvidenceSummaryInput
 } from '@vibeloop/github-integration';
 import { scanPatchForLeak, type ArtifactLeakConfig } from '@vibeloop/guards';
 import { safeGit, worktreeStatus } from '@vibeloop/workspace-runner';
@@ -52,6 +53,7 @@ export interface PublishDraftPrOptions {
   pushUrl?: string | undefined;
   body?: string | undefined;
   report?: EvalReportSummaryInput | undefined;
+  selectionEvidence?: SelectionEvidenceSummaryInput | undefined;
   adversaryReview?: AdversaryReviewReport | undefined;
   apiBaseUrl?: string | undefined;
   timeoutMs?: number | undefined;
@@ -285,7 +287,8 @@ export async function publishSelectedPatchDraftPr(
     const body =
       options.body ??
       buildPullRequestBody(options.report ?? {}, {
-        adversaryReview: options.adversaryReview ?? null
+        adversaryReview: options.adversaryReview ?? null,
+        selectionEvidence: options.selectionEvidence ?? null
       });
     let pr: Awaited<ReturnType<typeof createDraftPullRequest>>;
     try {

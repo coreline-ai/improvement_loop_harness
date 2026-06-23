@@ -36,6 +36,7 @@ export interface AdversaryReviewSummaryInput {
 
 export interface PullRequestBodyOptions {
   adversaryReview?: AdversaryReviewSummaryInput | null | undefined;
+  selectionEvidence?: SelectionEvidenceSummaryInput | null | undefined;
 }
 
 export interface EvalReportSummaryInput {
@@ -54,6 +55,29 @@ export interface EvalReportSummaryInput {
       }
     | undefined;
   verifier?: { policy?: string; mismatch?: boolean } | undefined;
+}
+
+export interface SelectionEvidenceSummaryInput {
+  selected_candidate_id?: string | null | undefined;
+  selected_patch?: string | null | undefined;
+  patch_hash?: string | null | undefined;
+  selected_eval_report?: string | null | undefined;
+  selection_report?: string | null | undefined;
+  final_verification?:
+    | {
+        candidate_id?: string | undefined;
+        candidate_patch_hash?: string | undefined;
+        provenance_ok?: boolean | undefined;
+        reverify_attempted?: boolean | undefined;
+        reverified?: boolean | undefined;
+        reverify_decision?: string | undefined;
+        reverify_qualified?: boolean | undefined;
+        reverify_report?: string | undefined;
+        passed?: boolean | undefined;
+        reason?: string | undefined;
+      }
+    | null
+    | undefined;
 }
 
 export interface DraftPullRequestInput {
@@ -167,6 +191,61 @@ function formatAdversaryReview(
     .join('\n');
 }
 
+function formatSelectionEvidence(
+  evidence: SelectionEvidenceSummaryInput | null | undefined
+): string {
+  if (!evidence) {
+    return '- Not recorded.';
+  }
+  const finalVerification = evidence.final_verification;
+  const verificationLines = finalVerification
+    ? [
+        `  - Candidate: ${finalVerification.candidate_id ?? 'unknown'}`,
+        `  - Patch hash: ${
+          finalVerification.candidate_patch_hash ?? 'not_recorded'
+        }`,
+        `  - Provenance OK: ${
+          finalVerification.provenance_ok === true ? 'yes' : 'no'
+        }`,
+        `  - Reverify attempted: ${
+          finalVerification.reverify_attempted ? 'yes' : 'no'
+        }`,
+        `  - Reverified: ${finalVerification.reverified ? 'yes' : 'no'}`,
+        `  - Reverify decision: ${
+          finalVerification.reverify_decision ?? 'not_recorded'
+        }`,
+        `  - Reverify qualified: ${
+          finalVerification.reverify_qualified === undefined
+            ? 'not_recorded'
+            : finalVerification.reverify_qualified
+              ? 'yes'
+              : 'no'
+        }`,
+        `  - Reverify report: ${
+          finalVerification.reverify_report ?? 'not_recorded'
+        }`,
+        `  - Final verification passed: ${
+          finalVerification.passed === true ? 'yes' : 'no'
+        }`,
+        finalVerification.reason
+          ? `  - Reason: ${finalVerification.reason}`
+          : null
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join('\n')
+    : '  - not recorded';
+
+  return [
+    `- Selected candidate: ${evidence.selected_candidate_id ?? 'not_recorded'}`,
+    `- Selected patch: ${evidence.selected_patch ?? 'not_recorded'}`,
+    `- Patch hash: ${evidence.patch_hash ?? 'not_recorded'}`,
+    `- Selected eval report: ${evidence.selected_eval_report ?? 'not_recorded'}`,
+    `- Selection report: ${evidence.selection_report ?? 'not_recorded'}`,
+    '- Final verification:',
+    verificationLines
+  ].join('\n');
+}
+
 export function buildPullRequestBody(
   report: EvalReportSummaryInput,
   options: PullRequestBodyOptions = {}
@@ -216,6 +295,10 @@ export function buildPullRequestBody(
     '## Trust boundary',
     '',
     trustLines,
+    '',
+    '## Selected patch evidence',
+    '',
+    formatSelectionEvidence(options.selectionEvidence),
     '',
     '## Advisory adversary review',
     '',

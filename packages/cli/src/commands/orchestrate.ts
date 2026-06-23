@@ -1119,9 +1119,15 @@ export function registerOrchestrateCommand(program: Command): void {
               options.githubRepo &&
               githubToken
                 ? await (async () => {
-                    const report = result.selected?.reportPath
+                    const selected = result.selected;
+                    if (!selected) {
+                      throw new Error(
+                        'selected candidate disappeared before draft PR publication'
+                      );
+                    }
+                    const report = selected.reportPath
                       ? (JSON.parse(
-                          await readFile(result.selected.reportPath, 'utf8')
+                          await readFile(selected.reportPath, 'utf8')
                         ) as Record<string, unknown>)
                       : undefined;
                     const branchName = `${options.githubBranchPrefix ?? 'pr-candidate'}/${baseLoopId}-i${index}/${generated.task.id}`;
@@ -1146,7 +1152,16 @@ export function registerOrchestrateCommand(program: Command): void {
                       ...(options.githubApiBaseUrl
                         ? { apiBaseUrl: options.githubApiBaseUrl }
                         : {}),
-                      ...(report ? { report } : {})
+                      ...(report ? { report } : {}),
+                      selectionEvidence: {
+                        selected_candidate_id: selected.candidateId,
+                        selected_patch: selectedPatch,
+                        patch_hash:
+                          result.finalVerification?.candidate_patch_hash,
+                        selected_eval_report: selected.reportPath,
+                        selection_report: result.selectionReportPath,
+                        final_verification: result.finalVerification ?? null
+                      }
                     });
                     currentPublishBaseRef = published.branch_name;
                     return published;

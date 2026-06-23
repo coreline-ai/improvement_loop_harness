@@ -215,6 +215,25 @@ describe('GitHub draft PR integration', () => {
         }
       },
       {
+        selectionEvidence: {
+          selected_candidate_id: 'loop-1-c0',
+          selected_patch: '/artifacts/loop-1/patches/candidate.patch',
+          patch_hash: 'abc123',
+          selected_eval_report: '/artifacts/loop-1/reports/eval-report.json',
+          selection_report: '/artifacts/selections/loop-1.json',
+          final_verification: {
+            candidate_id: 'loop-1-c0',
+            candidate_patch_hash: 'abc123',
+            provenance_ok: true,
+            reverify_attempted: true,
+            reverified: true,
+            reverify_decision: 'accept',
+            reverify_qualified: true,
+            reverify_report:
+              '/artifacts/loop-1-final/reports/eval-report.json',
+            passed: true
+          }
+        },
         adversaryReview: {
           authority: 'advisory_only',
           decision_impact: 'none',
@@ -228,6 +247,20 @@ describe('GitHub draft PR integration', () => {
     );
     expect(body).toContain('`ALL_PASS`');
     expect(body).toContain('Deterministic authority: decision_engine');
+    expect(body).toContain('Selected patch evidence');
+    expect(body).toContain('Selected candidate: loop-1-c0');
+    expect(body).toContain(
+      'Selected patch: /artifacts/loop-1/patches/candidate.patch'
+    );
+    expect(body).toContain('Patch hash: abc123');
+    expect(body).toContain(
+      'Selected eval report: /artifacts/loop-1/reports/eval-report.json'
+    );
+    expect(body).toContain(
+      'Selection report: /artifacts/selections/loop-1.json'
+    );
+    expect(body).toContain('Reverify decision: accept');
+    expect(body).toContain('Final verification passed: yes');
     expect(body).toContain('Advisory adversary review');
     expect(body).toContain('Decision impact: none');
     expect(body).toContain('Human review signal: yes');
@@ -246,6 +279,9 @@ describe('GitHub draft PR integration', () => {
         });
         expect(String(payload.body)).toContain('`ALL_PASS`');
         expect(String(payload.body)).toContain('Trust boundary');
+        expect(String(payload.body)).toContain('Selected patch evidence');
+        expect(String(payload.body)).toContain('Selected candidate: loop-1-c0');
+        expect(String(payload.body)).toContain('Patch hash: abc123');
         expect(String(payload.body)).toContain('Advisory adversary review');
         return true;
       })

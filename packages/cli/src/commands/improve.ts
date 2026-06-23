@@ -459,6 +459,12 @@ export function registerImproveCommand(program: Command): void {
         const draftPr =
           result.selected && selectedPatch && options.githubDraftPr
             ? await (async () => {
+                const selected = result.selected;
+                if (!selected) {
+                  throw new Error(
+                    'selected candidate disappeared before draft PR publication'
+                  );
+                }
                 if (!options.githubRepo) {
                   throw new Error(
                     '--github-draft-pr requires --github-repo <owner/repo>'
@@ -471,9 +477,9 @@ export function registerImproveCommand(program: Command): void {
                     `--github-draft-pr requires ${tokenEnv} to be set`
                   );
                 }
-                const report = result.selected?.reportPath
+                const report = selected.reportPath
                   ? (JSON.parse(
-                      await readFile(result.selected.reportPath, 'utf8')
+                      await readFile(selected.reportPath, 'utf8')
                     ) as Record<string, unknown>)
                   : undefined;
                 return publishSelectedPatchDraftPr({
@@ -502,7 +508,16 @@ export function registerImproveCommand(program: Command): void {
                   ...(options.githubApiBaseUrl
                     ? { apiBaseUrl: options.githubApiBaseUrl }
                     : {}),
-                  ...(report ? { report } : {})
+                  ...(report ? { report } : {}),
+                  selectionEvidence: {
+                    selected_candidate_id: selected.candidateId,
+                    selected_patch: selectedPatch,
+                    patch_hash:
+                      result.finalVerification?.candidate_patch_hash,
+                    selected_eval_report: selected.reportPath,
+                    selection_report: result.selectionReportPath,
+                    final_verification: result.finalVerification ?? null
+                  }
                 });
               })()
             : null;

@@ -1346,6 +1346,16 @@ it('improve can push the selected final-verified patch and create a GitHub draft
       });
       expect(payload.body).toContain('VibeLoop eval summary');
       expect(payload.body).toContain('`ALL_PASS`');
+      expect(payload.body).toContain('Selected patch evidence');
+      expect(payload.body).toContain('Selected candidate: cli-draft-1-c0');
+      expect(payload.body).toContain('Selected patch:');
+      expect(payload.body).toContain('patches/candidate.patch');
+      expect(payload.body).toMatch(/Patch hash: [a-f0-9]{64}/);
+      expect(payload.body).toContain('Selected eval report:');
+      expect(payload.body).toContain('reports/eval-report.json');
+      expect(payload.body).toContain('Selection report:');
+      expect(payload.body).toContain('Final verification:');
+      expect(payload.body).toContain('Final verification passed: yes');
       res.statusCode = 201;
       res.end(
         JSON.stringify({
