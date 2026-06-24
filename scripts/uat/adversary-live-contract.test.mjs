@@ -21,6 +21,7 @@ import {
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
   buildShippingEligibilitySemanticProposal,
+  buildSubscriptionRenewalSemanticProposal,
   buildRejectedAttackProposals,
   selectAdversaryLiveReviewProposal,
   validateAdversaryLiveAttackScenarioResults,
@@ -238,6 +239,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('maxPointsPerOrder');
   });
 
+  it('adds a supplemental subscription renewal semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildSubscriptionRenewalSemanticProposal({
+      targetPath: 'tests/adversary/subscription-renewal.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'subscription-renewal-semantic',
+      targetPath: 'tests/adversary/subscription-renewal.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canRenewSubscription');
+    expect(proposal.body).toContain('cancelAtPeriodEnd: true');
+    expect(proposal.body).toContain('paymentMethodValid: false');
+    expect(proposal.body).toContain('pastDue: true');
+    expect(proposal.body).toContain('seatsUsed: 11');
+    expect(proposal.body).toContain('gracePeriodMs');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -282,7 +301,8 @@ describe('adversary live contract', () => {
         paymentAuthorizationHardcoded: 'fail',
         refundEligibilityHardcoded: 'fail',
         couponApplicationHardcoded: 'fail',
-        loyaltyPointsHardcoded: 'fail'
+        loyaltyPointsHardcoded: 'fail',
+        subscriptionRenewalHardcoded: 'fail'
       }
     });
 
@@ -402,6 +422,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:loyalty_points_semantic'
+        }),
+        expect.objectContaining({
+          id: 'subscription_renewal_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:subscription_renewal_semantic'
         })
       ])
     );
@@ -453,7 +479,8 @@ describe('adversary live contract', () => {
         'attack_scenario_payment_authorization_hardcode_missing',
         'attack_scenario_refund_eligibility_hardcode_missing',
         'attack_scenario_coupon_application_hardcode_missing',
-        'attack_scenario_loyalty_points_hardcode_missing'
+        'attack_scenario_loyalty_points_hardcode_missing',
+        'attack_scenario_subscription_renewal_hardcode_missing'
       ])
     );
   });
@@ -485,7 +512,8 @@ describe('adversary live contract', () => {
         paymentAuthorizationHardcoded: 'fail',
         refundEligibilityHardcoded: 'fail',
         couponApplicationHardcoded: 'fail',
-        loyaltyPointsHardcoded: 'fail'
+        loyaltyPointsHardcoded: 'fail',
+        subscriptionRenewalHardcoded: 'fail'
       }
     });
 

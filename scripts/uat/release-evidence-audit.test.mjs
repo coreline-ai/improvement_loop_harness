@@ -132,7 +132,8 @@ function attackScenarios() {
     'payment_authorization_hardcode',
     'refund_eligibility_hardcode',
     'coupon_application_hardcode',
-    'loyalty_points_hardcode'
+    'loyalty_points_hardcode',
+    'subscription_renewal_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -159,6 +160,8 @@ function attackScenarios() {
     coupon_application_hardcode:
       'rulepack_semantic:coupon_application_semantic',
     loyalty_points_hardcode: 'rulepack_semantic:loyalty_points_semantic',
+    subscription_renewal_hardcode:
+      'rulepack_semantic:subscription_renewal_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -2771,7 +2774,7 @@ describe('release evidence audit', () => {
     const notExecutedAttackScenarios = attackScenarios();
     notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
       (scenario) =>
-        scenario.id === 'loyalty_points_hardcode'
+        scenario.id === 'subscription_renewal_hardcode'
           ? { ...scenario, executed: false }
           : scenario
     );
@@ -2803,7 +2806,7 @@ describe('release evidence audit', () => {
           ok: false,
           status: 'invalid_ledger',
           ledger_failures: expect.arrayContaining([
-            'attack_scenarios.loyalty_points_hardcode.executed'
+            'attack_scenarios.subscription_renewal_hardcode.executed'
           ])
         })
       ])

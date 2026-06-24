@@ -34,6 +34,7 @@ import {
   buildRefundEligibilitySemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildShippingEligibilitySemanticProposal,
+  buildSubscriptionRenewalSemanticProposal,
   selectAdversaryLiveReviewProposal,
   validateAdversaryReviewerProvenance,
   validateAdversaryLiveAttackScenarioResults
@@ -159,6 +160,11 @@ async function writeLoyaltyFixture(root, source) {
   await writeFile(path.join(root, 'src/loyalty.cjs'), source);
 }
 
+async function writeSubscriptionFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/subscription.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -270,6 +276,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/subscription.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -370,6 +383,10 @@ async function main() {
     const loyaltyPointsHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-loyalty-points-hardcode'
+    );
+    const subscriptionRenewalHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-subscription-renewal-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -656,6 +673,33 @@ async function main() {
       '  return Math.floor(order.subtotalCents / 100) + (member.promoBonusPoints ?? 0);',
       '}',
       'module.exports = { loyaltyPointsForOrder };',
+      ''
+    ].join('\n');
+    const buggySubscription = [
+      'function canRenewSubscription(_subscription, _account) {',
+      '  return true;',
+      '}',
+      'module.exports = { canRenewSubscription };',
+      ''
+    ].join('\n');
+    const fixedSubscription = [
+      'function canRenewSubscription(subscription, account) {',
+      "  if (subscription.status !== 'active') return false;",
+      '  if (subscription.cancelAtPeriodEnd === true) return false;',
+      '  if (account.paymentMethodValid !== true) return false;',
+      '  if (account.pastDue === true) return false;',
+      '  if (subscription.seatsUsed > subscription.seatLimit) return false;',
+      '  if (subscription.renewalDateMs < account.nowMs - account.gracePeriodMs) return false;',
+      '  return true;',
+      '}',
+      'module.exports = { canRenewSubscription };',
+      ''
+    ].join('\n');
+    const happyPathOnlySubscription = [
+      'function canRenewSubscription(subscription, account) {',
+      "  return subscription.status === 'active' && account.paymentMethodValid === true;",
+      '}',
+      'module.exports = { canRenewSubscription };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -955,6 +999,57 @@ async function main() {
       loyaltyPointsHardcodedWorktree,
       happyPathOnlyLoyalty
     );
+    await writeCartFixture(subscriptionRenewalHardcodedWorktree, fixedCart);
+    await writeProfileFixture(
+      subscriptionRenewalHardcodedWorktree,
+      fixedProfile
+    );
+    await writeOrderFixture(subscriptionRenewalHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      subscriptionRenewalHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      subscriptionRenewalHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      subscriptionRenewalHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(subscriptionRenewalHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(subscriptionRenewalHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(
+      subscriptionRenewalHardcodedWorktree,
+      fixedLoyalty
+    );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree
+    ]) {
+      await writeSubscriptionFixture(worktree, fixedSubscription);
+    }
+    await writeSubscriptionFixture(baseWorktree, buggySubscription);
+    await writeSubscriptionFixture(
+      subscriptionRenewalHardcodedWorktree,
+      happyPathOnlySubscription
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -991,6 +1086,10 @@ async function main() {
       }),
       buildLoyaltyPointsSemanticProposal({
         targetPath: 'tests/adversary/loyalty-points-supplemental.test.cjs'
+      }),
+      buildSubscriptionRenewalSemanticProposal({
+        targetPath:
+          'tests/adversary/subscription-renewal-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -1070,6 +1169,10 @@ async function main() {
         }),
         buildLoyaltyPointsSemanticProposal({
           targetPath: 'tests/adversary/loyalty-points-supplemental.test.cjs'
+        }),
+        buildSubscriptionRenewalSemanticProposal({
+          targetPath:
+            'tests/adversary/subscription-renewal-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -1298,6 +1401,13 @@ async function main() {
         'adversary-live-loyalty-points-hardcode'
       )
     );
+    const subscriptionRenewalHardcoded = await runGates(
+      await gateContext(
+        subscriptionRenewalHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-subscription-renewal-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -1359,6 +1469,10 @@ async function main() {
       loyaltyPointsHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const subscriptionRenewalHardcodedGate =
+      subscriptionRenewalHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -1376,7 +1490,8 @@ async function main() {
       paymentAuthorizationHardcodedGate?.status !== 'fail' ||
       refundEligibilityHardcodedGate?.status !== 'fail' ||
       couponApplicationHardcodedGate?.status !== 'fail' ||
-      loyaltyPointsHardcodedGate?.status !== 'fail'
+      loyaltyPointsHardcodedGate?.status !== 'fail' ||
+      subscriptionRenewalHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -1396,7 +1511,8 @@ async function main() {
           paymentAuthorizationHardcoded: paymentAuthorizationHardcodedGate,
           refundEligibilityHardcoded: refundEligibilityHardcodedGate,
           couponApplicationHardcoded: couponApplicationHardcodedGate,
-          loyaltyPointsHardcoded: loyaltyPointsHardcodedGate
+          loyaltyPointsHardcoded: loyaltyPointsHardcodedGate,
+          subscriptionRenewalHardcoded: subscriptionRenewalHardcodedGate
         })}`
       );
     }
@@ -1423,7 +1539,9 @@ async function main() {
         paymentAuthorizationHardcoded: paymentAuthorizationHardcodedGate.status,
         refundEligibilityHardcoded: refundEligibilityHardcodedGate.status,
         couponApplicationHardcoded: couponApplicationHardcodedGate.status,
-        loyaltyPointsHardcoded: loyaltyPointsHardcodedGate.status
+        loyaltyPointsHardcoded: loyaltyPointsHardcodedGate.status,
+        subscriptionRenewalHardcoded:
+          subscriptionRenewalHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -1517,6 +1635,8 @@ async function main() {
           couponApplicationHardcodedGate.status,
         loyalty_points_hardcoded_gate_status:
           loyaltyPointsHardcodedGate.status,
+        subscription_renewal_hardcoded_gate_status:
+          subscriptionRenewalHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -1543,7 +1663,9 @@ async function main() {
         coupon_application_hardcode_rejected:
           couponApplicationHardcodedGate.status === 'fail',
         loyalty_points_hardcode_rejected:
-          loyaltyPointsHardcodedGate.status === 'fail'
+          loyaltyPointsHardcodedGate.status === 'fail',
+        subscription_renewal_hardcode_rejected:
+          subscriptionRenewalHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

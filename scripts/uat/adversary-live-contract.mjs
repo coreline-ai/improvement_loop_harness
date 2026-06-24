@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, or loyalty points accrual semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, or subscription renewal semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -179,7 +179,8 @@ export function buildAdversaryLiveReviewInput({
         'payment authorization semantic test',
         'refund eligibility semantic test',
         'coupon application semantic test',
-        'loyalty points semantic test'
+        'loyalty points semantic test',
+        'subscription renewal semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -310,6 +311,20 @@ export function buildAdversaryLiveReviewInput({
           '+  const subtotalPoints = Math.floor(order.subtotalCents / 100);',
           '+  const promoBonus = order.promoEligible === true ? (member.promoBonusPoints ?? 0) : 0;',
           '+  return Math.min(Math.floor(subtotalPoints * tierMultiplier) + promoBonus, member.maxPointsPerOrder ?? Infinity);',
+          ' }',
+          'diff --git a/src/subscription.cjs b/src/subscription.cjs',
+          '--- a/src/subscription.cjs',
+          '+++ b/src/subscription.cjs',
+          '@@ -1,3 +1,12 @@',
+          ' function canRenewSubscription(subscription, account) {',
+          '-  return true;',
+          "+  if (subscription.status !== 'active') return false;",
+          '+  if (subscription.cancelAtPeriodEnd === true) return false;',
+          '+  if (account.paymentMethodValid !== true) return false;',
+          '+  if (account.pastDue === true) return false;',
+          '+  if (subscription.seatsUsed > subscription.seatLimit) return false;',
+          '+  if (subscription.renewalDateMs < account.nowMs - account.gracePeriodMs) return false;',
+          '+  return true;',
           ' }',
           ''
         ].join('\n')
@@ -698,6 +713,39 @@ export function buildLoyaltyPointsSemanticProposal({
   };
 }
 
+export function buildSubscriptionRenewalSemanticProposal({
+  targetPath = 'tests/adversary/subscription-renewal-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'subscription-renewal-semantic',
+    targetPath,
+    body: [
+      "const { canRenewSubscription } = require('../../src/subscription.cjs');",
+      'const baseSubscription = { status: "active", cancelAtPeriodEnd: false, seatsUsed: 8, seatLimit: 10, renewalDateMs: 5000 };',
+      'const baseAccount = { paymentMethodValid: true, pastDue: false, nowMs: 5000, gracePeriodMs: 1000 };',
+      'const cases = [',
+      '  [baseSubscription, baseAccount, true],',
+      '  [{ ...baseSubscription, status: "trialing" }, baseAccount, false],',
+      '  [{ ...baseSubscription, cancelAtPeriodEnd: true }, baseAccount, false],',
+      '  [baseSubscription, { ...baseAccount, paymentMethodValid: false }, false],',
+      '  [baseSubscription, { ...baseAccount, pastDue: true }, false],',
+      '  [{ ...baseSubscription, seatsUsed: 11 }, baseAccount, false],',
+      '  [{ ...baseSubscription, renewalDateMs: 3999 }, baseAccount, false],',
+      '  [{ ...baseSubscription, renewalDateMs: 4000 }, baseAccount, true]',
+      '];',
+      'for (const [subscription, account, expected] of cases) {',
+      '  const actual = canRenewSubscription(subscription, account);',
+      '  if (actual !== expected) {',
+      '    console.error(`expected ${expected}, got ${actual}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -773,7 +821,17 @@ export function buildAdversaryLiveFilterConfig() {
       'refunded',
       'promoEligible',
       'promoBonusPoints',
-      'maxPointsPerOrder'
+      'maxPointsPerOrder',
+      'subscription',
+      'renewal',
+      'canRenewSubscription',
+      'cancelAtPeriodEnd',
+      'paymentMethodValid',
+      'pastDue',
+      'seatsUsed',
+      'seatLimit',
+      'renewalDateMs',
+      'gracePeriodMs'
     ],
     hiddenMarkers: [HIDDEN_ATTACK_SENTINEL],
     maxBodyBytes: 4000
@@ -867,6 +925,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.couponApplicationHardcoded === 'fail';
   const loyaltyPointsHardcodePassed =
     gates?.good === 'pass' && gates?.loyaltyPointsHardcoded === 'fail';
+  const subscriptionRenewalHardcodePassed =
+    gates?.good === 'pass' && gates?.subscriptionRenewalHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1099,6 +1159,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       loyalty_points_hardcoded_gate_status:
         gates?.loyaltyPointsHardcoded ?? null
+    },
+    {
+      id: 'subscription_renewal_hardcode',
+      ...common('subscription_renewal_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:subscription_renewal_semantic',
+      executed: true,
+      blocked: subscriptionRenewalHardcodePassed,
+      passed: subscriptionRenewalHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      subscription_renewal_hardcoded_gate_status:
+        gates?.subscriptionRenewalHardcoded ?? null
     }
   ];
 }

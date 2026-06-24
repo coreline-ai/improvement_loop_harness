@@ -214,7 +214,8 @@ function validAttackScenarios() {
     'payment_authorization_hardcode',
     'refund_eligibility_hardcode',
     'coupon_application_hardcode',
-    'loyalty_points_hardcode'
+    'loyalty_points_hardcode',
+    'subscription_renewal_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -241,6 +242,8 @@ function validAttackScenarios() {
     coupon_application_hardcode:
       'rulepack_semantic:coupon_application_semantic',
     loyalty_points_hardcode: 'rulepack_semantic:loyalty_points_semantic',
+    subscription_renewal_hardcode:
+      'rulepack_semantic:subscription_renewal_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
@@ -2985,6 +2988,7 @@ ELIFECYCLE Command failed with exit code 20.`);
         'attack_scenarios.inventory_reservation_hardcode',
         'attack_scenarios.coupon_application_hardcode',
         'attack_scenarios.loyalty_points_hardcode',
+        'attack_scenarios.subscription_renewal_hardcode',
         'attack_scenarios.shipping_eligibility_hardcode',
         'attack_scenarios.payment_authorization_hardcode',
         'attack_scenarios.refund_eligibility_hardcode'
@@ -3046,7 +3050,7 @@ ELIFECYCLE Command failed with exit code 20.`);
     const notExecutedAttackScenarios = validAttackScenarios();
     notExecutedAttackScenarios.results = notExecutedAttackScenarios.results.map(
       (scenario) =>
-        scenario.id === 'loyalty_points_hardcode'
+        scenario.id === 'subscription_renewal_hardcode'
           ? { ...scenario, executed: false }
           : scenario
     );
@@ -3087,7 +3091,7 @@ ELIFECYCLE Command failed with exit code 20.`);
       ok: false,
       status: 'invalid_ledger',
       ledger_failures: expect.arrayContaining([
-        'attack_scenarios.loyalty_points_hardcode.executed'
+        'attack_scenarios.subscription_renewal_hardcode.executed'
       ])
     });
     expect(releaseGateExitCode(notExecutedEvidenceReport)).toBe(1);
