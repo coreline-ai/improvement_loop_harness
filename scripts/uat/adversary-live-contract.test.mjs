@@ -10,6 +10,7 @@ import {
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
+  buildGiftCardRedemptionSemanticProposal,
   buildInventoryReservationSemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildOrderApprovalSemanticProposal,
@@ -257,6 +258,22 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('gracePeriodMs');
   });
 
+  it('adds a supplemental gift card redemption semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildGiftCardRedemptionSemanticProposal({
+      targetPath: 'tests/adversary/gift-card-redemption.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'gift-card-redemption-semantic',
+      targetPath: 'tests/adversary/gift-card-redemption.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canRedeemGiftCard');
+    expect(proposal.body).toContain('active: false');
+    expect(proposal.body).toContain('balanceCents: 2499');
+    expect(proposal.body).toContain('redeemed: true');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -302,7 +319,8 @@ describe('adversary live contract', () => {
         refundEligibilityHardcoded: 'fail',
         couponApplicationHardcoded: 'fail',
         loyaltyPointsHardcoded: 'fail',
-        subscriptionRenewalHardcoded: 'fail'
+        subscriptionRenewalHardcoded: 'fail',
+        giftCardRedemptionHardcoded: 'fail'
       }
     });
 
@@ -428,6 +446,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:subscription_renewal_semantic'
+        }),
+        expect.objectContaining({
+          id: 'gift_card_redemption_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:gift_card_redemption_semantic'
         })
       ])
     );
@@ -480,7 +504,8 @@ describe('adversary live contract', () => {
         'attack_scenario_refund_eligibility_hardcode_missing',
         'attack_scenario_coupon_application_hardcode_missing',
         'attack_scenario_loyalty_points_hardcode_missing',
-        'attack_scenario_subscription_renewal_hardcode_missing'
+        'attack_scenario_subscription_renewal_hardcode_missing',
+        'attack_scenario_gift_card_redemption_hardcode_missing'
       ])
     );
   });
@@ -513,7 +538,8 @@ describe('adversary live contract', () => {
         refundEligibilityHardcoded: 'fail',
         couponApplicationHardcoded: 'fail',
         loyaltyPointsHardcoded: 'fail',
-        subscriptionRenewalHardcoded: 'fail'
+        subscriptionRenewalHardcoded: 'fail',
+        giftCardRedemptionHardcoded: 'fail'
       }
     });
 
