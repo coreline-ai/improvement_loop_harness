@@ -1,0 +1,237 @@
+name: Skill Prompt Live Evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_live:
+        description: Run the live natural-language Skill prompt evidence job.
+        required: true
+        type: boolean
+        default: false
+      runner_label:
+        description: Runner label with Codex ChatGPT login available.
+        required: true
+        type: string
+        default: ubuntu-latest
+      prompt_mode:
+        description: Skill prompt mode to run.
+        required: true
+        type: choice
+        options:
+          - both
+          - user_issue
+          - auto_discovery
+        default: both
+      codex_model:
+        description: Codex builder model used behind the Skill helper.
+        required: true
+        type: string
+        default: gpt-5.5
+      codex_timeout_ms:
+        description: Skill prompt live UAT timeout in milliseconds.
+        required: true
+        type: string
+        default: '600000'
+      replay_run_id:
+        description: Optional existing run id to download and audit instead of running live.
+        required: false
+        type: string
+        default: ''
+      replay_run_attempt:
+        description: Attempt for replay_run_id.
+        required: false
+        type: string
+        default: '1'
+      replay_repo:
+        description: OWNER/REPO for replay artifacts.
+        required: true
+        type: string
+        default: coreline-ai/improvement_loop_harness
+
+permissions:
+  actions: read
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  live-runner-preflight:
+    name: live runner preflight
+    if: ${{ inputs.run_live }}
+    runs-on: ubuntu-latest
+    outputs:
+      can_run_live: ${{ steps.check.outputs.can_run_live }}
+      status: ${{ steps.check.outputs.runner_preflight_status }}
+      reason: ${{ steps.check.outputs.runner_preflight_reason }}
+    env:
+      GH_TOKEN: ${{ secrets.REAL_PROJECT_CORPUS_GH_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Check requested live runner availability
+        id: check
+        run: |
+          mkdir -p .ci-live-runner-preflight
+          node scripts/uat/ci-runner-preflight.mjs \
+            --runner-label "${{ inputs.runner_label }}" \
+            --repo "${{ github.repository }}" \
+            --output .ci-live-runner-preflight/runner-preflight.json \
+            --github-output "$GITHUB_OUTPUT"
+          {
+            echo "## Live runner preflight"
+            echo
+            echo '```json'
+            cat .ci-live-runner-preflight/runner-preflight.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skill-prompt-live-runner-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-live-runner-preflight
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  live-evidence:
+    name: live Skill prompt evidence
+    if: ${{ inputs.run_live && needs.live-runner-preflight.outputs.can_run_live == 'true' }}
+    needs: [live-runner-preflight]
+    runs-on: ${{ inputs.runner_label }}
+    env:
+      VIBELOOP_UAT_EVIDENCE_DIR: ${{ github.workspace }}/.uat-evidence-skill-prompt
+      VIBELOOP_SKILL_PROMPT_UAT_BUILDER: codex
+      VIBELOOP_UAT_MODEL: ${{ inputs.codex_model }}
+      VIBELOOP_SKILL_PROMPT_UAT_TIMEOUT_MS: ${{ inputs.codex_timeout_ms }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.29.3
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: corepack pnpm install --frozen-lockfile
+      - run: corepack pnpm exec prisma generate
+      - run: corepack pnpm build
+      - name: Check Codex login
+        run: |
+          codex --version
+          codex -c service_tier=fast login status
+      - name: Run Skill prompt user_issue live UAT
+        if: ${{ inputs.prompt_mode == 'both' || inputs.prompt_mode == 'user_issue' }}
+        env:
+          VIBELOOP_SKILL_PROMPT_UAT_MODE: user_issue
+        run: |
+          corepack pnpm uat:skill-loop:codex-skill-prompt:real-builder
+          corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-codex-skill-prompt-uat
+      - name: Run Skill prompt auto_discovery live UAT
+        if: ${{ inputs.prompt_mode == 'both' || inputs.prompt_mode == 'auto_discovery' }}
+        env:
+          VIBELOOP_SKILL_PROMPT_UAT_MODE: auto_discovery
+        run: |
+          corepack pnpm uat:skill-loop:codex-skill-prompt:auto:real-builder
+          corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-codex-skill-prompt-uat
+      - run: corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-codex-skill-prompt-uat
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skill-prompt-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .uat-evidence-skill-prompt
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  live-artifact-audit:
+    name: audit live Skill prompt artifact
+    if: ${{ always() && inputs.run_live }}
+    runs-on: ubuntu-latest
+    needs: [live-runner-preflight, live-evidence]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Download live runner preflight
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: skill-prompt-live-runner-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-skill-prompt-runner-preflight
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: skill-prompt-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-skill-prompt-evidence
+          merge-multiple: true
+      - name: Audit downloaded Skill prompt evidence
+        env:
+          RUNNER_PREFLIGHT_CAN_RUN_LIVE: ${{ needs.live-runner-preflight.outputs.can_run_live }}
+          RUNNER_PREFLIGHT_REASON: ${{ needs.live-runner-preflight.outputs.reason }}
+        run: |
+          mkdir -p .ci-skill-prompt-audit
+          runner_preflight_file=".ci-skill-prompt-runner-preflight/runner-preflight.json"
+          if [ -f "${runner_preflight_file}" ]; then
+            echo "Runner preflight:"
+            cat "${runner_preflight_file}"
+          fi
+          if [ "${RUNNER_PREFLIGHT_CAN_RUN_LIVE}" != "true" ]; then
+            mkdir -p .ci-skill-prompt-runner-preflight
+            if [ ! -f "${runner_preflight_file}" ]; then
+              printf '{"status":"blocked","can_run_live":false,"reason":"%s"}\n' "${RUNNER_PREFLIGHT_REASON:-LIVE_RUNNER_PREFLIGHT_BLOCKED}" > "${runner_preflight_file}"
+            fi
+            node scripts/uat/ci-live-runner-block-audit.mjs \
+              --preflight-file "${runner_preflight_file}" \
+              --output .ci-skill-prompt-audit/release-evidence-audit.json \
+              --workflow-name "Skill Prompt Live Evidence" \
+              --evidence-scenario skill-real-user-codex-skill-prompt-uat \
+              --run-id "${GITHUB_RUN_ID}" \
+              --run-attempt "${GITHUB_RUN_ATTEMPT}"
+            exit "$?"
+          fi
+          set +e
+          node scripts/uat/release-evidence-audit.mjs \
+            --evidence-root .ci-skill-prompt-evidence \
+            --scenario skill-real-user-codex-skill-prompt-uat \
+            > .ci-skill-prompt-audit/release-evidence-audit.json \
+            2> .ci-skill-prompt-audit/release-evidence-audit.stderr
+          status=$?
+          cat .ci-skill-prompt-audit/release-evidence-audit.json
+          if [ -s .ci-skill-prompt-audit/release-evidence-audit.stderr ]; then
+            cat .ci-skill-prompt-audit/release-evidence-audit.stderr >&2
+          fi
+          exit "$status"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: skill-prompt-artifact-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .ci-skill-prompt-audit
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
+
+  replay-artifact-audit:
+    name: replay Skill prompt artifact audit
+    if: ${{ inputs.replay_run_id != '' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Download and audit Skill prompt evidence from a prior run
+        run: |
+          node scripts/uat/release-evidence-audit-gh.mjs \
+            --run-id "${{ inputs.replay_run_id }}" \
+            --run-attempt "${{ inputs.replay_run_attempt }}" \
+            --repo "${{ inputs.replay_repo }}" \
+            --artifact-pattern "skill-prompt-evidence-${{ inputs.replay_run_id }}-${{ inputs.replay_run_attempt }}" \
+            --scenario skill-real-user-codex-skill-prompt-uat
