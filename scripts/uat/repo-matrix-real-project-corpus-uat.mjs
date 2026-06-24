@@ -20,6 +20,8 @@ const MODIFIABLE_COPY_SCENARIO =
 const CODEX_COPY_SCENARIO = 'repo-matrix-real-project-codex-copy-uat';
 const CODEX_REPAIR_SCENARIO = 'repo-matrix-real-project-codex-repair-uat';
 const BUSINESS_REPAIR_SCENARIO = 'repo-matrix-real-project-business-repair-uat';
+const BUSINESS_SOURCE_REPAIR_SCENARIO =
+  'repo-matrix-real-project-business-source-repair-uat';
 const EXISTING_SOURCE_REPAIR_SCENARIO =
   'repo-matrix-real-project-existing-source-repair-uat';
 const EXISTING_SOURCE_REPAIR_PR_SCENARIO =
@@ -36,6 +38,10 @@ const CODEX_REPAIR_PASS_STATUS = 'REAL_PROJECT_CODEX_REPAIR_PASS';
 const CODEX_REPAIR_FAIL_STATUS = 'REAL_PROJECT_CODEX_REPAIR_FAIL';
 const BUSINESS_REPAIR_PASS_STATUS = 'REAL_PROJECT_BUSINESS_REPAIR_PASS';
 const BUSINESS_REPAIR_FAIL_STATUS = 'REAL_PROJECT_BUSINESS_REPAIR_FAIL';
+const BUSINESS_SOURCE_REPAIR_PASS_STATUS =
+  'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS';
+const BUSINESS_SOURCE_REPAIR_FAIL_STATUS =
+  'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_FAIL';
 const EXISTING_SOURCE_REPAIR_PASS_STATUS =
   'REAL_PROJECT_EXISTING_SOURCE_REPAIR_PASS';
 const EXISTING_SOURCE_REPAIR_FAIL_STATUS =
@@ -941,6 +947,26 @@ function buildProduct100CorpusVerifier(expectedSummary) {
   ].join('\n');
 }
 
+function buildCheckoutPricingVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { calculateCheckoutTotal } = require(process.cwd() + '/examples/business-source/checkout-pricing.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = calculateCheckoutTotal(item.cart, item.customer, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1083,6 +1109,150 @@ function buildJsYamlIntCoreVerifier(cases) {
 }
 
 const SEMANTIC_SOURCE_REPAIR_TARGETS = [
+  {
+    id: 'checkout-pricing-coupon-segment',
+    semantic_domain: 'checkout_coupon_segment_eligibility',
+    business_source_repair: true,
+    business_domain: 'checkout_pricing',
+    relativePath: 'examples/business-source/checkout-pricing.cjs',
+    language: 'javascript',
+    originalNeedle:
+      '  if (coupon.segment && customer.segment !== coupon.segment) return 0;',
+    regressionText:
+      '  if (coupon.segment && customer.segment === coupon.segment) return 0;',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildCheckoutPricingVerifier([
+        {
+          name: 'vip segment receives percent coupon',
+          cart: {
+            currency: 'USD',
+            items: [{ unitPriceCents: 5000, quantity: 2 }],
+            taxRateBps: 825,
+            shippingCents: 700,
+            freeShippingThresholdCents: 9000,
+            coupon: {
+              active: true,
+              segment: 'vip',
+              percentOffBps: 1000
+            }
+          },
+          customer: { segment: 'vip', orderCount: 0 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            subtotalCents: 10000,
+            discountCents: 1000,
+            taxCents: 743,
+            shippingCents: 0,
+            totalCents: 9743
+          }
+        },
+        {
+          name: 'standard segment cannot use vip coupon',
+          cart: {
+            currency: 'USD',
+            items: [{ unitPriceCents: 5000, quantity: 2 }],
+            taxRateBps: 825,
+            shippingCents: 700,
+            freeShippingThresholdCents: 9000,
+            coupon: {
+              active: true,
+              segment: 'vip',
+              percentOffBps: 1000
+            }
+          },
+          customer: { segment: 'standard', orderCount: 0 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            subtotalCents: 10000,
+            discountCents: 0,
+            taxCents: 825,
+            shippingCents: 0,
+            totalCents: 10825
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildCheckoutPricingVerifier([
+        {
+          name: 'expired coupon is ignored',
+          cart: {
+            currency: 'USD',
+            items: [{ unitPriceCents: 4000, quantity: 2 }],
+            taxRateBps: 500,
+            shippingCents: 650,
+            freeShippingThresholdCents: 12000,
+            coupon: {
+              active: true,
+              segment: 'vip',
+              percentOffBps: 2500,
+              expiresAt: '2026-06-01T00:00:00.000Z'
+            }
+          },
+          customer: { segment: 'vip', orderCount: 0 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            subtotalCents: 8000,
+            discountCents: 0,
+            taxCents: 400,
+            shippingCents: 650,
+            totalCents: 9050
+          }
+        },
+        {
+          name: 'returning customer cannot use first-order coupon',
+          cart: {
+            currency: 'USD',
+            items: [{ unitPriceCents: 12000, quantity: 1 }],
+            taxRateBps: 0,
+            shippingCents: 500,
+            freeShippingThresholdCents: 10000,
+            coupon: {
+              active: true,
+              segment: 'vip',
+              amountOffCents: 3000,
+              firstOrderOnly: true
+            }
+          },
+          customer: { segment: 'vip', orderCount: 2 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            subtotalCents: 12000,
+            discountCents: 0,
+            taxCents: 0,
+            shippingCents: 0,
+            totalCents: 12000
+          }
+        },
+        {
+          name: 'amount coupon is capped at subtotal',
+          cart: {
+            currency: 'USD',
+            items: [{ unitPriceCents: 1800, quantity: 1 }],
+            taxRateBps: 0,
+            shippingCents: 300,
+            freeShippingThresholdCents: 1,
+            coupon: {
+              active: true,
+              segment: 'vip',
+              amountOffCents: 2500
+            }
+          },
+          customer: { segment: 'vip', orderCount: 0 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            subtotalCents: 1800,
+            discountCents: 1800,
+            taxCents: 0,
+            shippingCents: 300,
+            totalCents: 300
+          }
+        }
+      ])
+  },
   {
     id: 'sampleproject-add-one',
     semantic_domain: 'arithmetic_increment',
@@ -1615,8 +1785,14 @@ function buildSemanticSourceRepairPrompt({
   ].join('\n');
 }
 
-async function selectSemanticSourceRepairTarget(clonePath) {
+async function selectSemanticSourceRepairTarget(clonePath, options = {}) {
   for (const target of SEMANTIC_SOURCE_REPAIR_TARGETS) {
+    if (
+      options.businessSourceOnly &&
+      target.business_source_repair !== true
+    ) {
+      continue;
+    }
     const filePath = path.join(clonePath, target.relativePath);
     let fileStat;
     try {
@@ -1641,7 +1817,11 @@ async function selectSemanticSourceRepairTarget(clonePath) {
   }
   return {
     target: null,
-    failures: ['no_curated_semantic_source_repair_target']
+    failures: [
+      options.businessSourceOnly
+        ? 'no_curated_business_source_repair_target'
+        : 'no_curated_semantic_source_repair_target'
+    ]
   };
 }
 
@@ -2886,7 +3066,10 @@ async function runCodexSemanticSourceRepairSmoke(
     };
   }
 
-  const targetSelection = await selectSemanticSourceRepairTarget(clonePath);
+  const businessSourceRepair = options.businessSourceRepairSmoke === true;
+  const targetSelection = await selectSemanticSourceRepairTarget(clonePath, {
+    businessSourceOnly: businessSourceRepair
+  });
   const target = targetSelection.target;
   if (!target) {
     return {
@@ -2895,6 +3078,8 @@ async function runCodexSemanticSourceRepairSmoke(
       clone_path_hash: pathHash(clonePath),
       semantic_source_repair: true,
       semantic_bug_repair: true,
+      business_source_repair: businessSourceRepair,
+      business_bug_repair: businessSourceRepair,
       existing_source: true,
       failures: targetSelection.failures
     };
@@ -2983,6 +3168,9 @@ async function runCodexSemanticSourceRepairSmoke(
       repair_source: target.relativePath,
       semantic_source_repair: true,
       semantic_bug_repair: true,
+      business_source_repair: target.business_source_repair === true,
+      business_bug_repair: target.business_source_repair === true,
+      business_domain: target.business_domain ?? null,
       semantic_domain: target.semantic_domain,
       semantic_target_id: target.id,
       existing_source: true,
@@ -3100,6 +3288,9 @@ async function runCodexSemanticSourceRepairSmoke(
     repair_source: target.relativePath,
     semantic_source_repair: true,
     semantic_bug_repair: true,
+    business_source_repair: target.business_source_repair === true,
+    business_bug_repair: target.business_source_repair === true,
+    business_domain: target.business_domain ?? null,
     semantic_domain: target.semantic_domain,
     semantic_target_id: target.id,
     existing_source: true,
@@ -3259,7 +3450,8 @@ async function analyzeRepo(repoPath, index, options = {}) {
   if (codexCopy && codexCopy.status !== 'pass') {
     failures.push('codex_copy_smoke_failed');
   }
-  const codexRepair = options.semanticSourceRepairSmoke
+  const codexRepair =
+    options.businessSourceRepairSmoke || options.semanticSourceRepairSmoke
     ? await runCodexSemanticSourceRepairSmoke(
         resolved,
         `${index}-${id}`,
@@ -3351,6 +3543,8 @@ function parseArgs(argv, env = process.env) {
     env.VIBELOOP_REAL_PROJECT_CORPUS_CODEX_REPAIR_SMOKE === '1';
   let businessRepairSmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_BUSINESS_REPAIR_SMOKE === '1';
+  let businessSourceRepairSmoke =
+    env.VIBELOOP_REAL_PROJECT_CORPUS_BUSINESS_SOURCE_REPAIR_SMOKE === '1';
   let existingSourceRepairSmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_EXISTING_SOURCE_REPAIR_SMOKE === '1';
   let existingSourceRepairPrSmoke =
@@ -3404,6 +3598,10 @@ function parseArgs(argv, env = process.env) {
     }
     if (arg === '--business-repair-smoke') {
       businessRepairSmoke = true;
+      continue;
+    }
+    if (arg === '--business-source-repair-smoke') {
+      businessSourceRepairSmoke = true;
       continue;
     }
     if (arg === '--existing-source-repair-smoke') {
@@ -3465,6 +3663,7 @@ function parseArgs(argv, env = process.env) {
     codexCopySmoke,
     codexRepairSmoke,
     businessRepairSmoke,
+    businessSourceRepairSmoke,
     existingSourceRepairSmoke,
     existingSourceRepairPrSmoke,
     semanticSourceRepairSmoke,
@@ -3573,18 +3772,21 @@ async function main() {
     options.codexCopySmoke,
     options.codexRepairSmoke,
     options.businessRepairSmoke,
+    options.businessSourceRepairSmoke,
     options.existingSourceRepairSmoke,
     options.existingSourceRepairPrSmoke,
     options.semanticSourceRepairSmoke
   ].filter(Boolean).length;
   if (codexModeCount > 1) {
     throw new Error(
-      '--codex-copy-smoke, --codex-repair-smoke, --business-repair-smoke, --existing-source-repair-smoke, --existing-source-repair-pr-smoke, and --semantic-source-repair-smoke are mutually exclusive'
+      '--codex-copy-smoke, --codex-repair-smoke, --business-repair-smoke, --business-source-repair-smoke, --existing-source-repair-smoke, --existing-source-repair-pr-smoke, and --semantic-source-repair-smoke are mutually exclusive'
     );
   }
   const scenario = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_SCENARIO
-    : options.semanticSourceRepairSmoke
+    : options.businessSourceRepairSmoke
+      ? BUSINESS_SOURCE_REPAIR_SCENARIO
+      : options.semanticSourceRepairSmoke
       ? SEMANTIC_SOURCE_REPAIR_SCENARIO
       : options.existingSourceRepairSmoke
         ? EXISTING_SOURCE_REPAIR_SCENARIO
@@ -3599,7 +3801,9 @@ async function main() {
                 : READ_ONLY_SCENARIO;
   const passStatus = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_PASS_STATUS
-    : options.semanticSourceRepairSmoke
+    : options.businessSourceRepairSmoke
+      ? BUSINESS_SOURCE_REPAIR_PASS_STATUS
+      : options.semanticSourceRepairSmoke
       ? SEMANTIC_SOURCE_REPAIR_PASS_STATUS
       : options.existingSourceRepairSmoke
         ? EXISTING_SOURCE_REPAIR_PASS_STATUS
@@ -3614,7 +3818,9 @@ async function main() {
                 : READ_ONLY_PASS_STATUS;
   const failStatus = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_FAIL_STATUS
-    : options.semanticSourceRepairSmoke
+    : options.businessSourceRepairSmoke
+      ? BUSINESS_SOURCE_REPAIR_FAIL_STATUS
+      : options.semanticSourceRepairSmoke
       ? SEMANTIC_SOURCE_REPAIR_FAIL_STATUS
       : options.existingSourceRepairSmoke
         ? EXISTING_SOURCE_REPAIR_FAIL_STATUS
@@ -3645,6 +3851,7 @@ async function main() {
     options.codexCopySmoke ||
     options.codexRepairSmoke ||
     options.businessRepairSmoke ||
+    options.businessSourceRepairSmoke ||
     options.existingSourceRepairSmoke ||
     options.existingSourceRepairPrSmoke ||
     options.semanticSourceRepairSmoke
@@ -3692,6 +3899,7 @@ async function main() {
         codexRepairSmoke:
           options.codexRepairSmoke || options.businessRepairSmoke,
         businessRepairSmoke: options.businessRepairSmoke,
+        businessSourceRepairSmoke: options.businessSourceRepairSmoke,
         existingSourceRepairSmoke:
           options.existingSourceRepairSmoke ||
           options.existingSourceRepairPrSmoke,
@@ -3725,7 +3933,9 @@ async function main() {
     run_id: runId,
     mode: options.existingSourceRepairPrSmoke
       ? 'real Codex temp-clone broad real project existing source-code repair + GitHub draft PR smoke'
-      : options.semanticSourceRepairSmoke
+      : options.businessSourceRepairSmoke
+        ? 'real Codex temp-clone curated real project business source repair smoke'
+        : options.semanticSourceRepairSmoke
         ? 'real Codex temp-clone curated real project semantic source repair smoke'
         : options.existingSourceRepairSmoke
           ? 'real Codex temp-clone broad real project existing source-code repair smoke'
@@ -3740,7 +3950,9 @@ async function main() {
                   : 'read-only broad real project corpus smoke',
     scope: options.existingSourceRepairPrSmoke
       ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, source repo integrity, and GitHub draft PR publication to temporary private repos; not arbitrary business bug repair or arbitrary-repo product PASS'
-      : options.semanticSourceRepairSmoke
+      : options.businessSourceRepairSmoke
+        ? 'operator-supplied existing git repositories; source repositories remain read-only; selected temp clones must match curated existing business-source semantic targets; each temp clone receives a behavioral regression in that existing tracked source file; real Codex must repair business behavior in that file only; visible and hidden verifiers check broader business cases, diff scope, and source repo integrity; not GitHub draft PR, arbitrary business-source coverage, or arbitrary-repo product PASS'
+        : options.semanticSourceRepairSmoke
         ? 'operator-supplied existing git repositories; source repositories remain read-only; selected temp clones must match curated existing-source semantic targets; each temp clone receives a behavioral regression in that existing tracked source file; real Codex must repair semantic behavior in that file only; visible and hidden verifiers check broader behavior, diff scope, and source repo integrity; not GitHub draft PR, arbitrary business-source coverage, or arbitrary-repo product PASS'
         : options.existingSourceRepairSmoke
           ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
@@ -3758,6 +3970,7 @@ async function main() {
       !options.codexCopySmoke &&
       !options.codexRepairSmoke &&
       !options.businessRepairSmoke &&
+      !options.businessSourceRepairSmoke &&
       !options.existingSourceRepairSmoke &&
       !options.existingSourceRepairPrSmoke &&
       !options.semanticSourceRepairSmoke,
@@ -3767,33 +3980,44 @@ async function main() {
     codex_repair_smoke:
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
+      options.businessSourceRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke ||
       options.semanticSourceRepairSmoke,
     business_repair_smoke: options.businessRepairSmoke,
-    business_bug_repair: options.businessRepairSmoke,
+    business_source_repair_smoke: options.businessSourceRepairSmoke,
+    business_source_repair: options.businessSourceRepairSmoke,
+    business_bug_repair:
+      options.businessRepairSmoke || options.businessSourceRepairSmoke,
     existing_source_repair_smoke:
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke ||
+      options.businessSourceRepairSmoke ||
       options.semanticSourceRepairSmoke,
     existing_source_repair_pr_smoke: options.existingSourceRepairPrSmoke,
-    semantic_source_repair_smoke: options.semanticSourceRepairSmoke,
+    semantic_source_repair_smoke:
+      options.semanticSourceRepairSmoke || options.businessSourceRepairSmoke,
     source_code_repair:
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
+      options.businessSourceRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke ||
       options.semanticSourceRepairSmoke,
     existing_source_repair:
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke ||
+      options.businessSourceRepairSmoke ||
       options.semanticSourceRepairSmoke,
-    semantic_source_repair: options.semanticSourceRepairSmoke,
-    semantic_bug_repair: options.semanticSourceRepairSmoke,
+    semantic_source_repair:
+      options.semanticSourceRepairSmoke || options.businessSourceRepairSmoke,
+    semantic_bug_repair:
+      options.semanticSourceRepairSmoke || options.businessSourceRepairSmoke,
     llm_modification:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
+      options.businessSourceRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke ||
       options.semanticSourceRepairSmoke,
@@ -3801,6 +4025,7 @@ async function main() {
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
+      options.businessSourceRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke ||
       options.semanticSourceRepairSmoke,
@@ -3811,6 +4036,7 @@ async function main() {
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
       options.businessRepairSmoke ||
+      options.businessSourceRepairSmoke ||
       options.existingSourceRepairSmoke ||
       options.existingSourceRepairPrSmoke ||
       options.semanticSourceRepairSmoke
@@ -3848,16 +4074,22 @@ async function main() {
         codex_repair_smoke:
           options.codexRepairSmoke ||
           options.businessRepairSmoke ||
+          options.businessSourceRepairSmoke ||
           options.existingSourceRepairSmoke ||
           options.existingSourceRepairPrSmoke ||
           options.semanticSourceRepairSmoke,
         business_repair_smoke: options.businessRepairSmoke,
-        business_bug_repair: options.businessRepairSmoke,
+        business_source_repair_smoke: options.businessSourceRepairSmoke,
+        business_source_repair: options.businessSourceRepairSmoke,
+        business_bug_repair:
+          options.businessRepairSmoke || options.businessSourceRepairSmoke,
         existing_source_repair_smoke:
           options.existingSourceRepairSmoke ||
           options.existingSourceRepairPrSmoke ||
+          options.businessSourceRepairSmoke ||
           options.semanticSourceRepairSmoke,
-        semantic_source_repair_smoke: options.semanticSourceRepairSmoke,
+        semantic_source_repair_smoke:
+          options.semanticSourceRepairSmoke || options.businessSourceRepairSmoke,
         existing_source_repair_pr_smoke: options.existingSourceRepairPrSmoke,
         modifiable_copy_smoke: options.modifiableCopySmoke
       }

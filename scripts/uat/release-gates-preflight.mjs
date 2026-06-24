@@ -366,6 +366,30 @@ export const REAL_PROJECT_BUSINESS_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
   }
 };
 
+export const REAL_PROJECT_BUSINESS_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
+  gate: 'P5',
+  name: 'real Codex temp-clone targeted existing business source repair evidence',
+  scenario: 'repo-matrix-real-project-business-source-repair-uat',
+  require_manifest: true,
+  expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
+  expected_ledger: {
+    min_cell_count: 1,
+    min_pass_count: 1,
+    max_fail_count: 0,
+    required_codex_repair_smoke: true,
+    required_business_source_repair: true,
+    required_business_bug_repair: true,
+    required_existing_source_repair: true,
+    required_semantic_source_repair: true,
+    required_semantic_bug_repair: true,
+    required_source_code_repair: true,
+    required_real_llm_modification: true,
+    required_hidden_acceptance: true,
+    required_source_repos_read_only: true,
+    required_no_draft_pr: true
+  }
+};
+
 export const REAL_PROJECT_EXISTING_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
   gate: 'P5',
   name: 'real Codex temp-clone broad real project existing source repair evidence',
@@ -572,6 +596,9 @@ function summarizeMatrixCells(cells) {
     codex_repair_source_changed: cell.codex_repair?.source_changed ?? null,
     codex_repair_business_bug_repair:
       cell.codex_repair?.business_bug_repair ?? null,
+    codex_repair_business_source_repair:
+      cell.codex_repair?.business_source_repair ?? null,
+    codex_repair_business_domain: cell.codex_repair?.business_domain ?? null,
     codex_repair_semantic_source_repair:
       cell.codex_repair?.semantic_source_repair ?? null,
     codex_repair_semantic_bug_repair:
@@ -1004,6 +1031,7 @@ function requiredCodexRepairCellFailures(
   requireExistingSource = false,
   requireGithubDraftPr = false,
   requireBusinessBugRepair = false,
+  requireBusinessSourceRepair = false,
   requireSemanticSourceRepair = false,
   requireSemanticBugRepair = false
 ) {
@@ -1037,6 +1065,21 @@ function requiredCodexRepairCellFailures(
       cell.codex_repair_business_bug_repair !== true
     ) {
       failures.push(`cells.${id}.codex_repair.business_bug_repair`);
+    }
+    if (
+      requireBusinessSourceRepair &&
+      cell.codex_repair_business_source_repair !== true
+    ) {
+      failures.push(`cells.${id}.codex_repair.business_source_repair`);
+    }
+    if (
+      requireBusinessSourceRepair &&
+      !(
+        typeof cell.codex_repair_business_domain === 'string' &&
+        cell.codex_repair_business_domain.length > 0
+      )
+    ) {
+      failures.push(`cells.${id}.codex_repair.business_domain`);
     }
     if (
       requireSemanticSourceRepair &&
@@ -1722,6 +1765,9 @@ export async function latestEvidenceBundle(
         codex_copy_smoke: ledgerJson.codex_copy_smoke ?? false,
         codex_repair_smoke: ledgerJson.codex_repair_smoke ?? false,
         business_repair_smoke: ledgerJson.business_repair_smoke ?? false,
+        business_source_repair_smoke:
+          ledgerJson.business_source_repair_smoke ?? false,
+        business_source_repair: ledgerJson.business_source_repair ?? false,
         business_bug_repair: ledgerJson.business_bug_repair ?? false,
         existing_source_repair_smoke:
           ledgerJson.existing_source_repair_smoke ?? false,
@@ -1927,9 +1973,19 @@ export async function latestEvidenceBundle(
     if (
       options.expectedLedger?.required_business_bug_repair &&
       (ledgerSummary.business_bug_repair !== true ||
-        ledgerSummary.business_repair_smoke !== true)
+        !(
+          ledgerSummary.business_repair_smoke === true ||
+          ledgerSummary.business_source_repair_smoke === true
+        ))
     ) {
       ledgerFailures.push('business_bug_repair');
+    }
+    if (
+      options.expectedLedger?.required_business_source_repair &&
+      (ledgerSummary.business_source_repair !== true ||
+        ledgerSummary.business_source_repair_smoke !== true)
+    ) {
+      ledgerFailures.push('business_source_repair');
     }
     if (
       options.expectedLedger?.required_existing_source_repair &&
@@ -2041,6 +2097,7 @@ export async function latestEvidenceBundle(
         options.expectedLedger?.required_existing_source_repair,
         options.expectedLedger?.required_github_draft_pr,
         options.expectedLedger?.required_business_bug_repair,
+        options.expectedLedger?.required_business_source_repair,
         options.expectedLedger?.required_semantic_source_repair,
         options.expectedLedger?.required_semantic_bug_repair
       )
