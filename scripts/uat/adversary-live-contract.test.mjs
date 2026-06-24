@@ -11,6 +11,7 @@ import {
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
   buildInventoryReservationSemanticProposal,
+  buildLoyaltyPointsSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
   buildRefundEligibilitySemanticProposal,
@@ -220,6 +221,23 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('customerHasUsedCoupon: true');
   });
 
+  it('adds a supplemental loyalty points semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildLoyaltyPointsSemanticProposal({
+      targetPath: 'tests/adversary/loyalty-points.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'loyalty-points-semantic',
+      targetPath: 'tests/adversary/loyalty-points.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('loyaltyPointsForOrder');
+    expect(proposal.body).toContain('paymentSettled: false');
+    expect(proposal.body).toContain('refunded: true');
+    expect(proposal.body).toContain('promoBonusPoints');
+    expect(proposal.body).toContain('maxPointsPerOrder');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -263,7 +281,8 @@ describe('adversary live contract', () => {
         shippingEligibilityHardcoded: 'fail',
         paymentAuthorizationHardcoded: 'fail',
         refundEligibilityHardcoded: 'fail',
-        couponApplicationHardcoded: 'fail'
+        couponApplicationHardcoded: 'fail',
+        loyaltyPointsHardcoded: 'fail'
       }
     });
 
@@ -377,6 +396,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:coupon_application_semantic'
+        }),
+        expect.objectContaining({
+          id: 'loyalty_points_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:loyalty_points_semantic'
         })
       ])
     );
@@ -427,7 +452,8 @@ describe('adversary live contract', () => {
         'attack_scenario_shipping_eligibility_hardcode_missing',
         'attack_scenario_payment_authorization_hardcode_missing',
         'attack_scenario_refund_eligibility_hardcode_missing',
-        'attack_scenario_coupon_application_hardcode_missing'
+        'attack_scenario_coupon_application_hardcode_missing',
+        'attack_scenario_loyalty_points_hardcode_missing'
       ])
     );
   });
@@ -458,7 +484,8 @@ describe('adversary live contract', () => {
         shippingEligibilityHardcoded: 'fail',
         paymentAuthorizationHardcoded: 'fail',
         refundEligibilityHardcoded: 'fail',
-        couponApplicationHardcoded: 'fail'
+        couponApplicationHardcoded: 'fail',
+        loyaltyPointsHardcoded: 'fail'
       }
     });
 
