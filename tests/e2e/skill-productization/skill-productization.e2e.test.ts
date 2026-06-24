@@ -524,7 +524,6 @@ describe.sequential('vibeloop-harness skill productization', () => {
       '--adversary-reviewer-provider',
       'anthropic',
       '--adversary-require-different-provider',
-      '--skip-final-reverify',
       '--allow-dirty'
     ]);
 
@@ -580,8 +579,69 @@ describe.sequential('vibeloop-harness skill productization', () => {
     expectArgValue(argv, '--adversary-review', 'node adversary.cjs');
     expectArgValue(argv, '--adversary-reviewer-provider', 'anthropic');
     expect(argv).toContain('--adversary-require-different-provider');
-    expect(argv).toContain('--skip-final-reverify');
     expect(argv).toContain('--allow-dirty');
+  });
+
+  it('rejects Skill PR publication when final reverify is skipped', async () => {
+    const autoResult = await runNode([
+      RUN_FROM_PROMPT_SCRIPT,
+      '--prompt',
+      '자동으로 문제 찾아서 하나씩 수정하고 검증 PR 후보 만들어줘',
+      '--repo',
+      '/tmp/example-repo',
+      '--agent',
+      'command:echo builder',
+      '--eval-command',
+      'npm test',
+      '--promote-branch',
+      'pr-candidate/auto',
+      '--github-draft-pr',
+      '--github-repo',
+      'coreline-ai/example',
+      '--github-token-env',
+      'TEST_GITHUB_TOKEN',
+      '--skip-final-reverify'
+    ]);
+
+    expect(autoResult.code).toBe(1);
+    expect(autoResult.stderr).toContain(
+      '--skip-final-reverify cannot be used with --promote-branch/--github-draft-pr'
+    );
+    expect(autoResult.stderr).toContain(
+      'Skill PR candidates require final re-execution'
+    );
+
+    const outDir = await mkdtemp(
+      path.join(os.tmpdir(), 'vibeloop-skill-skiprv-reject-')
+    );
+    try {
+      const issueResult = await runNode([
+        RUN_FROM_PROMPT_SCRIPT,
+        '--prompt',
+        'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
+        '--repo',
+        '/tmp/example-repo',
+        '--out',
+        outDir,
+        '--agent',
+        'command:echo builder',
+        '--test-command',
+        'npm test',
+        '--promote-branch',
+        'pr-candidate/cart',
+        '--skip-final-reverify'
+      ]);
+
+      expect(issueResult.code).toBe(1);
+      expect(issueResult.stderr).toContain(
+        '--skip-final-reverify cannot be used with --promote-branch'
+      );
+      expect(issueResult.stderr).toContain(
+        'Skill PR candidates require final re-execution'
+      );
+    } finally {
+      await rm(outDir, { recursive: true, force: true });
+    }
   });
 
   it('executes an auto-discovery prompt through orchestrate on a real fixture repo', async () => {

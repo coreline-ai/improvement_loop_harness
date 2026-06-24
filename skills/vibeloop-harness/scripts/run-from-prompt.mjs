@@ -89,6 +89,23 @@ function bool(args, key) {
   return args[key] === true;
 }
 
+function assertFinalReverifyCompatibleWithPublication(args) {
+  if (!bool(args, 'skip_final_reverify')) return;
+  const publishFlags = [];
+  if (optionalString(args, 'promote_branch')) {
+    publishFlags.push('--promote-branch');
+  }
+  if (bool(args, 'github_draft_pr')) {
+    publishFlags.push('--github-draft-pr');
+  }
+  if (publishFlags.length === 0) return;
+  throw new Error(
+    `--skip-final-reverify cannot be used with ${publishFlags.join(
+      '/'
+    )}; Skill PR candidates require final re-execution`
+  );
+}
+
 function resolveCli() {
   const override = process.env.VIBELOOP_CLI;
   if (override)
@@ -153,6 +170,7 @@ function buildGlobalPrefix(args) {
 }
 
 function buildImproveCommand(args, generated) {
+  assertFinalReverifyCompatibleWithPublication(args);
   const argv = [
     ...buildGlobalPrefix(args),
     'improve',
@@ -225,6 +243,7 @@ function buildImproveCommand(args, generated) {
 }
 
 function buildOrchestrateCommand(args) {
+  assertFinalReverifyCompatibleWithPublication(args);
   const argv = [
     ...buildGlobalPrefix(args),
     'orchestrate',
@@ -433,6 +452,7 @@ let executeWith = null;
 let execution = null;
 
 if (classification.mode === 'user_issue') {
+  assertFinalReverifyCompatibleWithPublication(args);
   generated = await createTaskEval(args, prompt);
   const argv = buildImproveCommand(args, generated);
   command = {

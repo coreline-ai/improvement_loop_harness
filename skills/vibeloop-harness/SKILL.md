@@ -35,6 +35,8 @@ node skills/vibeloop-harness/scripts/classify-intent.mjs --prompt "<user prompt>
 
 For a full deterministic Skill-layer route, prefer the prompt runner. It classifies the prompt, generates one task/eval for `user_issue`, and prints the exact `vibeloop improve` or `orchestrate` command. It forwards PR-candidate publish flags (`--promote-branch`, `--github-draft-pr`, GitHub repo/token/base/branch/title options) to the underlying core command. Generated-eval safety flags (`--eval-artifact-leak`, `--eval-rulepack-lock`, `--eval-rulepack-semantic`, `--eval-hidden-test`) apply only to `auto_discovery` / `vibeloop orchestrate --generate-eval`, not to `vibeloop improve`. For an existing orchestrate eval, use the core CLI `--carry-rulepack <lock> --carry-rulepack-image <image>` path; for a single improve loop, use `--rulepack-semantic <lock> --rulepack-semantic-image <image>`. Add `--execute` only when repo path, fixed test command, and agent spec are explicit:
 
+The prompt runner refuses `--skip-final-reverify` when `--promote-branch` or `--github-draft-pr` is present, because Skill PR candidates require fresh final re-execution.
+
 ```bash
 node skills/vibeloop-harness/scripts/run-from-prompt.mjs \
   --prompt "src/cart.cjs quantity 버그를 고쳐줘. 테스트도 추가해." \
