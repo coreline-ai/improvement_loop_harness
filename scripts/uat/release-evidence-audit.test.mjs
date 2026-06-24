@@ -327,6 +327,51 @@ function simplePassLedger(status) {
   };
 }
 
+function skillPromptLiveLedger(overrides = {}) {
+  return {
+    status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+    evidence_missing_count: 0,
+    orchestrator: {
+      real_llm: true,
+      codex_cli: true,
+      reported_skill_file_read: true,
+      reported_skill_name: 'vibeloop-harness',
+      ...(overrides.orchestrator ?? {})
+    },
+    builder: {
+      real_llm: true,
+      via: 'chatgpt-oauth-proxy',
+      model: 'gpt-5.5',
+      ...(overrides.builder ?? {})
+    },
+    helper: {
+      invoked: true,
+      mode: 'auto_discovery',
+      command_kind: 'vibeloop_orchestrate',
+      executed: true,
+      execution_code: 0,
+      ...(overrides.helper ?? {})
+    },
+    pr_candidate: true,
+    final_verification: {
+      provenance_ok: true,
+      reverify_attempted: true,
+      reverified: true,
+      passed: true,
+      ...(overrides.final_verification ?? {})
+    },
+    promotion: {
+      branch_name: 'pr-candidate/skill-prompt-auto-uat',
+      pushed: false,
+      ...(overrides.promotion ?? {})
+    },
+    false_pass: 0,
+    leak: 0,
+    failure_reasons: [],
+    ...(overrides.ledger ?? {})
+  };
+}
+
 async function writeValidCiEvidence(root) {
   await writeLedger(
     root,
@@ -618,6 +663,79 @@ describe('release evidence audit', () => {
         passed_count: 1,
         failed_count: 0,
         copied_integrity_checked_count: 1
+      })
+    );
+  });
+
+  it('can audit Skill prompt real-builder evidence as an explicit scenario', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-codex-skill-prompt-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-auto-live-run',
+      skillPromptLiveLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-auto-live-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P1',
+        scenario,
+        expected_statuses: [
+          'SKILL_PROMPT_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS'
+        ]
+      })
+    ]);
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+          pr_candidate: true,
+          builder: expect.objectContaining({
+            real_llm: true,
+            via: 'chatgpt-oauth-proxy'
+          })
+        })
+      })
+    );
+  });
+
+  it('fails Skill prompt evidence audit when the builder was not real Codex', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-codex-skill-prompt-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-fixture-run',
+      skillPromptLiveLedger({
+        builder: { real_llm: false, via: 'command-fixture' }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-fixture-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        status: 'invalid_ledger',
+        ledger_failures: expect.arrayContaining([
+          'skill_prompt.builder.real_llm'
+        ])
       })
     );
   });

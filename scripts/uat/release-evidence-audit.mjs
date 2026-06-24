@@ -16,6 +16,7 @@ import {
   REAL_PROJECT_SEMANTIC_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO,
   REAL_PROJECT_MODIFIABLE_CORPUS_EVIDENCE_SCENARIO,
   REAL_PROJECT_CORPUS_EVIDENCE_SCENARIO,
+  SKILL_PROMPT_LIVE_EVIDENCE_SCENARIO,
   latestEvidenceBundle
 } from './release-gates-preflight.mjs';
 
@@ -33,6 +34,7 @@ export const RELEASE_EVIDENCE_AUDIT_SCENARIOS = EVIDENCE_SCENARIOS.filter(
 
 export const SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS = [
   ...EVIDENCE_SCENARIOS,
+  SKILL_PROMPT_LIVE_EVIDENCE_SCENARIO,
   ADVERSARY_REAL_REVIEWER_EVIDENCE_SCENARIO,
   REAL_PROJECT_CORPUS_EVIDENCE_SCENARIO,
   REAL_PROJECT_MODIFIABLE_CORPUS_EVIDENCE_SCENARIO,
@@ -145,6 +147,7 @@ async function latestEvidenceBundleAcrossRoots(evidence, evidenceRoots) {
     const result = await latestEvidenceBundle(evidence.scenario, evidenceRoot, {
       requireManifest: evidence.require_manifest === true,
       expectedStatus: evidence.expected_status,
+      expectedStatuses: evidence.expected_statuses,
       expectedLedger: evidence.expected_ledger
     });
     if (!['missing', 'missing_ledger'].includes(result.status)) {
@@ -214,7 +217,8 @@ export async function buildReleaseEvidenceAuditReport(options = {}) {
     required_scenarios: evidenceScenarios.map((scenario) => ({
       gate: scenario.gate,
       scenario: scenario.scenario,
-      expected_status: scenario.expected_status
+      expected_status: scenario.expected_status,
+      expected_statuses: scenario.expected_statuses
     })),
     audit_summary: {
       required_count: evidence.length,

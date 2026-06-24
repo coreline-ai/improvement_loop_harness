@@ -193,6 +193,20 @@ export const EVIDENCE_SCENARIOS = [
   }
 ];
 
+export const SKILL_PROMPT_LIVE_EVIDENCE_SCENARIO = {
+  gate: 'P1',
+  name: 'Skill prompt live real-builder evidence',
+  scenario: 'skill-real-user-codex-skill-prompt-uat',
+  require_manifest: true,
+  expected_statuses: [
+    'SKILL_PROMPT_LIVE_UAT_PASS',
+    'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS'
+  ],
+  expected_ledger: {
+    required_skill_prompt_real_builder: true
+  }
+};
+
 export const PRODUCT_100_EVIDENCE_SCENARIO = {
   gate: 'P6',
   name: 'Product-100 Codex live evidence',
@@ -1170,7 +1184,7 @@ export async function latestEvidenceBundle(
     };
   }
   let ledgerSummary = null;
-  if (options.expectedStatus) {
+  if (options.expectedStatus || options.expectedStatuses?.length > 0) {
     try {
       const ledgerJson = JSON.parse(await readFile(latest.ledger, 'utf8'));
       ledgerSummary = {
@@ -1209,6 +1223,47 @@ export async function latestEvidenceBundle(
               model: ledgerJson.builder.model ?? null,
               via: ledgerJson.builder.via ?? null
             }
+          : null,
+        orchestrator: ledgerJson.orchestrator
+          ? {
+              real_llm: ledgerJson.orchestrator.real_llm ?? null,
+              codex_cli: ledgerJson.orchestrator.codex_cli ?? null,
+              reported_skill_file_read:
+                ledgerJson.orchestrator.reported_skill_file_read ?? null,
+              reported_skill_name:
+                ledgerJson.orchestrator.reported_skill_name ?? null
+            }
+          : null,
+        helper: ledgerJson.helper
+          ? {
+              invoked: ledgerJson.helper.invoked ?? null,
+              mode: ledgerJson.helper.mode ?? null,
+              command_kind: ledgerJson.helper.command_kind ?? null,
+              executed: ledgerJson.helper.executed ?? null,
+              execution_code: ledgerJson.helper.execution_code ?? null
+            }
+          : null,
+        pr_candidate: ledgerJson.pr_candidate ?? null,
+        final_verification: ledgerJson.final_verification
+          ? {
+              provenance_ok:
+                ledgerJson.final_verification.provenance_ok ?? null,
+              reverify_attempted:
+                ledgerJson.final_verification.reverify_attempted ?? null,
+              reverified: ledgerJson.final_verification.reverified ?? null,
+              passed: ledgerJson.final_verification.passed ?? null
+            }
+          : null,
+        promotion: ledgerJson.promotion
+          ? {
+              branch_name: ledgerJson.promotion.branch_name ?? null,
+              pushed: ledgerJson.promotion.pushed ?? null
+            }
+          : null,
+        false_pass: ledgerJson.false_pass ?? null,
+        leak: ledgerJson.leak ?? null,
+        failure_reasons_count: Array.isArray(ledgerJson.failure_reasons)
+          ? ledgerJson.failure_reasons.length
           : null,
         ...(ledgerJson.checks
           ? { checks: summarizeChecks(ledgerJson.checks) }
@@ -1254,8 +1309,14 @@ export async function latestEvidenceBundle(
       };
     }
 
+    const expectedStatuses =
+      options.expectedStatuses ??
+      (options.expectedStatus ? [options.expectedStatus] : []);
     const ledgerFailures = [];
-    if (ledgerSummary.status !== options.expectedStatus) {
+    if (
+      expectedStatuses.length > 0 &&
+      !expectedStatuses.includes(ledgerSummary.status)
+    ) {
       ledgerFailures.push('status');
     }
     if (ledgerSummary.scenario !== scenario) {
@@ -1343,6 +1404,69 @@ export async function latestEvidenceBundle(
         ledgerSummary.builder?.provider !== 'codex')
     ) {
       ledgerFailures.push('llm_modification');
+    }
+    if (options.expectedLedger?.required_skill_prompt_real_builder) {
+      if (ledgerSummary.orchestrator?.real_llm !== true) {
+        ledgerFailures.push('skill_prompt.orchestrator.real_llm');
+      }
+      if (ledgerSummary.orchestrator?.codex_cli !== true) {
+        ledgerFailures.push('skill_prompt.orchestrator.codex_cli');
+      }
+      if (ledgerSummary.orchestrator?.reported_skill_file_read !== true) {
+        ledgerFailures.push('skill_prompt.orchestrator.skill_file_read');
+      }
+      if (
+        ledgerSummary.orchestrator?.reported_skill_name !==
+        'vibeloop-harness'
+      ) {
+        ledgerFailures.push('skill_prompt.orchestrator.skill_name');
+      }
+      if (
+        ledgerSummary.builder?.real_llm !== true ||
+        ledgerSummary.builder?.via !== 'chatgpt-oauth-proxy'
+      ) {
+        ledgerFailures.push('skill_prompt.builder.real_llm');
+      }
+      if (
+        ledgerSummary.helper?.invoked !== true ||
+        ledgerSummary.helper?.executed !== true ||
+        ledgerSummary.helper?.execution_code !== 0
+      ) {
+        ledgerFailures.push('skill_prompt.helper');
+      }
+      if (
+        !['vibeloop_improve', 'vibeloop_orchestrate'].includes(
+          ledgerSummary.helper?.command_kind
+        )
+      ) {
+        ledgerFailures.push('skill_prompt.helper.command_kind');
+      }
+      if (ledgerSummary.pr_candidate !== true) {
+        ledgerFailures.push('skill_prompt.pr_candidate');
+      }
+      if (
+        ledgerSummary.final_verification?.provenance_ok !== true ||
+        ledgerSummary.final_verification?.reverify_attempted !== true ||
+        ledgerSummary.final_verification?.reverified !== true ||
+        ledgerSummary.final_verification?.passed !== true
+      ) {
+        ledgerFailures.push('skill_prompt.final_verification');
+      }
+      if (!ledgerSummary.promotion?.branch_name) {
+        ledgerFailures.push('skill_prompt.promotion');
+      }
+      if (ledgerSummary.promotion?.pushed !== false) {
+        ledgerFailures.push('skill_prompt.promotion.pushed');
+      }
+      if (ledgerSummary.false_pass !== 0) {
+        ledgerFailures.push('skill_prompt.false_pass');
+      }
+      if (ledgerSummary.leak !== 0) {
+        ledgerFailures.push('skill_prompt.leak');
+      }
+      if (ledgerSummary.failure_reasons_count !== 0) {
+        ledgerFailures.push('skill_prompt.failure_reasons');
+      }
     }
     if (
       options.expectedLedger?.required_hidden_acceptance &&
@@ -1468,6 +1592,7 @@ export async function latestEvidenceBundle(
         ledger: latest.ledger,
         ledger_mtime_ms: latest.mtimeMs,
         expected_status: options.expectedStatus,
+        expected_statuses: options.expectedStatuses,
         ...(options.expectedLedger
           ? { expected_ledger: options.expectedLedger }
           : {}),
@@ -1560,6 +1685,7 @@ export async function latestEvidenceBundle(
     ...(ledgerSummary
       ? {
           expected_status: options.expectedStatus,
+          expected_statuses: options.expectedStatuses,
           ...(options.expectedLedger
             ? { expected_ledger: options.expectedLedger }
             : {}),
@@ -1644,6 +1770,7 @@ export async function buildReleaseGatePreflightReport(options = {}) {
       ...(await latestEvidenceBundle(evidence.scenario, evidenceRoot, {
         requireManifest: evidence.require_manifest === true,
         expectedStatus: evidence.expected_status,
+        expectedStatuses: evidence.expected_statuses,
         expectedLedger: evidence.expected_ledger
       }))
     });
