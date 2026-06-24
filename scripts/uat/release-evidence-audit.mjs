@@ -148,6 +148,7 @@ async function latestEvidenceBundleAcrossRoots(evidence, evidenceRoots) {
       requireManifest: evidence.require_manifest === true,
       expectedStatus: evidence.expected_status,
       expectedStatuses: evidence.expected_statuses,
+      requiredStatuses: evidence.required_statuses,
       expectedLedger: evidence.expected_ledger
     });
     if (!['missing', 'missing_ledger'].includes(result.status)) {
@@ -218,7 +219,8 @@ export async function buildReleaseEvidenceAuditReport(options = {}) {
       gate: scenario.gate,
       scenario: scenario.scenario,
       expected_status: scenario.expected_status,
-      expected_statuses: scenario.expected_statuses
+      expected_statuses: scenario.expected_statuses,
+      required_statuses: scenario.required_statuses
     })),
     audit_summary: {
       required_count: evidence.length,

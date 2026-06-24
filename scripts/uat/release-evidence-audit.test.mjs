@@ -675,8 +675,21 @@ describe('release evidence audit', () => {
     await writeLedger(
       root,
       scenario,
+      'skill-prompt-user-live-run',
+      skillPromptLiveLedger({
+        ledger: { status: 'SKILL_PROMPT_LIVE_UAT_PASS' },
+        helper: { mode: 'user_issue', command_kind: 'vibeloop_improve' },
+        promotion: { branch_name: 'pr-candidate/skill-prompt-user-uat' }
+      }),
+      new Date('2026-06-21T01:00:00.000Z')
+    );
+    await writeManifest(root, scenario, 'skill-prompt-user-live-run');
+    await writeLedger(
+      root,
+      scenario,
       'skill-prompt-auto-live-run',
-      skillPromptLiveLedger()
+      skillPromptLiveLedger(),
+      new Date('2026-06-21T02:00:00.000Z')
     );
     await writeManifest(root, scenario, 'skill-prompt-auto-live-run');
 
@@ -693,6 +706,10 @@ describe('release evidence audit', () => {
         expected_statuses: [
           'SKILL_PROMPT_LIVE_UAT_PASS',
           'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS'
+        ],
+        required_statuses: [
+          'SKILL_PROMPT_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS'
         ]
       })
     ]);
@@ -707,7 +724,57 @@ describe('release evidence audit', () => {
             real_llm: true,
             via: 'chatgpt-oauth-proxy'
           })
-        })
+        }),
+        required_status_results: expect.arrayContaining([
+          expect.objectContaining({
+            ok: true,
+            required_status: 'SKILL_PROMPT_LIVE_UAT_PASS',
+            run_id: 'skill-prompt-user-live-run'
+          }),
+          expect.objectContaining({
+            ok: true,
+            required_status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+            run_id: 'skill-prompt-auto-live-run'
+          })
+        ])
+      })
+    );
+  });
+
+  it('fails Skill prompt evidence audit when a required prompt mode is missing', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-codex-skill-prompt-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-auto-live-run',
+      skillPromptLiveLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-auto-live-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        status: 'invalid_required_status_evidence',
+        scenario,
+        required_status_results: expect.arrayContaining([
+          expect.objectContaining({
+            ok: false,
+            status: 'missing_required_status',
+            required_status: 'SKILL_PROMPT_LIVE_UAT_PASS'
+          }),
+          expect.objectContaining({
+            ok: true,
+            required_status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+            run_id: 'skill-prompt-auto-live-run'
+          })
+        ])
       })
     );
   });

@@ -92,6 +92,52 @@ async function writeManifest(root, scenario, runId, patch = {}) {
   return manifest;
 }
 
+function skillPromptLiveLedger({
+  status = 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+  mode = 'auto_discovery',
+  commandKind = 'vibeloop_orchestrate',
+  branchName = 'pr-candidate/skill-prompt-auto-uat',
+  builder = {}
+} = {}) {
+  return {
+    status,
+    evidence_missing_count: 0,
+    orchestrator: {
+      real_llm: true,
+      codex_cli: true,
+      reported_skill_file_read: true,
+      reported_skill_name: 'vibeloop-harness'
+    },
+    builder: {
+      real_llm: true,
+      via: 'chatgpt-oauth-proxy',
+      model: 'gpt-5.5',
+      ...builder
+    },
+    helper: {
+      invoked: true,
+      mode,
+      command_kind: commandKind,
+      executed: true,
+      execution_code: 0
+    },
+    pr_candidate: true,
+    final_verification: {
+      provenance_ok: true,
+      reverify_attempted: true,
+      reverified: true,
+      passed: true
+    },
+    promotion: {
+      branch_name: branchName,
+      pushed: false
+    },
+    false_pass: 0,
+    leak: 0,
+    failure_reasons: []
+  };
+}
+
 async function copiedEntry(root, scenario, runId, bundlePath, kind = 'report') {
   const filePath = path.join(root, scenario, runId, bundlePath);
   const fileStat = await stat(filePath);
@@ -2176,6 +2222,104 @@ ELIFECYCLE Command failed with exit code 20.`);
       ok: false,
       status: 'invalid_ledger',
       ledger_failures: ['cells.java-stdlib']
+    });
+  });
+
+  it('requires both Skill prompt live modes for full real-builder evidence', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-codex-skill-prompt-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-user-live-run',
+      new Date('2026-06-21T01:00:00.000Z'),
+      skillPromptLiveLedger({
+        status: 'SKILL_PROMPT_LIVE_UAT_PASS',
+        mode: 'user_issue',
+        commandKind: 'vibeloop_improve',
+        branchName: 'pr-candidate/skill-prompt-user-uat'
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-user-live-run');
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-auto-live-run',
+      new Date('2026-06-21T02:00:00.000Z'),
+      skillPromptLiveLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-auto-live-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatuses: [
+          'SKILL_PROMPT_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS'
+        ],
+        requiredStatuses: [
+          'SKILL_PROMPT_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS'
+        ],
+        expectedLedger: { required_skill_prompt_real_builder: true }
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      required_status_results: expect.arrayContaining([
+        expect.objectContaining({
+          ok: true,
+          required_status: 'SKILL_PROMPT_LIVE_UAT_PASS',
+          run_id: 'skill-prompt-user-live-run'
+        }),
+        expect.objectContaining({
+          ok: true,
+          required_status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+          run_id: 'skill-prompt-auto-live-run'
+        })
+      ])
+    });
+  });
+
+  it('fails Skill prompt evidence when either live mode is missing', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-codex-skill-prompt-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-auto-live-run',
+      new Date('2026-06-21T02:00:00.000Z'),
+      skillPromptLiveLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-auto-live-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatuses: [
+          'SKILL_PROMPT_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS'
+        ],
+        requiredStatuses: [
+          'SKILL_PROMPT_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS'
+        ],
+        expectedLedger: { required_skill_prompt_real_builder: true }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 'invalid_required_status_evidence',
+      required_status_results: expect.arrayContaining([
+        expect.objectContaining({
+          ok: false,
+          status: 'missing_required_status',
+          required_status: 'SKILL_PROMPT_LIVE_UAT_PASS'
+        }),
+        expect.objectContaining({
+          ok: true,
+          required_status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+          run_id: 'skill-prompt-auto-live-run'
+        })
+      ])
     });
   });
 

@@ -14,7 +14,7 @@ on:
         type: string
         default: ubuntu-latest
       prompt_mode:
-        description: Skill prompt mode to run.
+        description: Skill prompt mode to run; release-grade audit requires both.
         required: true
         type: choice
         options:
@@ -127,16 +127,12 @@ jobs:
         if: ${{ inputs.prompt_mode == 'both' || inputs.prompt_mode == 'user_issue' }}
         env:
           VIBELOOP_SKILL_PROMPT_UAT_MODE: user_issue
-        run: |
-          corepack pnpm uat:skill-loop:codex-skill-prompt:real-builder
-          corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-codex-skill-prompt-uat
+        run: corepack pnpm uat:skill-loop:codex-skill-prompt:real-builder
       - name: Run Skill prompt auto_discovery live UAT
         if: ${{ inputs.prompt_mode == 'both' || inputs.prompt_mode == 'auto_discovery' }}
         env:
           VIBELOOP_SKILL_PROMPT_UAT_MODE: auto_discovery
-        run: |
-          corepack pnpm uat:skill-loop:codex-skill-prompt:auto:real-builder
-          corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-codex-skill-prompt-uat
+        run: corepack pnpm uat:skill-loop:codex-skill-prompt:auto:real-builder
       - run: corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-codex-skill-prompt-uat
       - uses: actions/upload-artifact@v4
         if: always()
