@@ -75,6 +75,10 @@ async function sha256(filePath) {
     .digest('hex');
 }
 
+function shortHash(value) {
+  return createHash('sha256').update(String(value)).digest('hex').slice(0, 12);
+}
+
 function relativeRef(root, filePath) {
   return path.relative(root, filePath).split(path.sep).join('/');
 }
@@ -233,7 +237,44 @@ async function markCopiedManifestAuditKeep(runRootCopy, reason) {
   );
 }
 
-async function copyRunRoot({ bundleDir, runRoot, dataDir, copied, missing }) {
+function reserveRunRootTarget({
+  bundleDir,
+  relativeRunRoot,
+  runRoot,
+  usedRunRootTargets
+}) {
+  let relativeTarget = relativeRunRoot;
+  let targetRef = relativeRef(
+    bundleDir,
+    path.join(bundleDir, 'runs', relativeTarget)
+  );
+  if (!usedRunRootTargets.has(targetRef)) {
+    usedRunRootTargets.add(targetRef);
+    return relativeTarget;
+  }
+
+  const base = safeSegment(path.basename(runRoot), 'run-root');
+  const hash = shortHash(path.resolve(runRoot));
+  let index = 0;
+  do {
+    const suffix = index === 0 ? `${base}-${hash}` : `${base}-${hash}-${index}`;
+    relativeTarget = path.join('__duplicates__', suffix);
+    targetRef = relativeRef(bundleDir, path.join(bundleDir, 'runs', relativeTarget));
+    index += 1;
+  } while (usedRunRootTargets.has(targetRef));
+
+  usedRunRootTargets.add(targetRef);
+  return relativeTarget;
+}
+
+async function copyRunRoot({
+  bundleDir,
+  runRoot,
+  dataDir,
+  copied,
+  missing,
+  usedRunRootTargets
+}) {
   if (!(await existsAsDirectory(runRoot))) {
     missing.push({
       kind: 'run_root',
@@ -250,7 +291,16 @@ async function copyRunRoot({ bundleDir, runRoot, dataDir, copied, missing }) {
   const relativeRunRoot = isInside(resolvedDataDir, path.resolve(runRoot))
     ? relativeRef(resolvedDataDir, path.resolve(runRoot))
     : safeSegment(path.basename(runRoot), 'run-root');
-  const targetRoot = path.join(bundleDir, 'runs', relativeRunRoot);
+  const targetRoot = path.join(
+    bundleDir,
+    'runs',
+    reserveRunRootTarget({
+      bundleDir,
+      relativeRunRoot,
+      runRoot,
+      usedRunRootTargets
+    })
+  );
   await mkdir(path.dirname(targetRoot), { recursive: true });
   await cp(runRoot, targetRoot, { recursive: true, force: true });
   await markCopiedManifestAuditKeep(
@@ -375,8 +425,16 @@ export async function writeUatEvidenceBundle({
     });
   }
 
+  const usedRunRootTargets = new Set();
   for (const runRoot of [...runRoots].sort()) {
-    await copyRunRoot({ bundleDir, runRoot, dataDir, copied, missing });
+    await copyRunRoot({
+      bundleDir,
+      runRoot,
+      dataDir,
+      copied,
+      missing,
+      usedRunRootTargets
+    });
   }
 
   const proxyStatsPath = proxyStats

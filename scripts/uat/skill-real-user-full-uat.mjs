@@ -7,7 +7,15 @@
 // the copied Skill template script, and then exercises positive, failure, leak,
 // quality, and self-improvement cases through the real command-agent CLI path.
 import { spawn } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile
+} from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -458,20 +466,31 @@ async function copySkillInstall(root) {
       `missing bundled Skill vendor CLI at ${SOURCE_VENDOR_CLI}; run pnpm bundle:skill before this UAT`
     );
   }
-  const installRoot = path.join(root, 'codex-skill-install');
-  const skillRoot = path.join(installRoot, 'vibeloop-harness');
-  await mkdir(installRoot, { recursive: true });
+  const codexHome = path.join(root, 'codex-home');
+  const skillsRoot = path.join(codexHome, 'skills');
+  const skillRoot = path.join(skillsRoot, 'vibeloop-harness');
+  await mkdir(skillsRoot, { recursive: true, mode: 0o700 });
   await cp(SOURCE_SKILL_ROOT, skillRoot, { recursive: true });
   const runScript = path.join(skillRoot, 'scripts/vibeloop-run.mjs');
   const vendorCli = path.join(skillRoot, 'vendor/vibeloop.mjs');
   if (!existsSync(runScript) || !existsSync(vendorCli)) {
     throw new Error('copied Skill install is missing wrapper or vendor CLI');
   }
+  const skillEntries = (await readdir(skillsRoot)).sort();
+  if (JSON.stringify(skillEntries) !== JSON.stringify(['vibeloop-harness'])) {
+    throw new Error(
+      `clean CODEX_HOME skills directory contains unexpected entries: ${skillEntries.join(', ')}`
+    );
+  }
   const versionResult = await runCommand(
     process.execPath,
     [runScript, '--version'],
     {
-      cwd: installRoot
+      cwd: codexHome,
+      env: {
+        ...process.env,
+        CODEX_HOME: codexHome
+      }
     }
   );
   if (versionResult.code !== 0 || versionResult.stderr !== '') {
@@ -480,10 +499,14 @@ async function copySkillInstall(root) {
     );
   }
   return {
-    installRoot,
+    installRoot: codexHome,
+    codexHome,
+    skillsRoot,
     skillRoot,
     runScript,
     vendorCli,
+    skillEntries,
+    copiedSkillPath: 'CODEX_HOME/skills/vibeloop-harness',
     version: versionResult.stdout.trim()
   };
 }
@@ -632,7 +655,13 @@ async function runSkill({
       baseCommit,
       '--skip-dependency-install'
     ],
-    { cwd: skill.installRoot }
+    {
+      cwd: skill.installRoot,
+      env: {
+        ...process.env,
+        CODEX_HOME: skill.installRoot
+      }
+    }
   );
   const output = parseCliJson(result, `vibeloop run ${loopId}`);
   if (!allowReject && result.code !== 0) {
@@ -681,7 +710,11 @@ async function runImprove({
     '--skip-dependency-install'
   ];
   const result = await runCommand(process.execPath, args, {
-    cwd: skill.installRoot
+    cwd: skill.installRoot,
+    env: {
+      ...process.env,
+      CODEX_HOME: skill.installRoot
+    }
   });
   const output = parseCliJson(result, `vibeloop improve ${loopId}`);
   return { result, output, baseCommit };
@@ -1338,8 +1371,13 @@ async function main() {
       random_stress_rounds: randomStressRounds,
       actual_user_environment: {
         copied_skill_install: true,
-        copied_skill_wrapper: 'vibeloop-harness/scripts/vibeloop-run.mjs',
-        vendor_cli: 'vibeloop-harness/vendor/vibeloop.mjs',
+        clean_codex_home: true,
+        codex_home_skills_entries: skill.skillEntries,
+        copied_skill_path: skill.copiedSkillPath,
+        execution_cwd: 'CODEX_HOME',
+        copied_skill_wrapper:
+          'CODEX_HOME/skills/vibeloop-harness/scripts/vibeloop-run.mjs',
+        vendor_cli: 'CODEX_HOME/skills/vibeloop-harness/vendor/vibeloop.mjs',
         wrapper_vendor_version: skill.version,
         external_user_repo: true,
         task_eval_created_by_copied_skill_script: true,
@@ -1369,7 +1407,8 @@ async function main() {
       artifacts: keepTmp
         ? {
             temp_root: root,
-            skill_install_root: skill.installRoot,
+            codex_home: skill.codexHome,
+            skill_install_root: skill.skillRoot,
             positive_repo: positive.repoPath
           }
         : { temp_root: '[removed unless VIBELOOP_UAT_KEEP_TMP=1]' }
@@ -1378,6 +1417,7 @@ async function main() {
       scenario: output.scenario,
       runId: `skill-full-${process.pid}-${Date.now()}`,
       tmpRoot: root,
+      dataDir: root,
       output,
       extraJson: {
         full_uat_summary: {

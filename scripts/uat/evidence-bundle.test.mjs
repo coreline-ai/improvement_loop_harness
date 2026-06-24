@@ -174,6 +174,48 @@ describe('UAT evidence bundle', () => {
     );
   });
 
+  it('keeps repeated run-root basenames at distinct bundle paths', async () => {
+    const root = await tempRoot();
+    const runRoots = [
+      path.join(root, 'data-a', 'projects', 'project-a', 'runs', 'loop-1'),
+      path.join(root, 'data-b', 'projects', 'project-b', 'runs', 'loop-1')
+    ];
+    for (const [index, runRoot] of runRoots.entries()) {
+      await mkdir(path.join(runRoot, 'reports'), { recursive: true });
+      await writeFile(
+        path.join(runRoot, 'manifest.json'),
+        `${JSON.stringify({ schema_version: '1.0', index })}\n`
+      );
+      await writeFile(
+        path.join(runRoot, 'reports', 'eval-report.json'),
+        `${JSON.stringify({ decision: 'reject', index })}\n`
+      );
+    }
+
+    const bundle = await writeUatEvidenceBundle({
+      scenario: 'skill-real-user-full-uat',
+      runId: 'full-uat-duplicates',
+      tmpRoot: root,
+      output: {
+        cases: runRoots.map((runRoot, index) => ({
+          id: `case-${index}`,
+          artifact_root: runRoot
+        }))
+      },
+      evidenceDir: path.join(root, 'evidence')
+    });
+
+    const manifest = JSON.parse(await readFile(bundle.manifest_path, 'utf8'));
+    const bundlePaths = manifest.copied.map((entry) => entry.bundle_path);
+    expect(new Set(bundlePaths).size).toBe(bundlePaths.length);
+    expect(
+      manifest.copied.filter(
+        (entry) =>
+          entry.kind === 'run_root' && entry.bundle_path.endsWith('manifest.json')
+      )
+    ).toHaveLength(2);
+  });
+
   it('only prunes temp roots when explicitly requested', () => {
     expect(shouldPruneUatTmp({})).toBe(false);
     expect(shouldPruneUatTmp({ VIBELOOP_UAT_PRUNE: '1' })).toBe(true);

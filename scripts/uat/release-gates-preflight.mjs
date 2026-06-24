@@ -1296,15 +1296,31 @@ function requiredSkillFullUatFailures(ledgerSummary) {
   if (ledgerSummary.actual_user_environment?.copied_skill_install !== true) {
     failures.push('skill_full_uat.copied_skill_install');
   }
+  if (ledgerSummary.actual_user_environment?.clean_codex_home !== true) {
+    failures.push('skill_full_uat.clean_codex_home');
+  }
+  if (
+    JSON.stringify(
+      ledgerSummary.actual_user_environment?.codex_home_skills_entries ?? null
+    ) !== JSON.stringify(['vibeloop-harness'])
+  ) {
+    failures.push('skill_full_uat.codex_home_skills_entries');
+  }
+  if (
+    ledgerSummary.actual_user_environment?.copied_skill_path !==
+    'CODEX_HOME/skills/vibeloop-harness'
+  ) {
+    failures.push('skill_full_uat.copied_skill_path');
+  }
   if (
     ledgerSummary.actual_user_environment?.copied_skill_wrapper !==
-    'vibeloop-harness/scripts/vibeloop-run.mjs'
+    'CODEX_HOME/skills/vibeloop-harness/scripts/vibeloop-run.mjs'
   ) {
     failures.push('skill_full_uat.copied_skill_wrapper');
   }
   if (
     ledgerSummary.actual_user_environment?.vendor_cli !==
-    'vibeloop-harness/vendor/vibeloop.mjs'
+    'CODEX_HOME/skills/vibeloop-harness/vendor/vibeloop.mjs'
   ) {
     failures.push('skill_full_uat.vendor_cli');
   }

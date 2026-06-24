@@ -339,8 +339,12 @@ function skillFullUatLedger(overrides = {}) {
     not_live_codex_or_github_pass: true,
     actual_user_environment: {
       copied_skill_install: true,
-      copied_skill_wrapper: 'vibeloop-harness/scripts/vibeloop-run.mjs',
-      vendor_cli: 'vibeloop-harness/vendor/vibeloop.mjs',
+      clean_codex_home: true,
+      codex_home_skills_entries: ['vibeloop-harness'],
+      copied_skill_path: 'CODEX_HOME/skills/vibeloop-harness',
+      copied_skill_wrapper:
+        'CODEX_HOME/skills/vibeloop-harness/scripts/vibeloop-run.mjs',
+      vendor_cli: 'CODEX_HOME/skills/vibeloop-harness/vendor/vibeloop.mjs',
       external_user_repo: true,
       task_eval_created_by_copied_skill_script: true,
       command_agents: true,
@@ -758,6 +762,11 @@ describe('release evidence audit', () => {
       'skill-full-run',
       skillFullUatLedger({
         ledger: { not_live_codex_or_github_pass: false },
+        actual_user_environment: {
+          clean_codex_home: false,
+          codex_home_skills_entries: ['unexpected-skill'],
+          copied_skill_path: 'tmp/vibeloop-harness'
+        },
         failure_rate: { unexpectedAccept: 1 }
       })
     );
@@ -775,6 +784,9 @@ describe('release evidence audit', () => {
         status: 'invalid_ledger',
         ledger_failures: expect.arrayContaining([
           'skill_full_uat.not_live_codex_or_github_pass',
+          'skill_full_uat.clean_codex_home',
+          'skill_full_uat.codex_home_skills_entries',
+          'skill_full_uat.copied_skill_path',
           'skill_full_uat.unexpected_accept'
         ])
       })
