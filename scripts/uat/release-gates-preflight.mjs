@@ -233,6 +233,17 @@ export const SKILL_PROMPT_GITHUB_DRAFT_PR_EVIDENCE_SCENARIO = {
   }
 };
 
+export const SKILL_PROMPT_MATRIX_EVIDENCE_SCENARIO = {
+  gate: 'P1',
+  name: 'Skill natural-language prompt routing matrix evidence',
+  scenario: 'skill-real-user-prompt-matrix-uat',
+  require_manifest: true,
+  expected_status: 'SKILL_PROMPT_MATRIX_UAT_PASS',
+  expected_ledger: {
+    required_skill_prompt_matrix: true
+  }
+};
+
 export const SKILL_FULL_UAT_EVIDENCE_SCENARIO = {
   gate: 'P1',
   name: 'Skill full fixture UAT evidence',
@@ -1254,6 +1265,15 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
       : null,
     false_pass: ledgerJson.false_pass ?? null,
     leak: ledgerJson.leak ?? null,
+    proof_scope: ledgerJson.proof_scope ?? null,
+    not_live_codex_or_github_pass:
+      ledgerJson.not_live_codex_or_github_pass ?? null,
+    actual_user_environment: ledgerJson.actual_user_environment ?? null,
+    total_cases: ledgerJson.total_cases ?? null,
+    passed_cases: ledgerJson.passed_cases ?? null,
+    failed_cases: ledgerJson.failed_cases ?? null,
+    critical_failures: ledgerJson.critical_failures ?? null,
+    unexpected_unknown: ledgerJson.unexpected_unknown ?? null,
     failure_reasons_count: Array.isArray(ledgerJson.failure_reasons)
       ? ledgerJson.failure_reasons.length
       : null,
@@ -1436,6 +1456,57 @@ function requiredSkillFullUatFailures(ledgerSummary) {
   return failures;
 }
 
+function requiredSkillPromptMatrixFailures(ledgerSummary) {
+  const failures = [];
+  if (ledgerSummary.proof_scope !== 'copied_skill_prompt_routing_matrix') {
+    failures.push('skill_prompt_matrix.proof_scope');
+  }
+  if (ledgerSummary.not_live_codex_or_github_pass !== true) {
+    failures.push('skill_prompt_matrix.not_live_codex_or_github_pass');
+  }
+  if (ledgerSummary.actual_user_environment?.copied_skill_install !== true) {
+    failures.push('skill_prompt_matrix.copied_skill_install');
+  }
+  if (ledgerSummary.actual_user_environment?.clean_codex_home !== true) {
+    failures.push('skill_prompt_matrix.clean_codex_home');
+  }
+  if (
+    JSON.stringify(
+      ledgerSummary.actual_user_environment?.codex_home_skills_entries ?? null
+    ) !== JSON.stringify(['vibeloop-harness'])
+  ) {
+    failures.push('skill_prompt_matrix.codex_home_skills_entries');
+  }
+  if (
+    ledgerSummary.actual_user_environment?.classifier !==
+    'CODEX_HOME/skills/vibeloop-harness/scripts/classify-intent.mjs'
+  ) {
+    failures.push('skill_prompt_matrix.classifier');
+  }
+  if (!(ledgerSummary.total_cases >= 12)) {
+    failures.push('skill_prompt_matrix.total_cases');
+  }
+  if (ledgerSummary.passed_cases !== ledgerSummary.total_cases) {
+    failures.push('skill_prompt_matrix.passed_cases');
+  }
+  if (ledgerSummary.failed_cases !== 0) {
+    failures.push('skill_prompt_matrix.failed_cases');
+  }
+  if (ledgerSummary.critical_failures !== 0) {
+    failures.push('skill_prompt_matrix.critical_failures');
+  }
+  if (ledgerSummary.unexpected_unknown !== 0) {
+    failures.push('skill_prompt_matrix.unexpected_unknown');
+  }
+  if (ledgerSummary.false_pass !== 0) {
+    failures.push('skill_prompt_matrix.false_pass');
+  }
+  if (ledgerSummary.leak !== 0) {
+    failures.push('skill_prompt_matrix.leak');
+  }
+  return failures;
+}
+
 async function validateRequiredStatusEvidence({
   scenario,
   scenarioDir,
@@ -1471,6 +1542,9 @@ async function validateRequiredStatusEvidence({
       ledgerFailures.push(
         ...requiredSkillPromptGithubDraftPrFailures(ledgerSummary)
       );
+    }
+    if (options.expectedLedger?.required_skill_prompt_matrix) {
+      ledgerFailures.push(...requiredSkillPromptMatrixFailures(ledgerSummary));
     }
     if (ledgerFailures.length > 0) {
       return {
@@ -1509,9 +1583,7 @@ async function validateRequiredStatusEvidence({
           scenario: parsed.scenario ?? null,
           run_id: parsed.run_id ?? null,
           ledger_ref: parsed.ledger_ref ?? null,
-          copied_count: Array.isArray(parsed.copied)
-            ? parsed.copied.length
-            : 0,
+          copied_count: Array.isArray(parsed.copied) ? parsed.copied.length : 0,
           missing_count: Array.isArray(parsed.missing)
             ? parsed.missing.length
             : 0,
@@ -1762,6 +1834,9 @@ export async function latestEvidenceBundle(
         required_cases: ledgerJson.required_cases ?? null,
         total_cases: ledgerJson.total_cases ?? null,
         passed_cases: ledgerJson.passed_cases ?? null,
+        failed_cases: ledgerJson.failed_cases ?? null,
+        critical_failures: ledgerJson.critical_failures ?? null,
+        unexpected_unknown: ledgerJson.unexpected_unknown ?? null,
         positive: ledgerJson.positive ?? null,
         negative: ledgerJson.negative ?? null,
         self_improvement: ledgerJson.self_improvement ?? null,
@@ -1893,6 +1968,9 @@ export async function latestEvidenceBundle(
     }
     if (options.expectedLedger?.required_skill_full_uat) {
       ledgerFailures.push(...requiredSkillFullUatFailures(ledgerSummary));
+    }
+    if (options.expectedLedger?.required_skill_prompt_matrix) {
+      ledgerFailures.push(...requiredSkillPromptMatrixFailures(ledgerSummary));
     }
     if (
       options.expectedLedger?.required_hidden_acceptance &&

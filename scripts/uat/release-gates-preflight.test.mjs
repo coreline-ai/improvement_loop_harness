@@ -210,6 +210,31 @@ function skillFullUatLedger(overrides = {}) {
   };
 }
 
+function skillPromptMatrixLedger(overrides = {}) {
+  return {
+    status: 'SKILL_PROMPT_MATRIX_UAT_PASS',
+    proof_scope: 'copied_skill_prompt_routing_matrix',
+    not_live_codex_or_github_pass: true,
+    actual_user_environment: {
+      copied_skill_install: true,
+      clean_codex_home: true,
+      codex_home_skills_entries: ['vibeloop-harness'],
+      classifier:
+        'CODEX_HOME/skills/vibeloop-harness/scripts/classify-intent.mjs',
+      ...(overrides.actual_user_environment ?? {})
+    },
+    total_cases: 18,
+    passed_cases: 18,
+    failed_cases: 0,
+    critical_failures: 0,
+    unexpected_unknown: 0,
+    false_pass: 0,
+    leak: 0,
+    evidence_missing_count: 0,
+    ...(overrides.ledger ?? {})
+  };
+}
+
 async function copiedEntry(root, scenario, runId, bundlePath, kind = 'report') {
   const filePath = path.join(root, scenario, runId, bundlePath);
   const fileStat = await stat(filePath);
@@ -1633,7 +1658,8 @@ ELIFECYCLE Command failed with exit code 20.`);
             codex_repair_status: 'pass',
             codex_repair_semantic_source_repair: true,
             codex_repair_semantic_bug_repair: true,
-            codex_repair_semantic_domain: 'http_multi_value_header_preservation',
+            codex_repair_semantic_domain:
+              'http_multi_value_header_preservation',
             codex_repair_existing_source: true
           },
           {
@@ -2357,8 +2383,7 @@ ELIFECYCLE Command failed with exit code 20.`);
 
   it('requires both Skill prompt GitHub draft PR modes for PR evidence', async () => {
     const root = await tempRoot();
-    const scenario =
-      'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
+    const scenario = 'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
     await writeLedger(
       root,
       scenario,
@@ -2426,8 +2451,7 @@ ELIFECYCLE Command failed with exit code 20.`);
 
   it('fails Skill prompt GitHub draft PR evidence when PR verification is absent', async () => {
     const root = await tempRoot();
-    const scenario =
-      'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
+    const scenario = 'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
     await writeLedger(
       root,
       scenario,
@@ -2494,6 +2518,75 @@ ELIFECYCLE Command failed with exit code 20.`);
         'skill_prompt.github_draft_pr_verified',
         'skill_prompt.github.draft_prs.verified',
         'github_draft_pr'
+      ])
+    });
+  });
+
+  it('validates Skill prompt routing matrix evidence invariants', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-matrix-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-matrix-run',
+      new Date('2026-06-21T00:00:00.000Z'),
+      skillPromptMatrixLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-matrix-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatus: 'SKILL_PROMPT_MATRIX_UAT_PASS',
+        expectedLedger: { required_skill_prompt_matrix: true }
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      ledger_summary: expect.objectContaining({
+        proof_scope: 'copied_skill_prompt_routing_matrix',
+        total_cases: 18,
+        passed_cases: 18,
+        failed_cases: 0,
+        unexpected_unknown: 0
+      })
+    });
+  });
+
+  it('fails Skill prompt routing matrix evidence on unsafe unknown routing', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-matrix-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-matrix-run',
+      new Date('2026-06-21T00:00:00.000Z'),
+      skillPromptMatrixLedger({
+        ledger: {
+          passed_cases: 17,
+          failed_cases: 1,
+          critical_failures: 1,
+          unexpected_unknown: 1,
+          false_pass: 1
+        }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-matrix-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatus: 'SKILL_PROMPT_MATRIX_UAT_PASS',
+        expectedLedger: { required_skill_prompt_matrix: true }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 'invalid_ledger',
+      ledger_failures: expect.arrayContaining([
+        'skill_prompt_matrix.passed_cases',
+        'skill_prompt_matrix.failed_cases',
+        'skill_prompt_matrix.critical_failures',
+        'skill_prompt_matrix.unexpected_unknown',
+        'skill_prompt_matrix.false_pass'
       ])
     });
   });

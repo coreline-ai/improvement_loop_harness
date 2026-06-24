@@ -376,6 +376,31 @@ function skillFullUatLedger(overrides = {}) {
   };
 }
 
+function skillPromptMatrixLedger(overrides = {}) {
+  return {
+    status: 'SKILL_PROMPT_MATRIX_UAT_PASS',
+    proof_scope: 'copied_skill_prompt_routing_matrix',
+    not_live_codex_or_github_pass: true,
+    actual_user_environment: {
+      copied_skill_install: true,
+      clean_codex_home: true,
+      codex_home_skills_entries: ['vibeloop-harness'],
+      classifier:
+        'CODEX_HOME/skills/vibeloop-harness/scripts/classify-intent.mjs',
+      ...(overrides.actual_user_environment ?? {})
+    },
+    total_cases: 18,
+    passed_cases: 18,
+    failed_cases: 0,
+    critical_failures: 0,
+    unexpected_unknown: 0,
+    false_pass: 0,
+    leak: 0,
+    evidence_missing_count: 0,
+    ...(overrides.ledger ?? {})
+  };
+}
+
 function skillPromptLiveLedger(overrides = {}) {
   const githubDraftPr = overrides.githubDraftPr === true;
   return {
@@ -779,6 +804,46 @@ describe('release evidence audit', () => {
     );
   });
 
+  it('can audit Skill prompt routing matrix evidence as an explicit scenario', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-matrix-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-matrix-run',
+      skillPromptMatrixLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-matrix-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P1',
+        scenario,
+        expected_status: 'SKILL_PROMPT_MATRIX_UAT_PASS'
+      })
+    ]);
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          status: 'SKILL_PROMPT_MATRIX_UAT_PASS',
+          proof_scope: 'copied_skill_prompt_routing_matrix',
+          total_cases: 18,
+          passed_cases: 18,
+          failed_cases: 0,
+          unexpected_unknown: 0
+        })
+      })
+    );
+  });
+
   it('fails Skill full fixture UAT evidence when scope or invariants are weak', async () => {
     const root = await tempRoot();
     const scenario = 'skill-real-user-full-uat';
@@ -893,8 +958,7 @@ describe('release evidence audit', () => {
 
   it('can audit Skill prompt GitHub draft PR evidence as an explicit scenario', async () => {
     const root = await tempRoot();
-    const scenario =
-      'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
+    const scenario = 'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
     await writeLedger(
       root,
       scenario,
@@ -970,8 +1034,7 @@ describe('release evidence audit', () => {
 
   it('fails Skill prompt GitHub draft PR audit when PR evidence is not verified', async () => {
     const root = await tempRoot();
-    const scenario =
-      'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
+    const scenario = 'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
     await writeLedger(
       root,
       scenario,
@@ -1979,10 +2042,7 @@ describe('release evidence audit', () => {
       ['express', 'examples/auth/index.js'],
       ['js-yaml', 'benchmark/benchmark.mjs'],
       ['requests', 'docs/conf.py'],
-      [
-        'urllib3',
-        'src/urllib3/contrib/emscripten/emscripten_fetch_worker.js'
-      ],
+      ['urllib3', 'src/urllib3/contrib/emscripten/emscripten_fetch_worker.js'],
       ['itsdangerous', 'docs/conf.py'],
       ['packaging', 'benchmarks/__init__.py']
     ].map(([id, repairSource]) => ({

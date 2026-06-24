@@ -42,9 +42,20 @@ const patterns = {
     ['leak_or_tamper', /hidden\s*leak|context\s*leak|누설|tamper|변조/i]
   ],
   codexLiveUat: [
-    ['codex_live', /codex[-\s]*live|real\s*codex|실\s*codex|실제\s*llm/i],
+    [
+      'codex_live',
+      /codex[-\s]*live|real\s*codex|실(?:제)?\s*codex|실제\s*llm/i
+    ],
     ['github_pr', /github|draft\s*pr|실\s*repo|실제\s*repo/i],
-    ['real_user', /real\s*user|실사용자|실\s*사용자/i]
+    ['real_user', /real\s*user|실사용자|실\s*사용자/i],
+    ['real_environment', /live|실환경|실\s*환경|real\s*environment/i]
+  ],
+  skillPromptLiveUat: [
+    [
+      'skill_prompt',
+      /skill\s*prompt|skill\s*layer|스킬\s*프롬프트|skill\.md|스킬\s*호출/i
+    ],
+    ['live_or_uat', /live|uat|실환경|실\s*환경|호출|검증|테스트/i]
   ],
   fixtureFullUat: [
     ['full_uat', /full\s*uat|풀\s*uat|full\s*test|풀\s*테스트/i],
@@ -59,7 +70,10 @@ const patterns = {
     ['existing_patch', /existing\s*patch|기존\s*패치|수정된\s*내용/i]
   ],
   autoDiscovery: [
-    ['auto_discovery', /자동\s*문제\s*발견|문제\s*찾|자율\s*개선|autonomous|discover/i],
+    [
+      'auto_discovery',
+      /자동\s*문제\s*발견|문제(?:점)?\s*찾|버그\s*찾|결함\s*찾|오류\s*찾|자율\s*개선|autonomous|discover/i
+    ],
     ['scan_repo', /repo\s*scan|프로젝트\s*스캔|전체\s*스캔|분석해서\s*수정/i],
     ['sequential_issue', /하나씩|1개씩|순차|issue\s*queue|다중\s*이슈/i]
   ],
@@ -88,6 +102,15 @@ const modeSpecs = {
     single_issue_policy: true,
     limitations: [
       'requires codex login, GitHub auth for PR evidence, and a real test repository'
+    ]
+  },
+  codex_skill_prompt_uat: {
+    command_hint:
+      'pnpm uat:skill-loop:codex-skill-prompt, :auto, :real-builder, or :full-live:github-pr',
+    task_eval_required: false,
+    single_issue_policy: true,
+    limitations: [
+      'verifies the live Codex Skill orchestrator and prompt runner path; GitHub draft PR evidence requires the explicit github-pr lane'
     ]
   },
   fixture_full_uat: {
@@ -155,10 +178,25 @@ function classify(prompt) {
       reason_codes: matches.adversarialUat
     };
   }
-  if (matches.codexLiveUat.length >= 2 && /uat|테스트|검증|run|실행/i.test(text)) {
+  if (
+    matches.skillPromptLiveUat.length >= 2 &&
+    /uat|테스트|검증|run|실행|호출/i.test(text)
+  ) {
+    return {
+      mode: 'codex_skill_prompt_uat',
+      confidence: 0.9,
+      reason_codes: matches.skillPromptLiveUat
+    };
+  }
+  if (
+    (matches.codexLiveUat.length >= 2 ||
+      matches.codexLiveUat.includes('github_pr') ||
+      matches.codexLiveUat.includes('real_environment')) &&
+    /uat|테스트|검증|run|실행|돌려/i.test(text)
+  ) {
     return {
       mode: 'codex_live_uat',
-      confidence: 0.88,
+      confidence: matches.codexLiveUat.length >= 2 ? 0.88 : 0.72,
       reason_codes: matches.codexLiveUat
     };
   }

@@ -33,6 +33,13 @@ release evidence까지 재감사하려면 full fixture evidence와 prompt live r
 corepack pnpm uat:skill-loop:full:release-evidence-audit
 ```
 
+실사용자 자연어 표현이 안전한 Skill 모드로 라우팅되는지 clean copied Skill install 기준으로 확인하려면 prompt matrix lane을 실행한다.
+
+```bash
+corepack pnpm uat:skill-loop:prompt-matrix
+corepack pnpm uat:skill-loop:prompt-matrix:release-evidence-audit
+```
+
 실제 Codex login 환경에서 full fixture UAT, 자연어 user_issue live, 자연어 auto_discovery live, combined release audit을 한 번에 돌리는 heavy lane은 아래 명령이다.
 
 ```bash

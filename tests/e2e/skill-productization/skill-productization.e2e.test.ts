@@ -260,8 +260,38 @@ describe.sequential('vibeloop-harness skill productization', () => {
         singleIssue: true
       },
       {
+        prompt: '특정 프로젝트 문제점 찾아줘',
+        mode: 'auto_discovery',
+        singleIssue: true
+      },
+      {
+        prompt: '버그 찾아서 PR 후보 만들어줘',
+        mode: 'auto_discovery',
+        singleIssue: true
+      },
+      {
         prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
         mode: 'user_issue',
+        singleIssue: true
+      },
+      {
+        prompt: '실제 Codex와 GitHub draft PR로 UAT 돌려줘',
+        mode: 'codex_live_uat',
+        singleIssue: true
+      },
+      {
+        prompt: '실환경 테스트 진행해줘',
+        mode: 'codex_live_uat',
+        singleIssue: true
+      },
+      {
+        prompt: 'Skill prompt live UAT 돌려줘',
+        mode: 'codex_skill_prompt_uat',
+        singleIssue: true
+      },
+      {
+        prompt: '스킬 프롬프트 실환경 호출 검증해줘',
+        mode: 'codex_skill_prompt_uat',
         singleIssue: true
       },
       {
