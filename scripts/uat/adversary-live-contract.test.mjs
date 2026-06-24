@@ -10,6 +10,7 @@ import {
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
+  buildEntitlementAccessSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
   buildInventoryReservationSemanticProposal,
   buildLoyaltyPointsSemanticProposal,
@@ -258,6 +259,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('gracePeriodMs');
   });
 
+  it('adds a supplemental entitlement access semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildEntitlementAccessSemanticProposal({
+      targetPath: 'tests/adversary/entitlement-access.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'entitlement-access-semantic',
+      targetPath: 'tests/adversary/entitlement-access.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canAccessFeature');
+    expect(proposal.body).toContain('enabledForPlans');
+    expect(proposal.body).toContain('regionAllowlist');
+    expect(proposal.body).toContain('betaFeatures');
+    expect(proposal.body).toContain('trialExpired: true');
+    expect(proposal.body).toContain('maxSeats');
+  });
+
   it('adds a supplemental gift card redemption semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildGiftCardRedemptionSemanticProposal({
       targetPath: 'tests/adversary/gift-card-redemption.test.cjs'
@@ -320,6 +339,7 @@ describe('adversary live contract', () => {
         couponApplicationHardcoded: 'fail',
         loyaltyPointsHardcoded: 'fail',
         subscriptionRenewalHardcoded: 'fail',
+        entitlementAccessHardcoded: 'fail',
         giftCardRedemptionHardcoded: 'fail'
       }
     });
@@ -448,6 +468,12 @@ describe('adversary live contract', () => {
           mechanism: 'rulepack_semantic:subscription_renewal_semantic'
         }),
         expect.objectContaining({
+          id: 'entitlement_access_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:entitlement_access_semantic'
+        }),
+        expect.objectContaining({
           id: 'gift_card_redemption_hardcode',
           executed: true,
           blocked: true,
@@ -505,6 +531,7 @@ describe('adversary live contract', () => {
         'attack_scenario_coupon_application_hardcode_missing',
         'attack_scenario_loyalty_points_hardcode_missing',
         'attack_scenario_subscription_renewal_hardcode_missing',
+        'attack_scenario_entitlement_access_hardcode_missing',
         'attack_scenario_gift_card_redemption_hardcode_missing'
       ])
     );
@@ -539,6 +566,7 @@ describe('adversary live contract', () => {
         couponApplicationHardcoded: 'fail',
         loyaltyPointsHardcoded: 'fail',
         subscriptionRenewalHardcoded: 'fail',
+        entitlementAccessHardcoded: 'fail',
         giftCardRedemptionHardcoded: 'fail'
       }
     });

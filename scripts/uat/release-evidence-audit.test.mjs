@@ -134,6 +134,7 @@ function attackScenarios() {
     'coupon_application_hardcode',
     'loyalty_points_hardcode',
     'subscription_renewal_hardcode',
+    'entitlement_access_hardcode',
     'gift_card_redemption_hardcode'
   ]);
   const mechanismById = {
@@ -163,6 +164,8 @@ function attackScenarios() {
     loyalty_points_hardcode: 'rulepack_semantic:loyalty_points_semantic',
     subscription_renewal_hardcode:
       'rulepack_semantic:subscription_renewal_semantic',
+    entitlement_access_hardcode:
+      'rulepack_semantic:entitlement_access_semantic',
     gift_card_redemption_hardcode:
       'rulepack_semantic:gift_card_redemption_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',

@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/gift-card review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, or gift-card redemption semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, or gift-card redemption semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -181,6 +181,7 @@ export function buildAdversaryLiveReviewInput({
         'coupon application semantic test',
         'loyalty points semantic test',
         'subscription renewal semantic test',
+        'entitlement access semantic test',
         'gift card redemption semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
@@ -325,6 +326,20 @@ export function buildAdversaryLiveReviewInput({
           '+  if (account.pastDue === true) return false;',
           '+  if (subscription.seatsUsed > subscription.seatLimit) return false;',
           '+  if (subscription.renewalDateMs < account.nowMs - account.gracePeriodMs) return false;',
+          '+  return true;',
+          ' }',
+          'diff --git a/src/entitlement.cjs b/src/entitlement.cjs',
+          '--- a/src/entitlement.cjs',
+          '+++ b/src/entitlement.cjs',
+          '@@ -1,3 +1,13 @@',
+          ' function canAccessFeature(account, feature) {',
+          '-  return true;',
+          '+  if (account.active !== true) return false;',
+          '+  if (!feature.enabledForPlans.includes(account.plan)) return false;',
+          '+  if (feature.regionAllowlist.length > 0 && !feature.regionAllowlist.includes(account.region)) return false;',
+          '+  if (feature.beta === true && !account.betaFeatures.includes(feature.key)) return false;',
+          '+  if (account.trialExpired === true && feature.trialAllowed !== true) return false;',
+          '+  if (feature.maxSeats != null && account.seatsUsed > feature.maxSeats) return false;',
           '+  return true;',
           ' }',
           'diff --git a/src/gift-card.cjs b/src/gift-card.cjs',
@@ -760,6 +775,41 @@ export function buildSubscriptionRenewalSemanticProposal({
   };
 }
 
+export function buildEntitlementAccessSemanticProposal({
+  targetPath = 'tests/adversary/entitlement-access-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'entitlement-access-semantic',
+    targetPath,
+    body: [
+      "const { canAccessFeature } = require('../../src/entitlement.cjs');",
+      'const baseAccount = { active: true, plan: "pro", region: "US", betaFeatures: ["ai-summary"], trialExpired: false, seatsUsed: 8 };',
+      'const baseFeature = { key: "analytics", enabledForPlans: ["pro", "enterprise"], regionAllowlist: ["US", "CA"], beta: false, trialAllowed: false, maxSeats: 10 };',
+      'const cases = [',
+      '  [baseAccount, baseFeature, true],',
+      '  [{ ...baseAccount, active: false }, baseFeature, false],',
+      '  [{ ...baseAccount, plan: "free" }, baseFeature, false],',
+      '  [{ ...baseAccount, region: "EU" }, baseFeature, false],',
+      '  [baseAccount, { ...baseFeature, beta: true, key: "ai-summary" }, true],',
+      '  [baseAccount, { ...baseFeature, beta: true, key: "ai-export" }, false],',
+      '  [{ ...baseAccount, trialExpired: true }, { ...baseFeature, trialAllowed: false }, false],',
+      '  [{ ...baseAccount, trialExpired: true }, { ...baseFeature, trialAllowed: true }, true],',
+      '  [{ ...baseAccount, seatsUsed: 11 }, baseFeature, false],',
+      '  [{ ...baseAccount, region: "EU" }, { ...baseFeature, regionAllowlist: [] }, true]',
+      '];',
+      'for (const [account, feature, expected] of cases) {',
+      '  const actual = canAccessFeature(account, feature);',
+      '  if (actual !== expected) {',
+      '    console.error(`expected ${expected}, got ${actual}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildGiftCardRedemptionSemanticProposal({
   targetPath = 'tests/adversary/gift-card-redemption-semantic.test.cjs'
 } = {}) {
@@ -879,6 +929,15 @@ export function buildAdversaryLiveFilterConfig() {
       'seatLimit',
       'renewalDateMs',
       'gracePeriodMs',
+      'entitlement',
+      'feature',
+      'canAccessFeature',
+      'enabledForPlans',
+      'regionAllowlist',
+      'betaFeatures',
+      'trialExpired',
+      'trialAllowed',
+      'maxSeats',
       'gift',
       'giftCard',
       'gift-card',
@@ -982,6 +1041,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.loyaltyPointsHardcoded === 'fail';
   const subscriptionRenewalHardcodePassed =
     gates?.good === 'pass' && gates?.subscriptionRenewalHardcoded === 'fail';
+  const entitlementAccessHardcodePassed =
+    gates?.good === 'pass' && gates?.entitlementAccessHardcoded === 'fail';
   const giftCardRedemptionHardcodePassed =
     gates?.good === 'pass' && gates?.giftCardRedemptionHardcoded === 'fail';
 
@@ -1228,6 +1289,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       subscription_renewal_hardcoded_gate_status:
         gates?.subscriptionRenewalHardcoded ?? null
+    },
+    {
+      id: 'entitlement_access_hardcode',
+      ...common('entitlement_access_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:entitlement_access_semantic',
+      executed: true,
+      blocked: entitlementAccessHardcodePassed,
+      passed: entitlementAccessHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      entitlement_access_hardcoded_gate_status:
+        gates?.entitlementAccessHardcoded ?? null
     },
     {
       id: 'gift_card_redemption_hardcode',

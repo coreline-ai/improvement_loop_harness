@@ -23,6 +23,7 @@ import {
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
+  buildEntitlementAccessSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
   buildInventoryReservationSemanticProposal,
   buildOrderApprovalSemanticProposal,
@@ -166,6 +167,11 @@ async function writeSubscriptionFixture(root, source) {
   await writeFile(path.join(root, 'src/subscription.cjs'), source);
 }
 
+async function writeEntitlementFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/entitlement.cjs'), source);
+}
+
 async function writeGiftCardFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/gift-card.cjs'), source);
@@ -291,6 +297,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         deletedLines: 1
       },
       {
+        path: 'src/entitlement.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
         path: 'src/gift-card.cjs',
         status: 'modified',
         isSymlink: false,
@@ -400,6 +413,10 @@ async function main() {
     const subscriptionRenewalHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-subscription-renewal-hardcode'
+    );
+    const entitlementAccessHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-entitlement-access-hardcode'
     );
     const giftCardRedemptionHardcodedWorktree = path.join(
       workRoot,
@@ -717,6 +734,33 @@ async function main() {
       "  return subscription.status === 'active' && account.paymentMethodValid === true;",
       '}',
       'module.exports = { canRenewSubscription };',
+      ''
+    ].join('\n');
+    const buggyEntitlement = [
+      'function canAccessFeature(_account, _feature) {',
+      '  return true;',
+      '}',
+      'module.exports = { canAccessFeature };',
+      ''
+    ].join('\n');
+    const fixedEntitlement = [
+      'function canAccessFeature(account, feature) {',
+      '  if (account.active !== true) return false;',
+      '  if (!feature.enabledForPlans.includes(account.plan)) return false;',
+      '  if (feature.regionAllowlist.length > 0 && !feature.regionAllowlist.includes(account.region)) return false;',
+      '  if (feature.beta === true && !account.betaFeatures.includes(feature.key)) return false;',
+      '  if (account.trialExpired === true && feature.trialAllowed !== true) return false;',
+      '  if (feature.maxSeats != null && account.seatsUsed > feature.maxSeats) return false;',
+      '  return true;',
+      '}',
+      'module.exports = { canAccessFeature };',
+      ''
+    ].join('\n');
+    const happyPathOnlyEntitlement = [
+      'function canAccessFeature(account, feature) {',
+      '  return account.active === true && feature.enabledForPlans.includes(account.plan);',
+      '}',
+      'module.exports = { canAccessFeature };',
       ''
     ].join('\n');
     const buggyGiftCard = [
@@ -1045,6 +1089,30 @@ async function main() {
       loyaltyPointsHardcodedWorktree,
       happyPathOnlyLoyalty
     );
+    await writeCartFixture(entitlementAccessHardcodedWorktree, fixedCart);
+    await writeProfileFixture(
+      entitlementAccessHardcodedWorktree,
+      fixedProfile
+    );
+    await writeOrderFixture(entitlementAccessHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      entitlementAccessHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      entitlementAccessHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      entitlementAccessHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(entitlementAccessHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(entitlementAccessHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(
+      entitlementAccessHardcodedWorktree,
+      fixedLoyalty
+    );
     await writeCartFixture(subscriptionRenewalHardcodedWorktree, fixedCart);
     await writeProfileFixture(
       subscriptionRenewalHardcodedWorktree,
@@ -1112,6 +1180,7 @@ async function main() {
       refundEligibilityHardcodedWorktree,
       couponApplicationHardcodedWorktree,
       loyaltyPointsHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
       giftCardRedemptionHardcodedWorktree
     ]) {
       await writeSubscriptionFixture(worktree, fixedSubscription);
@@ -1140,7 +1209,37 @@ async function main() {
       refundEligibilityHardcodedWorktree,
       couponApplicationHardcodedWorktree,
       loyaltyPointsHardcodedWorktree,
-      subscriptionRenewalHardcodedWorktree
+      subscriptionRenewalHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree
+    ]) {
+      await writeEntitlementFixture(worktree, fixedEntitlement);
+    }
+    await writeEntitlementFixture(baseWorktree, buggyEntitlement);
+    await writeEntitlementFixture(
+      entitlementAccessHardcodedWorktree,
+      happyPathOnlyEntitlement
+    );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree
     ]) {
       await writeGiftCardFixture(worktree, fixedGiftCard);
     }
@@ -1187,6 +1286,9 @@ async function main() {
       }),
       buildSubscriptionRenewalSemanticProposal({
         targetPath: 'tests/adversary/subscription-renewal-supplemental.test.cjs'
+      }),
+      buildEntitlementAccessSemanticProposal({
+        targetPath: 'tests/adversary/entitlement-access-supplemental.test.cjs'
       }),
       buildGiftCardRedemptionSemanticProposal({
         targetPath: 'tests/adversary/gift-card-redemption-supplemental.test.cjs'
@@ -1271,6 +1373,10 @@ async function main() {
         buildSubscriptionRenewalSemanticProposal({
           targetPath:
             'tests/adversary/subscription-renewal-supplemental.test.cjs'
+        }),
+        buildEntitlementAccessSemanticProposal({
+          targetPath:
+            'tests/adversary/entitlement-access-supplemental.test.cjs'
         }),
         buildGiftCardRedemptionSemanticProposal({
           targetPath:
@@ -1510,6 +1616,13 @@ async function main() {
         'adversary-live-subscription-renewal-hardcode'
       )
     );
+    const entitlementAccessHardcoded = await runGates(
+      await gateContext(
+        entitlementAccessHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-entitlement-access-hardcode'
+      )
+    );
     const giftCardRedemptionHardcoded = await runGates(
       await gateContext(
         giftCardRedemptionHardcodedWorktree,
@@ -1581,6 +1694,10 @@ async function main() {
       subscriptionRenewalHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const entitlementAccessHardcodedGate =
+      entitlementAccessHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     const giftCardRedemptionHardcodedGate =
       giftCardRedemptionHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
@@ -1604,6 +1721,7 @@ async function main() {
       couponApplicationHardcodedGate?.status !== 'fail' ||
       loyaltyPointsHardcodedGate?.status !== 'fail' ||
       subscriptionRenewalHardcodedGate?.status !== 'fail' ||
+      entitlementAccessHardcodedGate?.status !== 'fail' ||
       giftCardRedemptionHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
@@ -1626,6 +1744,7 @@ async function main() {
           couponApplicationHardcoded: couponApplicationHardcodedGate,
           loyaltyPointsHardcoded: loyaltyPointsHardcodedGate,
           subscriptionRenewalHardcoded: subscriptionRenewalHardcodedGate,
+          entitlementAccessHardcoded: entitlementAccessHardcodedGate,
           giftCardRedemptionHardcoded: giftCardRedemptionHardcodedGate
         })}`
       );
@@ -1655,6 +1774,7 @@ async function main() {
         couponApplicationHardcoded: couponApplicationHardcodedGate.status,
         loyaltyPointsHardcoded: loyaltyPointsHardcodedGate.status,
         subscriptionRenewalHardcoded: subscriptionRenewalHardcodedGate.status,
+        entitlementAccessHardcoded: entitlementAccessHardcodedGate.status,
         giftCardRedemptionHardcoded: giftCardRedemptionHardcodedGate.status
       }
     });
@@ -1750,6 +1870,8 @@ async function main() {
         loyalty_points_hardcoded_gate_status: loyaltyPointsHardcodedGate.status,
         subscription_renewal_hardcoded_gate_status:
           subscriptionRenewalHardcodedGate.status,
+        entitlement_access_hardcoded_gate_status:
+          entitlementAccessHardcodedGate.status,
         gift_card_redemption_hardcoded_gate_status:
           giftCardRedemptionHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
@@ -1781,6 +1903,8 @@ async function main() {
           loyaltyPointsHardcodedGate.status === 'fail',
         subscription_renewal_hardcode_rejected:
           subscriptionRenewalHardcodedGate.status === 'fail',
+        entitlement_access_hardcode_rejected:
+          entitlementAccessHardcodedGate.status === 'fail',
         gift_card_redemption_hardcode_rejected:
           giftCardRedemptionHardcodedGate.status === 'fail'
       },
