@@ -184,6 +184,29 @@ async function readJsonRecord(
   }
 }
 
+function resolveEvidencePath(
+  artifactRoot: string,
+  evidencePath: unknown
+): string | null {
+  if (typeof evidencePath !== 'string' || evidencePath.trim().length === 0) {
+    return null;
+  }
+  if (path.isAbsolute(evidencePath)) return evidencePath;
+
+  const root = path.resolve(artifactRoot);
+  const resolved = path.resolve(root, evidencePath);
+  if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) {
+    return null;
+  }
+  return resolved;
+}
+
+function artifactRootForReport(reportPath: string): string | null {
+  const reportsDir = path.dirname(reportPath);
+  if (path.basename(reportsDir) !== 'reports') return null;
+  return path.dirname(reportsDir);
+}
+
 async function qualifiedFromArtifacts(
   artifactRoot: string,
   reportJson: Record<string, unknown>
@@ -202,6 +225,83 @@ async function qualifiedFromArtifacts(
     return qualityReport.met;
   }
   return null;
+}
+
+async function assertFinalReverifyEvidence(
+  loop: LoopRunRecord,
+  finalVerification: Record<string, unknown>
+): Promise<void> {
+  if (finalVerification.reverify_attempted !== true) {
+    throw trustFloorError(
+      'final verification must re-execute the selected patch before PR creation'
+    );
+  }
+  if (finalVerification.reverified !== true) {
+    throw trustFloorError(
+      'final verification must complete fresh re-execution before PR creation'
+    );
+  }
+  if (finalVerification.reverify_qualified !== true) {
+    throw trustFloorError(
+      'final verification quality gate must pass before PR creation'
+    );
+  }
+
+  const reverifyReportPath = resolveEvidencePath(
+    loop.artifactRoot!,
+    finalVerification.reverify_report
+  );
+  if (!reverifyReportPath) {
+    throw trustFloorError(
+      'final reverify report is required before PR creation'
+    );
+  }
+  const reverifyStat = await stat(reverifyReportPath).catch(() => null);
+  if (!reverifyStat?.isFile()) {
+    throw trustFloorError(
+      'final reverify report artifact is missing before PR creation'
+    );
+  }
+  const reverifyReport = await readJsonRecord(reverifyReportPath);
+  if (!reverifyReport) {
+    throw trustFloorError('final reverify report JSON must be an object');
+  }
+  const reverifyProvenance = asRecord(reverifyReport.provenance);
+  const expectedPatchHash =
+    typeof finalVerification.candidate_patch_hash === 'string'
+      ? finalVerification.candidate_patch_hash
+      : null;
+  const reverifyPatchHash =
+    typeof reverifyProvenance?.candidate_patch_hash === 'string'
+      ? reverifyProvenance.candidate_patch_hash
+      : null;
+  if (
+    !expectedPatchHash ||
+    !SHA256_RE.test(expectedPatchHash) ||
+    reverifyPatchHash !== expectedPatchHash
+  ) {
+    throw trustFloorError(
+      'final reverify report patch hash must match selected candidate provenance'
+    );
+  }
+  if (
+    reverifyReport.decision !== 'accept' ||
+    !hasAllPassDecision(reverifyReport)
+  ) {
+    throw trustFloorError(
+      'final reverify report must independently accept the selected patch'
+    );
+  }
+
+  const reverifyArtifactRoot = artifactRootForReport(reverifyReportPath);
+  const reverifyQualified = reverifyArtifactRoot
+    ? await qualifiedFromArtifacts(reverifyArtifactRoot, reverifyReport)
+    : null;
+  if (reverifyQualified !== true) {
+    throw trustFloorError(
+      'final reverify report quality evidence must pass before PR creation'
+    );
+  }
 }
 
 function reportPatchHash(
@@ -276,6 +376,7 @@ async function assertServerPrTrustFloor(
       'final verification provenance must pass before PR creation'
     );
   }
+  await assertFinalReverifyEvidence(loop, finalVerification);
 
   const evidence = {
     decision:

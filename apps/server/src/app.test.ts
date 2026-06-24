@@ -73,11 +73,18 @@ interface TrustedReportOptions {
   candidatePatchHash?: string;
   finalVerification?: Record<string, unknown> | null;
   omitFinalVerification?: boolean;
+  reverifyReportPath?: string | null;
+  reverifyDecision?: string;
+  reverifyQualityMet?: boolean;
 }
 
 async function writeTrustedArtifacts(
   options: TrustedReportOptions = {}
-): Promise<{ artifactRoot: string; patchHash: string }> {
+): Promise<{
+  artifactRoot: string;
+  patchHash: string;
+  reverifyReportPath: string;
+}> {
   const artifactRoot =
     options.artifactRoot ??
     (await mkdtemp(path.join(os.tmpdir(), 'vibeloop-pr-artifacts-')));
@@ -101,7 +108,44 @@ async function writeTrustedArtifacts(
     path.join(artifactRoot, 'reports', 'quality-report.json'),
     `${JSON.stringify({ met: options.qualityMet ?? true }, null, 2)}\n`
   );
-  return { artifactRoot, patchHash };
+  const reverifyRoot = path.join(artifactRoot, 'reverify');
+  const reverifyReportPath = path.join(
+    reverifyRoot,
+    'reports',
+    'eval-report.json'
+  );
+  await mkdir(path.dirname(reverifyReportPath), { recursive: true });
+  await writeFile(
+    reverifyReportPath,
+    `${JSON.stringify(
+      {
+        schema_version: '1.1',
+        decision: options.reverifyDecision ?? 'accept',
+        decision_reasons: [
+          { code: 'ALL_PASS', message: 'All required gates passed.' }
+        ],
+        gate_runs: [
+          {
+            name: 'unit_tests',
+            type: 'test',
+            required: true,
+            status: 'pass',
+            exit_code: 0
+          }
+        ],
+        provenance: {
+          candidate_patch_hash: patchHash
+        }
+      },
+      null,
+      2
+    )}\n`
+  );
+  await writeFile(
+    path.join(reverifyRoot, 'reports', 'quality-report.json'),
+    `${JSON.stringify({ met: options.reverifyQualityMet ?? true }, null, 2)}\n`
+  );
+  return { artifactRoot, patchHash, reverifyReportPath };
 }
 
 function trustedEvalReportJson(
@@ -114,9 +158,12 @@ function trustedEvalReportJson(
     ? null
     : (options.finalVerification ?? {
         passed: true,
+        reverify_attempted: true,
         reverified: true,
+        reverify_qualified: true,
         provenance_ok: true,
-        candidate_patch_hash: candidatePatchHash
+        candidate_patch_hash: candidatePatchHash,
+        reverify_report: options.reverifyReportPath
       });
   return {
     schema_version: '1.1',
@@ -173,7 +220,10 @@ async function persistTrustedEvalReport(
     loopRunId: loop.id,
     type: 'eval',
     status: 'complete',
-    reportJson: trustedEvalReportJson(decision, artifacts.patchHash, options),
+    reportJson: trustedEvalReportJson(decision, artifacts.patchHash, {
+      ...options,
+      reverifyReportPath: artifacts.reverifyReportPath
+    }),
     artifactRef: 'reports/eval-report.json'
   });
   return artifacts;
@@ -215,7 +265,10 @@ async function seedAcceptedLoopWithReport(
     reportJson: trustedEvalReportJson(
       status === 'approved' || status === 'accepted' ? 'accept' : 'reject',
       artifacts.patchHash,
-      options
+      {
+        ...options,
+        reverifyReportPath: artifacts.reverifyReportPath
+      }
     ),
     artifactRef: 'reports/eval-report.json'
   });
@@ -1201,6 +1254,108 @@ describe('Fastify API auth and loop orchestration', () => {
         provenance_ok: true,
         candidate_patch_hash: patchHash
       }
+    });
+    const manager = new FakePullRequestManager();
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      pullRequestManager: manager
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: { code: 'PR_FORBIDDEN_TRUST_FLOOR' }
+    });
+    expect(manager.calls).toBe(0);
+  });
+
+  it('rejects PR creation when final reverify was not attempted', async () => {
+    const store = new MemoryStore();
+    const patch = 'diff --git a/src/value.ts b/src/value.ts\n';
+    const patchHash = sha256Text(patch);
+    const { loop } = await seedAcceptedLoopWithReport(store, 'accepted', {
+      patch,
+      finalVerification: {
+        passed: true,
+        reverify_attempted: false,
+        reverified: true,
+        reverify_qualified: true,
+        provenance_ok: true,
+        candidate_patch_hash: patchHash,
+        reverify_report: 'reverify/reports/eval-report.json'
+      }
+    });
+    const manager = new FakePullRequestManager();
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      pullRequestManager: manager
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: { code: 'PR_FORBIDDEN_TRUST_FLOOR' }
+    });
+    expect(manager.calls).toBe(0);
+  });
+
+  it('rejects PR creation when final reverify report evidence is missing', async () => {
+    const store = new MemoryStore();
+    const patch = 'diff --git a/src/value.ts b/src/value.ts\n';
+    const patchHash = sha256Text(patch);
+    const { loop } = await seedAcceptedLoopWithReport(store, 'accepted', {
+      patch,
+      finalVerification: {
+        passed: true,
+        reverify_attempted: true,
+        reverified: true,
+        reverify_qualified: true,
+        provenance_ok: true,
+        candidate_patch_hash: patchHash
+      }
+    });
+    const manager = new FakePullRequestManager();
+    const app = await createApp({
+      token: TOKEN,
+      store,
+      sseReplayOnly: true,
+      pullRequestManager: manager
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: `/api/loops/${loop.id}/pull-request`,
+      headers: authHeaders()
+    });
+    await app.close();
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: { code: 'PR_FORBIDDEN_TRUST_FLOOR' }
+    });
+    expect(manager.calls).toBe(0);
+  });
+
+  it('rejects PR creation when final reverify report does not accept', async () => {
+    const store = new MemoryStore();
+    const { loop } = await seedAcceptedLoopWithReport(store, 'accepted', {
+      reverifyDecision: 'reject'
     });
     const manager = new FakePullRequestManager();
     const app = await createApp({
