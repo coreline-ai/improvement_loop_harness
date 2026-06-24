@@ -30,7 +30,8 @@ function parseArgs(argv) {
     runnerLabel: process.env.VIBELOOP_CI_RUNNER_LABEL || '',
     repo: process.env.GITHUB_REPOSITORY || '',
     output: '',
-    githubOutput: process.env.GITHUB_OUTPUT || ''
+    githubOutput: process.env.GITHUB_OUTPUT || '',
+    requireCodexLoginRunner: false
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -52,6 +53,10 @@ function parseArgs(argv) {
     if (arg === '--github-output') {
       options.githubOutput = argv[index + 1] ?? '';
       index += 1;
+      continue;
+    }
+    if (arg === '--require-codex-login-runner') {
+      options.requireCodexLoginRunner = true;
       continue;
     }
     throw new Error(`unknown argument: ${arg}`);
@@ -77,7 +82,8 @@ function buildRunnerPreflightReport({
   runnerLabel,
   repo,
   runners,
-  fetchError
+  fetchError,
+  requireCodexLoginRunner = false
 }) {
   const label = normalizeRunnerLabel(runnerLabel);
   if (!label) {
@@ -87,11 +93,24 @@ function buildRunnerPreflightReport({
       runner_label: label,
       runner_kind: 'unknown',
       reason: 'RUNNER_LABEL_REQUIRED',
-      next_step:
-        'Dispatch the live workflow with a GitHub-hosted label or an online self-hosted runner label.'
+      next_step: requireCodexLoginRunner
+        ? 'Dispatch the live workflow with an online self-hosted/custom runner label that has Codex ChatGPT login available.'
+        : 'Dispatch the live workflow with a GitHub-hosted label or an online self-hosted runner label.'
     };
   }
   if (isGitHubHostedRunnerLabel(label)) {
+    if (requireCodexLoginRunner) {
+      return {
+        status: 'blocked',
+        can_run_live: false,
+        runner_label: label,
+        runner_kind: 'github-hosted',
+        reason: 'CODEX_LOGIN_RUNNER_REQUIRED',
+        matching_online_runner_count: null,
+        next_step:
+          'Dispatch this live evidence workflow with an online self-hosted/custom runner that has Codex ChatGPT login available.'
+      };
+    }
     return {
       status: 'pass',
       can_run_live: true,
@@ -117,8 +136,9 @@ function buildRunnerPreflightReport({
         ? 'RUNNER_QUERY_TOKEN_UNAVAILABLE'
         : 'RUNNER_QUERY_FAILED',
       error: fetchError,
-      next_step:
-        'Provide a token that can list repository self-hosted runners, register an online runner for this label, or rerun with a GitHub-hosted label before claiming CI live artifact reproducibility.'
+      next_step: requireCodexLoginRunner
+        ? 'Provide a token that can list repository self-hosted runners, or register an online self-hosted/custom runner with Codex ChatGPT login before claiming CI live artifact reproducibility.'
+        : 'Provide a token that can list repository self-hosted runners, register an online runner for this label, or rerun with a GitHub-hosted label before claiming CI live artifact reproducibility.'
     };
   }
   const matches = matchingOnlineRunners(runners, label);
@@ -258,7 +278,8 @@ async function main() {
     runnerLabel: label,
     repo: options.repo,
     runners,
-    fetchError
+    fetchError,
+    requireCodexLoginRunner: options.requireCodexLoginRunner
   });
 
   if (options.output) {

@@ -23,6 +23,22 @@ describe('CI live runner preflight', () => {
     });
   });
 
+  it('blocks GitHub-hosted labels for Codex-login live evidence lanes', () => {
+    const report = buildRunnerPreflightReport({
+      runnerLabel: 'ubuntu-latest',
+      repo: 'coreline-ai/improvement_loop_harness',
+      runners: [],
+      requireCodexLoginRunner: true
+    });
+
+    expect(report).toMatchObject({
+      status: 'blocked',
+      can_run_live: false,
+      runner_kind: 'github-hosted',
+      reason: 'CODEX_LOGIN_RUNNER_REQUIRED'
+    });
+  });
+
   it('allows a custom runner label only when an online runner has that label', () => {
     const runners = [
       {
@@ -96,13 +112,15 @@ describe('CI live runner preflight', () => {
         '--output',
         '.ci/runner.json',
         '--github-output',
-        '.ci/output'
+        '.ci/output',
+        '--require-codex-login-runner'
       ])
     ).toMatchObject({
       runnerLabel: 'codex-live',
       repo: 'coreline-ai/improvement_loop_harness',
       output: '.ci/runner.json',
-      githubOutput: '.ci/output'
+      githubOutput: '.ci/output',
+      requireCodexLoginRunner: true
     });
   });
 });

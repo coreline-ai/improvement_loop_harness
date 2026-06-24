@@ -12,7 +12,7 @@ on:
         description: Runner label with Docker and Codex ChatGPT login available.
         required: true
         type: string
-        default: ubuntu-latest
+        default: codex-live
       reviewer_model:
         description: Codex reviewer model.
         required: true
@@ -66,6 +66,7 @@ jobs:
           node scripts/uat/ci-runner-preflight.mjs \
             --runner-label "${{ inputs.runner_label }}" \
             --repo "${{ github.repository }}" \
+            --require-codex-login-runner \
             --output .ci-live-runner-preflight/runner-preflight.json \
             --github-output "$GITHUB_OUTPUT"
           {
