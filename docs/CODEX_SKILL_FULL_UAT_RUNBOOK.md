@@ -33,6 +33,12 @@ release evidence까지 재감사하려면 full fixture evidence와 prompt live r
 corepack pnpm uat:skill-loop:full:release-evidence-audit
 ```
 
+실제 Codex login 환경에서 full fixture UAT, 자연어 user_issue live, 자연어 auto_discovery live, combined release audit을 한 번에 돌리는 heavy lane은 아래 명령이다.
+
+```bash
+corepack pnpm uat:skill-loop:full-live
+```
+
 반복/seed 지정:
 
 ```bash
