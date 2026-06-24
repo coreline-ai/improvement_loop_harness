@@ -377,6 +377,7 @@ function skillFullUatLedger(overrides = {}) {
 }
 
 function skillPromptLiveLedger(overrides = {}) {
+  const githubDraftPr = overrides.githubDraftPr === true;
   return {
     status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
     evidence_missing_count: 0,
@@ -414,6 +415,31 @@ function skillPromptLiveLedger(overrides = {}) {
       pushed: false,
       ...(overrides.promotion ?? {})
     },
+    ...(githubDraftPr
+      ? {
+          github_draft_pr: true,
+          github_draft_pr_verified: true,
+          draft_pr: true,
+          github: {
+            repo: 'coreline-ai/vibeloop-skill-prompt-test',
+            url: 'https://github.com/coreline-ai/vibeloop-skill-prompt-test',
+            seeded_buggy_base: true,
+            draft_pr_count: 1,
+            draft_prs: [
+              {
+                branch_name: 'pr-candidate/skill-prompt-auto-remote',
+                github_repo: 'coreline-ai/vibeloop-skill-prompt-test',
+                pr_url:
+                  'https://github.com/coreline-ai/vibeloop-skill-prompt-test/pull/1',
+                pr_number: 1,
+                pushed: true,
+                pr_reused: false,
+                base_ref: 'main'
+              }
+            ]
+          }
+        }
+      : {}),
     false_pass: 0,
     leak: 0,
     failure_reasons: [],
@@ -860,6 +886,147 @@ describe('release evidence audit', () => {
             required_status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
             run_id: 'skill-prompt-auto-live-run'
           })
+        ])
+      })
+    );
+  });
+
+  it('can audit Skill prompt GitHub draft PR evidence as an explicit scenario', async () => {
+    const root = await tempRoot();
+    const scenario =
+      'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-user-github-run',
+      skillPromptLiveLedger({
+        githubDraftPr: true,
+        ledger: { status: 'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS' },
+        helper: { mode: 'user_issue', command_kind: 'vibeloop_improve' },
+        promotion: { branch_name: 'pr-candidate/skill-prompt-user-uat' }
+      }),
+      new Date('2026-06-21T01:00:00.000Z')
+    );
+    await writeManifest(root, scenario, 'skill-prompt-user-github-run');
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-auto-github-run',
+      skillPromptLiveLedger({
+        githubDraftPr: true,
+        ledger: {
+          status: 'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+        }
+      }),
+      new Date('2026-06-21T02:00:00.000Z')
+    );
+    await writeManifest(root, scenario, 'skill-prompt-auto-github-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P1',
+        scenario,
+        expected_statuses: [
+          'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+        ],
+        required_statuses: [
+          'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+        ]
+      })
+    ]);
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          status: 'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          github_draft_pr: true,
+          github_draft_pr_verified: true
+        }),
+        required_status_results: expect.arrayContaining([
+          expect.objectContaining({
+            ok: true,
+            required_status: 'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+            run_id: 'skill-prompt-user-github-run'
+          }),
+          expect.objectContaining({
+            ok: true,
+            required_status:
+              'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+            run_id: 'skill-prompt-auto-github-run'
+          })
+        ])
+      })
+    );
+  });
+
+  it('fails Skill prompt GitHub draft PR audit when PR evidence is not verified', async () => {
+    const root = await tempRoot();
+    const scenario =
+      'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-user-github-run',
+      skillPromptLiveLedger({
+        githubDraftPr: true,
+        ledger: { status: 'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS' },
+        helper: { mode: 'user_issue', command_kind: 'vibeloop_improve' },
+        promotion: { branch_name: 'pr-candidate/skill-prompt-user-uat' }
+      }),
+      new Date('2026-06-21T01:00:00.000Z')
+    );
+    await writeManifest(root, scenario, 'skill-prompt-user-github-run');
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-auto-github-run',
+      skillPromptLiveLedger({
+        ledger: {
+          status: 'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          github_draft_pr: true,
+          github_draft_pr_verified: false,
+          draft_pr: false,
+          github: {
+            repo: 'coreline-ai/vibeloop-skill-prompt-test',
+            draft_pr_count: 1,
+            draft_prs: [
+              {
+                branch_name: 'pr-candidate/skill-prompt-auto-remote',
+                github_repo: 'coreline-ai/vibeloop-skill-prompt-test',
+                pr_url: null,
+                pushed: false
+              }
+            ]
+          }
+        }
+      }),
+      new Date('2026-06-21T02:00:00.000Z')
+    );
+    await writeManifest(root, scenario, 'skill-prompt-auto-github-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        scenario,
+        ledger_failures: expect.arrayContaining([
+          'skill_prompt.github_draft_pr_verified',
+          'skill_prompt.github.draft_prs.verified',
+          'github_draft_pr'
         ])
       })
     );

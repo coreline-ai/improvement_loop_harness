@@ -12,11 +12,13 @@
 //   VIBELOOP_SKILL_PROMPT_UAT_MODE=user_issue      (default, RU-0.5/RU-0.7)
 //   VIBELOOP_SKILL_PROMPT_UAT_MODE=auto_discovery  (RU-0.6/RU-0.8)
 //   VIBELOOP_SKILL_PROMPT_UAT_BUILDER=fixture|codex
+//   VIBELOOP_SKILL_PROMPT_UAT_GITHUB_DRAFT_PR=1  (codex builder only)
 //
 // Honest scope: PASS here proves Skill-layer live invocation + deterministic
 // helper execution. With BUILDER=codex it also proves real builder invocation,
-// but still only local branch / one-candidate evidence — not GitHub RU-3 and
-// not full autonomous improvement PASS.
+// but the default lane is still local branch / one-candidate evidence. The
+// GitHub opt-in lane proves draft PR publication for this natural-language Skill
+// path, still not arbitrary-repo full autonomous improvement PASS.
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import {
@@ -56,10 +58,15 @@ const scenarioRoot = path.join(
 const targetTemplate = path.join(scenarioRoot, 'target-template');
 const fixtureAgent = path.join(scenarioRoot, 'agent-fix.cjs');
 const builderMode = process.env.VIBELOOP_SKILL_PROMPT_UAT_BUILDER ?? 'fixture';
+const githubDraftPrRequested =
+  process.env.VIBELOOP_SKILL_PROMPT_UAT_GITHUB_DRAFT_PR === '1';
 const model = process.env.VIBELOOP_SKILL_PROMPT_UAT_MODEL;
 const builderModel = process.env.VIBELOOP_UAT_MODEL || 'gpt-5.5';
 const builderReasoningEffort =
   process.env.VIBELOOP_UAT_REASONING_EFFORT || 'xhigh';
+const owner = process.env.VIBELOOP_UAT_GITHUB_OWNER || 'coreline-ai';
+const keepRemote = process.env.VIBELOOP_UAT_KEEP_REMOTE === '1';
+const githubTokenEnv = 'VIBELOOP_GITHUB_TOKEN';
 const timeoutMs = Number(
   process.env.VIBELOOP_SKILL_PROMPT_UAT_TIMEOUT_MS ?? 10 * 60 * 1000
 );
@@ -131,6 +138,27 @@ if (!['fixture', 'codex'].includes(builderMode)) {
     `unsupported VIBELOOP_SKILL_PROMPT_UAT_BUILDER=${builderMode}; expected fixture or codex`
   );
 }
+const activeScenarioName = githubDraftPrRequested
+  ? 'skill-real-user-codex-skill-prompt-github-draft-pr-uat'
+  : 'skill-real-user-codex-skill-prompt-uat';
+const activePassStatus = githubDraftPrRequested
+  ? requestedMode === 'auto_discovery'
+    ? 'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+    : 'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+  : scenario.ledgerPassStatus;
+const activeModeLabel = githubDraftPrRequested
+  ? `${scenario.modeLabel} + GitHub draft PR publication`
+  : scenario.modeLabel;
+const activeLimitations = [
+  'top-level Codex Skill orchestrator is live',
+  builderMode === 'codex'
+    ? 'underlying builder is real Codex via ChatGPT OAuth proxy'
+    : 'underlying builder is deterministic command fixture in this lane',
+  githubDraftPrRequested
+    ? 'publishes a verified selected patch as GitHub draft PR evidence for this prompt path'
+    : 'GitHub draft PR publication is not exercised in this local-promotion lane',
+  'single issue / bounded fixture scope; not arbitrary-repo full autonomous improvement PASS'
+];
 const userPrompt =
   process.env.VIBELOOP_SKILL_PROMPT_UAT_PROMPT ?? scenario.defaultPrompt;
 
@@ -194,8 +222,9 @@ function blocked(reason, details = {}) {
     JSON.stringify(
       {
         status: 'blocked',
-        scenario: 'skill-real-user-codex-skill-prompt-uat',
+        scenario: activeScenarioName,
         mode: requestedMode,
+        github_draft_pr_requested: githubDraftPrRequested,
         reason,
         ...details
       },
@@ -311,6 +340,46 @@ function promotion(helper) {
   );
 }
 
+function draftPrs(helper) {
+  const parsed = helper?.execution?.parsed;
+  if (!parsed) return [];
+  if (scenario.expectedHelperMode === 'auto_discovery') {
+    return (parsed.issues ?? [])
+      .map((issue) => issue?.draft_pr)
+      .filter(Boolean);
+  }
+  return parsed.draft_pr ? [parsed.draft_pr] : [];
+}
+
+function githubDraftPrSummary(helper, expectedRepo) {
+  const draftPrsForRun = draftPrs(helper);
+  const verified =
+    draftPrsForRun.length > 0 &&
+    draftPrsForRun.every(
+      (draftPr) =>
+        draftPr?.pushed === true &&
+        typeof draftPr?.branch_name === 'string' &&
+        draftPr.branch_name.length > 0 &&
+        typeof draftPr?.pr_url === 'string' &&
+        draftPr.pr_url.includes('/pull/') &&
+        (expectedRepo ? draftPr.github_repo === expectedRepo : true)
+    );
+  return {
+    requested: githubDraftPrRequested,
+    verified,
+    count: draftPrsForRun.length,
+    draft_prs: draftPrsForRun.map((draftPr) => ({
+      branch_name: draftPr.branch_name ?? null,
+      github_repo: draftPr.github_repo ?? null,
+      pr_url: draftPr.pr_url ?? null,
+      pr_number: draftPr.pr_number ?? null,
+      pushed: draftPr.pushed ?? null,
+      pr_reused: draftPr.pr_reused ?? null,
+      base_ref: draftPr.base_ref ?? null
+    }))
+  };
+}
+
 function prCandidate(helper) {
   const parsed = helper?.execution?.parsed;
   if (scenario.expectedHelperMode === 'auto_discovery') {
@@ -327,7 +396,8 @@ function passReasons({
   helper,
   finalMessage,
   helperStat,
-  startedAt
+  startedAt,
+  githubSummary
 }) {
   const parsed = helper?.execution?.parsed;
   const currentPromotion = promotion(helper);
@@ -362,6 +432,9 @@ function passReasons({
     if (parsed?.cumulative_promotion?.rediscovery_after_each_fix !== true) {
       reasons.push('rediscovery_not_recorded');
     }
+  }
+  if (githubDraftPrRequested && githubSummary?.verified !== true) {
+    reasons.push('github_draft_pr_not_verified');
   }
   if (finalMessage?.skill_file_read !== true) {
     reasons.push('codex_final_did_not_report_skill_read');
@@ -407,9 +480,31 @@ async function prepareRepo(targetRepo) {
   return git(targetRepo, ['rev-parse', 'HEAD']);
 }
 
+async function githubToken() {
+  const envToken =
+    process.env[githubTokenEnv]?.trim() || process.env.GITHUB_TOKEN?.trim();
+  if (envToken) return envToken;
+  const result = await run('gh', ['auth', 'token'], { timeoutMs: 30_000 });
+  if (result.code !== 0 || result.stdout.trim().length === 0) {
+    throw new Error(`gh auth token failed: ${result.stderr.trim()}`);
+  }
+  return result.stdout.trim();
+}
+
+function assertGeneratedSkillPromptRepoName(repoName) {
+  if (!repoName.startsWith('vibeloop-skill-prompt-')) {
+    throw new Error(`refusing to manage non-UAT GitHub repo: ${repoName}`);
+  }
+}
+
 async function main() {
   if (!existsSync(skillFile)) return blocked('SKILL_FILE_NOT_FOUND');
   if (!existsSync(promptRunner)) return blocked('PROMPT_RUNNER_NOT_FOUND');
+  if (githubDraftPrRequested && builderMode !== 'codex') {
+    return blocked('GITHUB_DRAFT_PR_REQUIRES_REAL_BUILDER', {
+      builder_mode: builderMode
+    });
+  }
   if ((await run('codex', ['--version'], { timeoutMs: 30_000 })).code !== 0) {
     return blocked('CODEX_CLI_NOT_AVAILABLE');
   }
@@ -442,10 +537,51 @@ async function main() {
 
   let pass = false;
   let proxy;
+  let githubRepoCreated = false;
+  let fullRepo = null;
+  let token = null;
   try {
     await mkdir(dataDir, { recursive: true });
     const baseCommit = await prepareRepo(targetRepo);
     await writeOutputSchema(outputSchemaPath);
+    if (githubDraftPrRequested) {
+      if ((await run('gh', ['auth', 'status'], { timeoutMs: 30_000 })).code !== 0) {
+        return blocked('GH_NOT_AUTHENTICATED');
+      }
+      try {
+        token = await githubToken();
+      } catch (error) {
+        return blocked('GH_TOKEN_NOT_AVAILABLE', {
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      const modeSlug = requestedMode.replaceAll('_', '-');
+      const repoName = `vibeloop-skill-prompt-${modeSlug}-${tag}`;
+      assertGeneratedSkillPromptRepoName(repoName);
+      fullRepo = `${owner}/${repoName}`;
+      const created = await run(
+        'gh',
+        [
+          'repo',
+          'create',
+          fullRepo,
+          '--private',
+          '--source',
+          targetRepo,
+          '--remote',
+          'origin',
+          '--push'
+        ],
+        { timeoutMs: 120_000 }
+      );
+      if (created.code !== 0) {
+        return blocked('GH_REPO_CREATE_FAILED', {
+          repo: fullRepo,
+          stderr: redact(created.stderr).trim()
+        });
+      }
+      githubRepoCreated = true;
+    }
 
     let agentSpec = `command:node ${fixtureAgent}`;
     if (builderMode === 'codex') {
@@ -494,6 +630,30 @@ async function main() {
       scenario.promotionBranch,
       scenario.promotionFlag,
       scenario.promotionMessage,
+      ...(githubDraftPrRequested
+        ? [
+            '--github-draft-pr',
+            '--github-repo',
+            fullRepo,
+            '--github-token-env',
+            githubTokenEnv,
+            '--github-base',
+            'main',
+            ...(requestedMode === 'auto_discovery'
+              ? [
+                  '--github-branch-prefix',
+                  `pr-candidate/skill-prompt-auto-${tag}`,
+                  '--github-title-prefix',
+                  '[VibeLoop Skill Prompt]'
+                ]
+              : [
+                  '--github-branch',
+                  `pr-candidate/skill-prompt-${tag}`,
+                  '--github-title',
+                  '[VibeLoop Skill Prompt] verified fix'
+                ])
+          ]
+        : []),
       ...scenario.extraHelperArgs
     ];
     const helperShell = `${printableCommand(helperArgs)} > ${shellQuote(
@@ -509,7 +669,7 @@ async function main() {
       helper_command_kind: scenario.expectedCommandKind,
       pr_candidate: true,
       notes: 'short note only',
-      limitations: scenario.limitations
+      limitations: activeLimitations
     };
     const prompt = `
 You are running a VibeLoop Harness live Skill-layer UAT.
@@ -554,8 +714,13 @@ Acceptance authority: deterministic VibeLoop reports only.
     ];
 
     const startedAt = Date.now();
+    const codexEnv =
+      githubDraftPrRequested && token
+        ? { ...process.env, [githubTokenEnv]: token }
+        : process.env;
     const codexResult = await run('codex', codexArgs, {
       cwd: repoRoot,
+      env: codexEnv,
       stdin: prompt,
       timeoutMs
     });
@@ -569,12 +734,14 @@ Acceptance authority: deterministic VibeLoop reports only.
     const finalMessage = existsSync(finalMessagePath)
       ? parseFinalJson(await readFile(finalMessagePath, 'utf8'))
       : parseFinalJson(codexResult.stdout);
+    const githubSummary = githubDraftPrSummary(helper, fullRepo);
     const reasons = passReasons({
       codexResult,
       helper,
       finalMessage,
       helperStat,
-      startedAt
+      startedAt,
+      githubSummary
     });
     pass = reasons.length === 0;
     const parsed = helper?.execution?.parsed ?? null;
@@ -587,10 +754,14 @@ Acceptance authority: deterministic VibeLoop reports only.
       () => null
     );
     const ledger = {
-      status: pass ? scenario.ledgerPassStatus : 'SKILL_PROMPT_LIVE_UAT_FAIL',
-      scenario: 'skill-real-user-codex-skill-prompt-uat',
-      mode: scenario.modeLabel,
+      status: pass ? activePassStatus : 'SKILL_PROMPT_LIVE_UAT_FAIL',
+      scenario: activeScenarioName,
+      mode: activeModeLabel,
       requested_mode: requestedMode,
+      github_draft_pr: githubDraftPrRequested && githubSummary.count > 0,
+      github_draft_pr_verified:
+        githubDraftPrRequested && githubSummary.verified === true,
+      draft_pr: githubDraftPrRequested && githubSummary.verified === true,
       orchestrator: {
         real_llm: true,
         codex_cli: true,
@@ -626,6 +797,16 @@ Acceptance authority: deterministic VibeLoop reports only.
       pr_candidate: prCandidate(helper),
       final_verification: finalVerification(helper),
       promotion: promotion(helper),
+      github: githubDraftPrRequested
+        ? {
+            repo: fullRepo,
+            url: fullRepo ? `https://github.com/${fullRepo}` : null,
+            seeded_buggy_base: githubRepoCreated,
+            keep_remote: keepRemote,
+            draft_pr_count: githubSummary.count,
+            draft_prs: githubSummary.draft_prs
+          }
+        : null,
       auto_discovery:
         requestedMode === 'auto_discovery'
           ? {
@@ -657,11 +838,12 @@ Acceptance authority: deterministic VibeLoop reports only.
         builderMode === 'codex'
           ? 'does prove a real Codex builder was invoked through the helper, but with one candidate only'
           : 'does not prove real builder model quality because this lane uses a deterministic command builder',
-        ...(requestedMode === 'auto_discovery'
-          ? [
-              'does not prove GitHub draft PR RU-3 because promotion is local only'
-            ]
-          : ['does not prove auto-discovery RU-3']),
+        githubDraftPrRequested
+          ? 'does prove GitHub draft PR publication for this bounded natural-language Skill prompt path'
+          : 'does not prove GitHub draft PR publication because promotion is local only',
+        requestedMode === 'auto_discovery'
+          ? 'auto_discovery is bounded to one issue in this Skill prompt lane'
+          : 'does not prove auto-discovery RU-3',
         'does not prove full autonomous improvement PASS'
       ],
       evidence: {
@@ -694,7 +876,8 @@ Acceptance authority: deterministic VibeLoop reports only.
       extraJson: {
         orchestrator: ledger.orchestrator,
         helper: ledger.helper,
-        target_repo: ledger.target_repo
+        target_repo: ledger.target_repo,
+        github: ledger.github
       }
     });
     ledger.evidence = {
@@ -716,6 +899,14 @@ Acceptance authority: deterministic VibeLoop reports only.
     if (!pass) process.exitCode = 1;
   } finally {
     if (proxy) await proxy.close().catch(() => undefined);
+    if (!keepRemote && githubRepoCreated && fullRepo) {
+      const repoName = fullRepo.split('/').pop();
+      assertGeneratedSkillPromptRepoName(repoName);
+      const del = await run('gh', ['repo', 'delete', fullRepo, '--yes']);
+      if (del.code !== 0) {
+        await run('gh', ['repo', 'archive', fullRepo, '--yes']);
+      }
+    }
     if (pruneTmp && pass) {
       await rm(tmpRoot, { recursive: true, force: true }).catch(
         () => undefined

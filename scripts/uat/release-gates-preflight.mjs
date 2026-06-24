@@ -213,6 +213,26 @@ export const SKILL_PROMPT_LIVE_EVIDENCE_SCENARIO = {
   }
 };
 
+export const SKILL_PROMPT_GITHUB_DRAFT_PR_EVIDENCE_SCENARIO = {
+  gate: 'P1',
+  name: 'Skill prompt live real-builder GitHub draft PR evidence',
+  scenario: 'skill-real-user-codex-skill-prompt-github-draft-pr-uat',
+  require_manifest: true,
+  expected_statuses: [
+    'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+    'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+  ],
+  required_statuses: [
+    'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+    'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+  ],
+  expected_ledger: {
+    required_skill_prompt_real_builder: true,
+    required_skill_prompt_github_draft_pr: true,
+    required_github_draft_pr: true
+  }
+};
+
 export const SKILL_FULL_UAT_EVIDENCE_SCENARIO = {
   gate: 'P1',
   name: 'Skill full fixture UAT evidence',
@@ -1210,6 +1230,28 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
           pushed: ledgerJson.promotion.pushed ?? null
         }
       : null,
+    github_draft_pr: ledgerJson.github_draft_pr ?? false,
+    github_draft_pr_verified: ledgerJson.github_draft_pr_verified ?? false,
+    draft_pr: ledgerJson.draft_pr ?? null,
+    github: ledgerJson.github
+      ? {
+          repo: ledgerJson.github.repo ?? null,
+          url: ledgerJson.github.url ?? null,
+          seeded_buggy_base: ledgerJson.github.seeded_buggy_base ?? null,
+          draft_pr_count: ledgerJson.github.draft_pr_count ?? null,
+          draft_prs: Array.isArray(ledgerJson.github.draft_prs)
+            ? ledgerJson.github.draft_prs.map((draftPr) => ({
+                branch_name: draftPr.branch_name ?? null,
+                github_repo: draftPr.github_repo ?? null,
+                pr_url: draftPr.pr_url ?? null,
+                pr_number: draftPr.pr_number ?? null,
+                pushed: draftPr.pushed ?? null,
+                pr_reused: draftPr.pr_reused ?? null,
+                base_ref: draftPr.base_ref ?? null
+              }))
+            : []
+        }
+      : null,
     false_pass: ledgerJson.false_pass ?? null,
     leak: ledgerJson.leak ?? null,
     failure_reasons_count: Array.isArray(ledgerJson.failure_reasons)
@@ -1281,6 +1323,34 @@ function requiredSkillPromptLedgerFailures(ledgerSummary) {
   }
   if (ledgerSummary.failure_reasons_count !== 0) {
     failures.push('skill_prompt.failure_reasons');
+  }
+  return failures;
+}
+
+function requiredSkillPromptGithubDraftPrFailures(ledgerSummary) {
+  const failures = [];
+  if (ledgerSummary.github_draft_pr !== true) {
+    failures.push('skill_prompt.github_draft_pr');
+  }
+  if (ledgerSummary.github_draft_pr_verified !== true) {
+    failures.push('skill_prompt.github_draft_pr_verified');
+  }
+  const draftPrs = ledgerSummary.github?.draft_prs ?? [];
+  if (!(draftPrs.length > 0)) {
+    failures.push('skill_prompt.github.draft_prs');
+  }
+  if (
+    draftPrs.some(
+      (draftPr) =>
+        draftPr.pushed !== true ||
+        typeof draftPr.pr_url !== 'string' ||
+        !draftPr.pr_url.includes('/pull/') ||
+        typeof draftPr.branch_name !== 'string' ||
+        draftPr.branch_name.length === 0 ||
+        !draftPr.github_repo
+    )
+  ) {
+    failures.push('skill_prompt.github.draft_prs.verified');
   }
   return failures;
 }
@@ -1396,6 +1466,11 @@ async function validateRequiredStatusEvidence({
     }
     if (options.expectedLedger?.required_skill_prompt_real_builder) {
       ledgerFailures.push(...requiredSkillPromptLedgerFailures(ledgerSummary));
+    }
+    if (options.expectedLedger?.required_skill_prompt_github_draft_pr) {
+      ledgerFailures.push(
+        ...requiredSkillPromptGithubDraftPrFailures(ledgerSummary)
+      );
     }
     if (ledgerFailures.length > 0) {
       return {
@@ -1589,6 +1664,25 @@ export async function latestEvidenceBundle(
         draft_pr: ledgerJson.draft_pr ?? null,
         github_draft_pr: ledgerJson.github_draft_pr ?? false,
         github_draft_pr_verified: ledgerJson.github_draft_pr_verified ?? false,
+        github: ledgerJson.github
+          ? {
+              repo: ledgerJson.github.repo ?? null,
+              url: ledgerJson.github.url ?? null,
+              seeded_buggy_base: ledgerJson.github.seeded_buggy_base ?? null,
+              draft_pr_count: ledgerJson.github.draft_pr_count ?? null,
+              draft_prs: Array.isArray(ledgerJson.github.draft_prs)
+                ? ledgerJson.github.draft_prs.map((draftPr) => ({
+                    branch_name: draftPr.branch_name ?? null,
+                    github_repo: draftPr.github_repo ?? null,
+                    pr_url: draftPr.pr_url ?? null,
+                    pr_number: draftPr.pr_number ?? null,
+                    pushed: draftPr.pushed ?? null,
+                    pr_reused: draftPr.pr_reused ?? null,
+                    base_ref: draftPr.base_ref ?? null
+                  }))
+                : []
+            }
+          : null,
         builder: ledgerJson.builder
           ? {
               real_llm: ledgerJson.builder.real_llm ?? null,
@@ -1791,6 +1885,11 @@ export async function latestEvidenceBundle(
     }
     if (options.expectedLedger?.required_skill_prompt_real_builder) {
       ledgerFailures.push(...requiredSkillPromptLedgerFailures(ledgerSummary));
+    }
+    if (options.expectedLedger?.required_skill_prompt_github_draft_pr) {
+      ledgerFailures.push(
+        ...requiredSkillPromptGithubDraftPrFailures(ledgerSummary)
+      );
     }
     if (options.expectedLedger?.required_skill_full_uat) {
       ledgerFailures.push(...requiredSkillFullUatFailures(ledgerSummary));

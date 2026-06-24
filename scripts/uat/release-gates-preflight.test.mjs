@@ -97,7 +97,9 @@ function skillPromptLiveLedger({
   mode = 'auto_discovery',
   commandKind = 'vibeloop_orchestrate',
   branchName = 'pr-candidate/skill-prompt-auto-uat',
-  builder = {}
+  githubDraftPr = false,
+  builder = {},
+  ledger = {}
 } = {}) {
   return {
     status,
@@ -132,9 +134,35 @@ function skillPromptLiveLedger({
       branch_name: branchName,
       pushed: false
     },
+    ...(githubDraftPr
+      ? {
+          github_draft_pr: true,
+          github_draft_pr_verified: true,
+          draft_pr: true,
+          github: {
+            repo: 'coreline-ai/vibeloop-skill-prompt-test',
+            url: 'https://github.com/coreline-ai/vibeloop-skill-prompt-test',
+            seeded_buggy_base: true,
+            draft_pr_count: 1,
+            draft_prs: [
+              {
+                branch_name: `${branchName}-remote`,
+                github_repo: 'coreline-ai/vibeloop-skill-prompt-test',
+                pr_url:
+                  'https://github.com/coreline-ai/vibeloop-skill-prompt-test/pull/1',
+                pr_number: 1,
+                pushed: true,
+                pr_reused: false,
+                base_ref: 'main'
+              }
+            ]
+          }
+        }
+      : {}),
     false_pass: 0,
     leak: 0,
-    failure_reasons: []
+    failure_reasons: [],
+    ...ledger
   };
 }
 
@@ -2323,6 +2351,149 @@ ELIFECYCLE Command failed with exit code 20.`);
           required_status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
           run_id: 'skill-prompt-auto-live-run'
         })
+      ])
+    });
+  });
+
+  it('requires both Skill prompt GitHub draft PR modes for PR evidence', async () => {
+    const root = await tempRoot();
+    const scenario =
+      'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-user-github-run',
+      new Date('2026-06-21T01:00:00.000Z'),
+      skillPromptLiveLedger({
+        status: 'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+        mode: 'user_issue',
+        commandKind: 'vibeloop_improve',
+        branchName: 'pr-candidate/skill-prompt-user-uat',
+        githubDraftPr: true
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-user-github-run');
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-auto-github-run',
+      new Date('2026-06-21T02:00:00.000Z'),
+      skillPromptLiveLedger({
+        status: 'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+        githubDraftPr: true
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-auto-github-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatuses: [
+          'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+        ],
+        requiredStatuses: [
+          'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+        ],
+        expectedLedger: {
+          required_skill_prompt_real_builder: true,
+          required_skill_prompt_github_draft_pr: true,
+          required_github_draft_pr: true
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      ledger_summary: expect.objectContaining({
+        github_draft_pr: true,
+        github_draft_pr_verified: true
+      }),
+      required_status_results: expect.arrayContaining([
+        expect.objectContaining({
+          ok: true,
+          required_status: 'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          run_id: 'skill-prompt-user-github-run'
+        }),
+        expect.objectContaining({
+          ok: true,
+          required_status:
+            'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          run_id: 'skill-prompt-auto-github-run'
+        })
+      ])
+    });
+  });
+
+  it('fails Skill prompt GitHub draft PR evidence when PR verification is absent', async () => {
+    const root = await tempRoot();
+    const scenario =
+      'skill-real-user-codex-skill-prompt-github-draft-pr-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-user-github-run',
+      new Date('2026-06-21T01:00:00.000Z'),
+      skillPromptLiveLedger({
+        status: 'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+        mode: 'user_issue',
+        commandKind: 'vibeloop_improve',
+        branchName: 'pr-candidate/skill-prompt-user-uat',
+        githubDraftPr: true
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-user-github-run');
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-auto-github-run',
+      new Date('2026-06-21T02:00:00.000Z'),
+      skillPromptLiveLedger({
+        status: 'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+        ledger: {
+          github_draft_pr: true,
+          github_draft_pr_verified: false,
+          draft_pr: false,
+          github: {
+            repo: 'coreline-ai/vibeloop-skill-prompt-test',
+            draft_pr_count: 1,
+            draft_prs: [
+              {
+                branch_name: 'pr-candidate/skill-prompt-auto-remote',
+                github_repo: 'coreline-ai/vibeloop-skill-prompt-test',
+                pr_url: null,
+                pushed: false
+              }
+            ]
+          }
+        }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-auto-github-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatuses: [
+          'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+        ],
+        requiredStatuses: [
+          'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS',
+          'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+        ],
+        expectedLedger: {
+          required_skill_prompt_real_builder: true,
+          required_skill_prompt_github_draft_pr: true,
+          required_github_draft_pr: true
+        }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 'invalid_ledger',
+      ledger_failures: expect.arrayContaining([
+        'skill_prompt.github_draft_pr_verified',
+        'skill_prompt.github.draft_prs.verified',
+        'github_draft_pr'
       ])
     });
   });
