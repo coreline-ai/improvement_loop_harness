@@ -157,6 +157,11 @@ function visitOutputForPaths(value, reportPaths, runRoots) {
     for (const issue of value.issues)
       visitOutputForPaths(issue, reportPaths, runRoots);
   }
+  if (Array.isArray(value.cases)) {
+    for (const testCase of value.cases) {
+      visitOutputForPaths(testCase, reportPaths, runRoots);
+    }
+  }
   if (Array.isArray(value.candidates)) {
     for (const candidate of value.candidates) {
       visitOutputForPaths(candidate, reportPaths, runRoots);

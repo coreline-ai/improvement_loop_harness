@@ -124,6 +124,56 @@ describe('UAT evidence bundle', () => {
     expect(copiedManifest.audit_keep).toBe(true);
   });
 
+  it('preserves report files referenced from full UAT cases', async () => {
+    const root = await tempRoot();
+    const dataDir = path.join(root, 'data');
+    const runRoot = path.join(
+      dataDir,
+      'projects',
+      'project-1',
+      'runs',
+      'case-1'
+    );
+    const reportsDir = path.join(runRoot, 'reports');
+    await mkdir(reportsDir, { recursive: true });
+    await writeFile(
+      path.join(runRoot, 'manifest.json'),
+      '{"schema_version":"1.0"}\n'
+    );
+    await writeFile(
+      path.join(reportsDir, 'eval-report.json'),
+      '{"decision":"reject"}\n'
+    );
+
+    const bundle = await writeUatEvidenceBundle({
+      scenario: 'skill-real-user-full-uat',
+      runId: 'full-uat-run',
+      tmpRoot: root,
+      dataDir,
+      output: {
+        cases: [
+          {
+            id: 'negative-case',
+            report: path.join(reportsDir, 'eval-report.json'),
+            artifact_root: runRoot
+          }
+        ]
+      },
+      evidenceDir: path.join(root, 'evidence')
+    });
+
+    const manifest = JSON.parse(await readFile(bundle.manifest_path, 'utf8'));
+    expect(
+      manifest.copied.some(
+        (entry) =>
+          entry.kind === 'report' && entry.label === 'eval-report.json'
+      )
+    ).toBe(true);
+    expect(manifest.copied.some((entry) => entry.kind === 'run_root')).toBe(
+      true
+    );
+  });
+
   it('only prunes temp roots when explicitly requested', () => {
     expect(shouldPruneUatTmp({})).toBe(false);
     expect(shouldPruneUatTmp({ VIBELOOP_UAT_PRUNE: '1' })).toBe(true);

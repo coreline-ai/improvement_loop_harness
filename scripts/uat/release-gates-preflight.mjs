@@ -212,6 +212,17 @@ export const SKILL_PROMPT_LIVE_EVIDENCE_SCENARIO = {
   }
 };
 
+export const SKILL_FULL_UAT_EVIDENCE_SCENARIO = {
+  gate: 'P1',
+  name: 'Skill full fixture UAT evidence',
+  scenario: 'skill-real-user-full-uat',
+  require_manifest: true,
+  expected_status: 'FULL_UAT_PASS',
+  expected_ledger: {
+    required_skill_full_uat: true
+  }
+};
+
 export const PRODUCT_100_EVIDENCE_SCENARIO = {
   gate: 'P6',
   name: 'Product-100 Codex live evidence',
@@ -1273,6 +1284,71 @@ function requiredSkillPromptLedgerFailures(ledgerSummary) {
   return failures;
 }
 
+function requiredSkillFullUatFailures(ledgerSummary) {
+  const failures = [];
+  if (ledgerSummary.proof_scope !== 'fixture_baseline_only') {
+    failures.push('skill_full_uat.proof_scope');
+  }
+  if (ledgerSummary.not_live_codex_or_github_pass !== true) {
+    failures.push('skill_full_uat.not_live_codex_or_github_pass');
+  }
+  if (ledgerSummary.actual_user_environment?.copied_skill_install !== true) {
+    failures.push('skill_full_uat.copied_skill_install');
+  }
+  if (
+    ledgerSummary.actual_user_environment?.copied_skill_wrapper !==
+    'vibeloop-harness/scripts/vibeloop-run.mjs'
+  ) {
+    failures.push('skill_full_uat.copied_skill_wrapper');
+  }
+  if (
+    ledgerSummary.actual_user_environment?.vendor_cli !==
+    'vibeloop-harness/vendor/vibeloop.mjs'
+  ) {
+    failures.push('skill_full_uat.vendor_cli');
+  }
+  if (ledgerSummary.actual_user_environment?.external_user_repo !== true) {
+    failures.push('skill_full_uat.external_user_repo');
+  }
+  if (
+    ledgerSummary.actual_user_environment
+      ?.task_eval_created_by_copied_skill_script !== true
+  ) {
+    failures.push('skill_full_uat.task_eval_created_by_copied_skill_script');
+  }
+  if (ledgerSummary.actual_user_environment?.command_agents !== true) {
+    failures.push('skill_full_uat.command_agents');
+  }
+  if (!(ledgerSummary.required_cases > 0)) {
+    failures.push('skill_full_uat.required_cases');
+  }
+  if (!(ledgerSummary.total_cases >= ledgerSummary.required_cases)) {
+    failures.push('skill_full_uat.total_cases');
+  }
+  if (ledgerSummary.passed_cases !== ledgerSummary.total_cases) {
+    failures.push('skill_full_uat.passed_cases');
+  }
+  if (ledgerSummary.failure_rate?.unexpectedAccept !== 0) {
+    failures.push('skill_full_uat.unexpected_accept');
+  }
+  if (ledgerSummary.failure_rate?.unexpectedReject !== 0) {
+    failures.push('skill_full_uat.unexpected_reject');
+  }
+  if (ledgerSummary.failure_rate?.hiddenLeak !== 0) {
+    failures.push('skill_full_uat.hidden_leak');
+  }
+  if (!(ledgerSummary.positive?.pr_candidate_branch_count >= 2)) {
+    failures.push('skill_full_uat.pr_candidate_branch_count');
+  }
+  if (ledgerSummary.negative?.unexpected_accept !== 0) {
+    failures.push('skill_full_uat.negative_unexpected_accept');
+  }
+  if (!(ledgerSummary.self_improvement?.case_count > 0)) {
+    failures.push('skill_full_uat.self_improvement.case_count');
+  }
+  return failures;
+}
+
 async function validateRequiredStatusEvidence({
   scenario,
   scenarioDir,
@@ -1568,6 +1644,17 @@ export async function latestEvidenceBundle(
         ...(options.expectedLedger?.required_product_100
           ? { product_100: summarizeProduct100Ledger(ledgerJson) }
           : {}),
+        proof_scope: ledgerJson.proof_scope ?? null,
+        not_live_codex_or_github_pass:
+          ledgerJson.not_live_codex_or_github_pass ?? null,
+        actual_user_environment: ledgerJson.actual_user_environment ?? null,
+        required_cases: ledgerJson.required_cases ?? null,
+        total_cases: ledgerJson.total_cases ?? null,
+        passed_cases: ledgerJson.passed_cases ?? null,
+        positive: ledgerJson.positive ?? null,
+        negative: ledgerJson.negative ?? null,
+        self_improvement: ledgerJson.self_improvement ?? null,
+        failure_rate: ledgerJson.failure_rate ?? null,
         evidence_missing_count:
           ledgerJson.evidence_missing_count ??
           ledgerJson.evidence?.evidence_missing_count ??
@@ -1687,6 +1774,9 @@ export async function latestEvidenceBundle(
     }
     if (options.expectedLedger?.required_skill_prompt_real_builder) {
       ledgerFailures.push(...requiredSkillPromptLedgerFailures(ledgerSummary));
+    }
+    if (options.expectedLedger?.required_skill_full_uat) {
+      ledgerFailures.push(...requiredSkillFullUatFailures(ledgerSummary));
     }
     if (
       options.expectedLedger?.required_hidden_acceptance &&

@@ -12,6 +12,10 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  writeUatEvidenceBundle,
+  writeUatEvidenceLedger
+} from './evidence-bundle.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -747,6 +751,8 @@ async function assertRunCase({
     reason,
     qualified: actual.output.qualified,
     pr_candidate: actual.output.pr_candidate,
+    report: actual.output.report,
+    artifact_root: actual.output.artifact_root ?? null,
     passed: true
   };
 }
@@ -862,6 +868,8 @@ async function runPositiveQueue({ root, skill, agentPath }) {
       accepted_count: actual.output.accepted_count,
       selected_reason: firstReason(report),
       quality: quality.status,
+      selected_report: actual.output.selected_report,
+      selected_artifact_root: actual.output.selected_artifact_root,
       passed: true
     });
   }
@@ -1140,6 +1148,8 @@ async function runSelfImprovementCase({
     builderScore: builder.score?.total ?? null,
     challengerScore: challenger.score?.total ?? null,
     pr_candidate: prCandidate,
+    selection_report: actual.output.selection_report,
+    selected_artifact_root: actual.output.selected_artifact_root ?? null,
     passed: true
   };
 }
@@ -1364,6 +1374,30 @@ async function main() {
           }
         : { temp_root: '[removed unless VIBELOOP_UAT_KEEP_TMP=1]' }
     };
+    const evidenceBundle = await writeUatEvidenceBundle({
+      scenario: output.scenario,
+      runId: `skill-full-${process.pid}-${Date.now()}`,
+      tmpRoot: root,
+      output,
+      extraJson: {
+        full_uat_summary: {
+          proof_scope: output.proof_scope,
+          not_live_codex_or_github_pass:
+            output.not_live_codex_or_github_pass,
+          actual_user_environment: output.actual_user_environment,
+          required_cases: output.required_cases,
+          total_cases: output.total_cases,
+          passed_cases: output.passed_cases,
+          failure_rate: output.failure_rate
+        }
+      }
+    });
+    output.evidence_bundle = evidenceBundle.bundle_dir;
+    output.evidence_manifest = evidenceBundle.manifest_path;
+    output.evidence_ledger = path.join(evidenceBundle.bundle_dir, 'ledger.json');
+    output.evidence_copied_count = evidenceBundle.copied_count + 1;
+    output.evidence_missing_count = evidenceBundle.missing_count;
+    await writeUatEvidenceLedger(evidenceBundle, output);
     console.log(JSON.stringify(output, null, 2));
   } finally {
     if (!keepTmp) {

@@ -138,6 +138,46 @@ function skillPromptLiveLedger({
   };
 }
 
+function skillFullUatLedger(overrides = {}) {
+  return {
+    status: 'FULL_UAT_PASS',
+    proof_scope: 'fixture_baseline_only',
+    not_live_codex_or_github_pass: true,
+    actual_user_environment: {
+      copied_skill_install: true,
+      copied_skill_wrapper: 'vibeloop-harness/scripts/vibeloop-run.mjs',
+      vendor_cli: 'vibeloop-harness/vendor/vibeloop.mjs',
+      external_user_repo: true,
+      task_eval_created_by_copied_skill_script: true,
+      command_agents: true,
+      ...(overrides.actual_user_environment ?? {})
+    },
+    required_cases: 20,
+    total_cases: 23,
+    passed_cases: 23,
+    positive: {
+      pr_candidate_branch_count: 2,
+      ...(overrides.positive ?? {})
+    },
+    negative: {
+      unexpected_accept: 0,
+      ...(overrides.negative ?? {})
+    },
+    self_improvement: {
+      case_count: 3,
+      ...(overrides.self_improvement ?? {})
+    },
+    failure_rate: {
+      unexpectedAccept: 0,
+      unexpectedReject: 0,
+      hiddenLeak: 0,
+      ...(overrides.failure_rate ?? {})
+    },
+    evidence_missing_count: 0,
+    ...(overrides.ledger ?? {})
+  };
+}
+
 async function copiedEntry(root, scenario, runId, bundlePath, kind = 'report') {
   const filePath = path.join(root, scenario, runId, bundlePath);
   const fileStat = await stat(filePath);
@@ -2276,6 +2316,80 @@ ELIFECYCLE Command failed with exit code 20.`);
           required_status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
           run_id: 'skill-prompt-auto-live-run'
         })
+      ])
+    });
+  });
+
+  it('validates Skill full fixture UAT release evidence invariants', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-full-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-full-run',
+      new Date('2026-06-21T00:00:00.000Z'),
+      skillFullUatLedger()
+    );
+    await writeManifest(root, scenario, 'skill-full-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatus: 'FULL_UAT_PASS',
+        expectedLedger: { required_skill_full_uat: true }
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      ledger_summary: expect.objectContaining({
+        status: 'FULL_UAT_PASS',
+        proof_scope: 'fixture_baseline_only',
+        not_live_codex_or_github_pass: true,
+        failure_rate: expect.objectContaining({
+          unexpectedAccept: 0,
+          unexpectedReject: 0,
+          hiddenLeak: 0
+        })
+      })
+    });
+  });
+
+  it('fails Skill full fixture UAT evidence when invariants weaken', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-full-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-full-run',
+      new Date('2026-06-21T00:00:00.000Z'),
+      skillFullUatLedger({
+        ledger: {
+          proof_scope: 'claimed_product_pass',
+          passed_cases: 22
+        },
+        actual_user_environment: {
+          external_user_repo: false
+        },
+        failure_rate: {
+          hiddenLeak: 1
+        }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-full-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatus: 'FULL_UAT_PASS',
+        expectedLedger: { required_skill_full_uat: true }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 'invalid_ledger',
+      ledger_failures: expect.arrayContaining([
+        'skill_full_uat.proof_scope',
+        'skill_full_uat.external_user_repo',
+        'skill_full_uat.passed_cases',
+        'skill_full_uat.hidden_leak'
       ])
     });
   });

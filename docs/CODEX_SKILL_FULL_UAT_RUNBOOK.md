@@ -17,14 +17,20 @@
 ## 1. 실행 명령
 
 ```bash
-pnpm uat:skill-loop:full
+corepack pnpm uat:skill-loop:full
 ```
 
 동일 명령은 내부적으로 다음을 수행한다.
 
 ```bash
-pnpm bundle:skill
+corepack pnpm bundle:skill
 node scripts/uat/skill-real-user-full-uat.mjs
+```
+
+release evidence까지 재감사하려면 full fixture evidence와 prompt live real-builder evidence를 함께 검사한다.
+
+```bash
+corepack pnpm uat:skill-loop:full:release-evidence-audit
 ```
 
 반복/seed 지정:
@@ -32,13 +38,13 @@ node scripts/uat/skill-real-user-full-uat.mjs
 ```bash
 VIBELOOP_FULL_UAT_SEED=20260614 \
 VIBELOOP_FULL_UAT_ROUNDS=20 \
-pnpm uat:skill-loop:full
+corepack pnpm uat:skill-loop:full
 ```
 
 임시 산출물 보존:
 
 ```bash
-VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:full
+VIBELOOP_UAT_KEEP_TMP=1 corepack pnpm uat:skill-loop:full
 ```
 
 ## 2. 실제 사용자 환경 재현 방식
@@ -97,7 +103,7 @@ PR_CANDIDATE = selected_candidate_id != null
 
 상시 검증용 상세 케이스 카탈로그는 [CODEX_SKILL_FULL_UAT_CASE_CATALOG.md](CODEX_SKILL_FULL_UAT_CASE_CATALOG.md)를 기준으로 한다.
 
-현재 full UAT는 seed 기반 random stress 이전에 아래 필수 케이스를 모두 실행한다. 필수 케이스만 각각 1회씩 확인하려면 `VIBELOOP_FULL_UAT_ROUNDS=0 pnpm uat:skill-loop:full`을 사용한다.
+현재 full UAT는 seed 기반 random stress 이전에 아래 필수 케이스를 모두 실행한다. 필수 케이스만 각각 1회씩 확인하려면 `VIBELOOP_FULL_UAT_ROUNDS=0 corepack pnpm uat:skill-loop:full`을 사용한다.
 
 | 그룹             | 케이스                              | 기대                                                       |
 | ---------------- | ----------------------------------- | ---------------------------------------------------------- |
@@ -136,6 +142,9 @@ PR_CANDIDATE = selected_candidate_id != null
   "proof_scope": "fixture_baseline_only",
   "not_live_codex_or_github_pass": true,
   "scenario": "skill-real-user-full-uat",
+  "evidence_bundle": "~/.vibeloop/uat-evidence/skill-real-user-full-uat/...",
+  "evidence_manifest": "~/.vibeloop/uat-evidence/skill-real-user-full-uat/.../uat-evidence-manifest.json",
+  "evidence_missing_count": 0,
   "actual_user_environment": {
     "copied_skill_install": true,
     "vendor_cli": "vibeloop-harness/vendor/vibeloop.mjs",
@@ -178,4 +187,4 @@ remaining_blockers:
 - ...
 ```
 
-`FULL_UAT: PASS`는 `pnpm uat:skill-loop:full` 실제 실행 성공 없이는 선언할 수 없다.
+`FULL_UAT: PASS`는 `corepack pnpm uat:skill-loop:full` 실제 실행 성공 없이는 선언할 수 없다.

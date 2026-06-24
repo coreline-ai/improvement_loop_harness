@@ -53,6 +53,7 @@
     "bundle:skill": "corepack pnpm build && node scripts/bundle-skill.mjs",
     "uat:skill-loop:clean-codex-home": "corepack pnpm bundle:skill && node scripts/uat/skill-clean-codex-home-smoke.mjs",
     "uat:skill-loop:full": "corepack pnpm bundle:skill && node scripts/uat/skill-real-user-full-uat.mjs",
+    "uat:skill-loop:full:release-evidence-audit": "corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-full-uat,skill-real-user-codex-skill-prompt-uat",
     "uat:skill-loop:codex-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-codex-live-uat.mjs",
     "uat:skill-loop:codex-skill-prompt": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-codex-skill-prompt-uat.mjs",
     "uat:skill-loop:codex-skill-prompt:real-builder": "corepack pnpm uat:live-preflight && corepack pnpm build && VIBELOOP_SKILL_PROMPT_UAT_BUILDER=codex node scripts/uat/skill-real-user-codex-skill-prompt-uat.mjs",

@@ -2,7 +2,7 @@
 
 작성일: `2026-06-14 KST`  
 대상 스크립트: `scripts/uat/skill-real-user-full-uat.mjs`  
-상시 실행 명령: `VIBELOOP_FULL_UAT_ROUNDS=0 pnpm uat:skill-loop:full`
+상시 실행 명령: `VIBELOOP_FULL_UAT_ROUNDS=0 corepack pnpm uat:skill-loop:full`
 
 ## 0. 목적
 
@@ -20,10 +20,10 @@
 
 | 프로파일         | 명령                                                   | 목적                                      | 합격 기준                                                   |
 | ---------------- | ------------------------------------------------------ | ----------------------------------------- | ----------------------------------------------------------- |
-| One-shot catalog | `VIBELOOP_FULL_UAT_ROUNDS=0 pnpm uat:skill-loop:full`  | 아래 필수 케이스를 각각 1회씩 실행        | `FULL_UAT_PASS`(fixture baseline), required cases 전부 pass |
-| Default full UAT | `pnpm uat:skill-loop:full`                             | 필수 케이스 + seed 기반 random stress 3회 | `FULL_UAT_PASS`(fixture baseline), total cases 전부 pass    |
-| Random stress    | `VIBELOOP_FULL_UAT_ROUNDS=20 pnpm uat:skill-loop:full` | 실패 확률/false-pass 반복 관찰            | `unexpectedAcceptRate=0/N`                                  |
-| Debug artifacts  | `VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:full`     | 외부 설치본/repo/report 보존              | temp path에서 report 직접 확인 가능                         |
+| One-shot catalog | `VIBELOOP_FULL_UAT_ROUNDS=0 corepack pnpm uat:skill-loop:full`  | 아래 필수 케이스를 각각 1회씩 실행        | `FULL_UAT_PASS`(fixture baseline), required cases 전부 pass |
+| Default full UAT | `corepack pnpm uat:skill-loop:full`                             | 필수 케이스 + seed 기반 random stress 3회 | `FULL_UAT_PASS`(fixture baseline), total cases 전부 pass    |
+| Random stress    | `VIBELOOP_FULL_UAT_ROUNDS=20 corepack pnpm uat:skill-loop:full` | 실패 확률/false-pass 반복 관찰            | `unexpectedAcceptRate=0/N`                                  |
+| Debug artifacts  | `VIBELOOP_UAT_KEEP_TMP=1 corepack pnpm uat:skill-loop:full`     | 외부 설치본/repo/report 보존              | temp path와 evidence bundle에서 report 확인 가능            |
 
 ## 2. 공통 실사용 환경 불변식
 
@@ -130,6 +130,7 @@
 | `status`                             | `FULL_UAT_PASS`(fixture baseline only) |
 | `proof_scope`                        | `fixture_baseline_only`                |
 | `not_live_codex_or_github_pass`      | `true`                                 |
+| `evidence_missing_count`             | `0`                                    |
 | `required_cases`                     | `24` 이상                              |
 | `passed_cases`                       | `total_cases`와 동일                   |
 | `positive.accepted_issue_count`      | `2`                                    |
@@ -148,7 +149,7 @@
 1. `scripts/uat/skill-real-user-full-uat.mjs`의 case 정의
 2. 이 문서의 case catalog
 3. `docs/CODEX_SKILL_FULL_UAT_RUNBOOK.md`의 요약표 또는 링크
-4. 실제 실행 결과: `pnpm uat:skill-loop:full`
+4. 실제 실행 결과: `corepack pnpm uat:skill-loop:full`
 
 추가 원칙:
 
@@ -161,13 +162,13 @@
 
 ```bash
 # 필수 케이스를 각각 1회씩 검증
-VIBELOOP_FULL_UAT_ROUNDS=0 pnpm uat:skill-loop:full
+VIBELOOP_FULL_UAT_ROUNDS=0 corepack pnpm uat:skill-loop:full
 
 # 기본 full UAT 검증
-pnpm uat:skill-loop:full
+corepack pnpm uat:skill-loop:full
 
 # 산출물까지 남기고 디버깅
-VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:full
+VIBELOOP_UAT_KEEP_TMP=1 corepack pnpm uat:skill-loop:full
 ```
 
 보고 형식:

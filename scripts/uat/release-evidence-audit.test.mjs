@@ -329,6 +329,46 @@ function simplePassLedger(status) {
   };
 }
 
+function skillFullUatLedger(overrides = {}) {
+  return {
+    status: 'FULL_UAT_PASS',
+    proof_scope: 'fixture_baseline_only',
+    not_live_codex_or_github_pass: true,
+    actual_user_environment: {
+      copied_skill_install: true,
+      copied_skill_wrapper: 'vibeloop-harness/scripts/vibeloop-run.mjs',
+      vendor_cli: 'vibeloop-harness/vendor/vibeloop.mjs',
+      external_user_repo: true,
+      task_eval_created_by_copied_skill_script: true,
+      command_agents: true,
+      ...(overrides.actual_user_environment ?? {})
+    },
+    required_cases: 20,
+    total_cases: 23,
+    passed_cases: 23,
+    positive: {
+      pr_candidate_branch_count: 2,
+      ...(overrides.positive ?? {})
+    },
+    negative: {
+      unexpected_accept: 0,
+      ...(overrides.negative ?? {})
+    },
+    self_improvement: {
+      case_count: 3,
+      ...(overrides.self_improvement ?? {})
+    },
+    failure_rate: {
+      unexpectedAccept: 0,
+      unexpectedReject: 0,
+      hiddenLeak: 0,
+      ...(overrides.failure_rate ?? {})
+    },
+    evidence_missing_count: 0,
+    ...(overrides.ledger ?? {})
+  };
+}
+
 function skillPromptLiveLedger(overrides = {}) {
   return {
     status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
@@ -665,6 +705,75 @@ describe('release evidence audit', () => {
         passed_count: 1,
         failed_count: 0,
         copied_integrity_checked_count: 1
+      })
+    );
+  });
+
+  it('can audit Skill full fixture UAT evidence as an explicit scenario', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-full-uat';
+    await writeLedger(root, scenario, 'skill-full-run', skillFullUatLedger());
+    await writeManifest(root, scenario, 'skill-full-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P1',
+        scenario,
+        expected_status: 'FULL_UAT_PASS'
+      })
+    ]);
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          status: 'FULL_UAT_PASS',
+          proof_scope: 'fixture_baseline_only',
+          not_live_codex_or_github_pass: true,
+          failure_rate: expect.objectContaining({
+            unexpectedAccept: 0,
+            unexpectedReject: 0,
+            hiddenLeak: 0
+          })
+        })
+      })
+    );
+  });
+
+  it('fails Skill full fixture UAT evidence when scope or invariants are weak', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-full-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-full-run',
+      skillFullUatLedger({
+        ledger: { not_live_codex_or_github_pass: false },
+        failure_rate: { unexpectedAccept: 1 }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-full-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        status: 'invalid_ledger',
+        ledger_failures: expect.arrayContaining([
+          'skill_full_uat.not_live_codex_or_github_pass',
+          'skill_full_uat.unexpected_accept'
+        ])
       })
     );
   });
