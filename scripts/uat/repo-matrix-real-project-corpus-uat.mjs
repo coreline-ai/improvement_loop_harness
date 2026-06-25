@@ -987,6 +987,26 @@ function buildSubscriptionSeatBillingVerifier(cases) {
   ].join('\n');
 }
 
+function buildOrderFulfillmentVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { quoteFulfillment } = require(process.cwd() + '/examples/business-source/order-fulfillment.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = quoteFulfillment(item.order, item.inventory, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1400,6 +1420,213 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             discountCents: 750,
             taxCents: 308,
             totalCents: 4558
+          }
+        }
+      ])
+  },
+  {
+    id: 'order-fulfillment-hazmat-express',
+    semantic_domain: 'order_fulfillment_hazmat_express_eligibility',
+    business_source_repair: true,
+    business_domain: 'order_fulfillment',
+    relativePath: 'examples/business-source/order-fulfillment.cjs',
+    language: 'javascript',
+    originalNeedle: [
+      "  if (order.containsHazmat === true && serviceLevel === 'express') {",
+      "    return unavailable(serviceLevel, 'hazmat_express_restricted');",
+      '  }'
+    ].join('\n'),
+    regressionText: [
+      "  if (order.containsHazmat === true && serviceLevel === 'standard') {",
+      "    return unavailable(serviceLevel, 'hazmat_express_restricted');",
+      '  }'
+    ].join('\n'),
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildOrderFulfillmentVerifier([
+        {
+          name: 'hazmat order cannot use express fulfillment',
+          order: {
+            status: 'paid',
+            serviceLevel: 'express',
+            shippingAddress: { country: 'US', type: 'street' },
+            containsHazmat: true,
+            weightGrams: 1200,
+            quantity: 1,
+            subtotalCents: 6400
+          },
+          inventory: {
+            supportedCountries: ['US', 'CA'],
+            availableStock: 5,
+            maxWeightGrams: 5000,
+            baseShippingCents: 600,
+            expressSurchargeCents: 1800,
+            warehouseId: 'iad-1'
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            eligible: false,
+            reason: 'hazmat_express_restricted',
+            shippingCents: 0
+          }
+        },
+        {
+          name: 'hazmat order can use standard fulfillment',
+          order: {
+            status: 'paid',
+            serviceLevel: 'standard',
+            shippingAddress: { country: 'US', type: 'street' },
+            containsHazmat: true,
+            weightGrams: 1200,
+            quantity: 1,
+            subtotalCents: 6400
+          },
+          inventory: {
+            supportedCountries: ['US', 'CA'],
+            availableStock: 5,
+            maxWeightGrams: 5000,
+            baseShippingCents: 600,
+            freeShippingThresholdCents: 8000,
+            warehouseId: 'iad-1'
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            eligible: true,
+            reason: null,
+            warehouseId: 'iad-1',
+            transitBusinessDays: 4,
+            shippingCents: 600
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildOrderFulfillmentVerifier([
+        {
+          name: 'hidden hazmat express order is rejected independent of weight',
+          order: {
+            status: 'paid',
+            serviceLevel: 'express',
+            shippingAddress: { country: 'CA', type: 'street' },
+            containsHazmat: true,
+            weightGrams: 300,
+            quantity: 1,
+            subtotalCents: 15100
+          },
+          inventory: {
+            supportedCountries: ['US', 'CA'],
+            availableStock: 8,
+            maxWeightGrams: 2500,
+            baseShippingCents: 700,
+            expressSurchargeCents: 1900,
+            warehouseId: 'yyz-1'
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            eligible: false,
+            reason: 'hazmat_express_restricted',
+            shippingCents: 0
+          }
+        },
+        {
+          name: 'po box cannot use express fulfillment',
+          order: {
+            status: 'paid',
+            serviceLevel: 'express',
+            shippingAddress: { country: 'US', type: 'po_box' },
+            containsHazmat: false,
+            weightGrams: 700,
+            quantity: 1,
+            subtotalCents: 9200
+          },
+          inventory: {
+            supportedCountries: ['US'],
+            availableStock: 2,
+            maxWeightGrams: 5000
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            eligible: false,
+            reason: 'po_box_express_unavailable',
+            shippingCents: 0
+          }
+        },
+        {
+          name: 'unsupported destination country is rejected',
+          order: {
+            status: 'paid',
+            serviceLevel: 'standard',
+            shippingAddress: { country: 'MX', type: 'street' },
+            containsHazmat: false,
+            weightGrams: 700,
+            quantity: 1,
+            subtotalCents: 9200
+          },
+          inventory: {
+            supportedCountries: ['US', 'CA'],
+            availableStock: 2,
+            maxWeightGrams: 5000
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            eligible: false,
+            reason: 'unsupported_country',
+            shippingCents: 0
+          }
+        },
+        {
+          name: 'late standard order ships next business day with free shipping',
+          order: {
+            status: 'paid',
+            serviceLevel: 'standard',
+            shippingAddress: { country: 'US', type: 'street' },
+            containsHazmat: false,
+            weightGrams: 700,
+            quantity: 1,
+            subtotalCents: 12500
+          },
+          inventory: {
+            supportedCountries: ['US'],
+            availableStock: 2,
+            maxWeightGrams: 5000,
+            cutoffHourLocal: 15,
+            baseShippingCents: 650,
+            freeShippingThresholdCents: 10000,
+            warehouseId: 'lax-2'
+          },
+          now: '2026-06-25T16:30:00.000Z',
+          expected: {
+            eligible: true,
+            reason: null,
+            warehouseId: 'lax-2',
+            shipAfterBusinessDays: 1,
+            transitBusinessDays: 4,
+            shippingCents: 0
+          }
+        },
+        {
+          name: 'insufficient stock is rejected before quote',
+          order: {
+            status: 'paid',
+            serviceLevel: 'standard',
+            shippingAddress: { country: 'US', type: 'street' },
+            containsHazmat: false,
+            weightGrams: 700,
+            quantity: 4,
+            subtotalCents: 12500
+          },
+          inventory: {
+            supportedCountries: ['US'],
+            availableStock: 3,
+            maxWeightGrams: 5000
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            eligible: false,
+            reason: 'insufficient_stock',
+            shippingCents: 0
           }
         }
       ])

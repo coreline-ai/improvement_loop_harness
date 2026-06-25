@@ -2155,9 +2155,9 @@ describe('release evidence audit', () => {
         scenario,
         expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 2,
-          min_pass_count: 2,
-          min_distinct_semantic_target_count: 2,
+          min_cell_count: 3,
+          min_pass_count: 3,
+          min_distinct_semantic_target_count: 3,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_business_source_repair: true,
@@ -2204,8 +2204,8 @@ describe('release evidence audit', () => {
         provider: 'codex',
         model: 'gpt-5.5'
       },
-      cell_count: 2,
-      pass_count: 2,
+      cell_count: 3,
+      pass_count: 3,
       fail_count: 0,
       cells: [
         {
@@ -2245,6 +2245,28 @@ describe('release evidence audit', () => {
             existing_source: true,
             repair_source:
               'examples/business-source/subscription-seat-billing.cjs',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'order-fulfillment-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_source_repair: true,
+            business_bug_repair: true,
+            business_domain: 'order_fulfillment',
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'order_fulfillment_hazmat_express_eligibility',
+            semantic_target_id: 'order-fulfillment-hazmat-express',
+            existing_source: true,
+            repair_source: 'examples/business-source/order-fulfillment.cjs',
             visible_acceptance: { status: 'pass' },
             hidden_acceptance: { status: 'pass' },
             diff_scope: { status: 'pass' },
