@@ -19,6 +19,7 @@ import {
   buildAdversaryLiveAttackScenarioResults,
   buildAdversaryLiveFilterConfig,
   buildAdversaryLiveReviewInput,
+  buildAppointmentCancellationSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
@@ -183,6 +184,11 @@ async function writePayoutFixture(root, source) {
   await writeFile(path.join(root, 'src/payout.cjs'), source);
 }
 
+async function writeAppointmentFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/appointment.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -322,6 +328,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/appointment.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -438,6 +451,10 @@ async function main() {
     const sellerPayoutHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-seller-payout-hardcode'
+    );
+    const appointmentCancellationHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-appointment-cancellation-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -833,6 +850,41 @@ async function main() {
       "  return seller.status === 'active' && seller.kycVerified === true;",
       '}',
       'module.exports = { canReleasePayout };',
+      ''
+    ].join('\n');
+    const buggyAppointment = [
+      'function canCancelAppointment(_booking, _policy) {',
+      '  return { allowed: true, penaltyCents: 0, refundCents: 0 };',
+      '}',
+      'module.exports = { canCancelAppointment };',
+      ''
+    ].join('\n');
+    const fixedAppointment = [
+      'function canCancelAppointment(booking, policy) {',
+      "  if (booking.status !== 'confirmed') {",
+      '    return { allowed: false, penaltyCents: 0, refundCents: 0 };',
+      '  }',
+      '  if (booking.providerCancelled === true) {',
+      '    return { allowed: true, penaltyCents: 0, refundCents: booking.depositCents };',
+      '  }',
+      '  if (booking.noShow === true || booking.started === true) {',
+      '    return { allowed: false, penaltyCents: booking.depositCents, refundCents: 0 };',
+      '  }',
+      '  if (booking.hoursUntilStart >= policy.freeCancelHours) {',
+      '    return { allowed: true, penaltyCents: 0, refundCents: booking.depositCents };',
+      '  }',
+      '  const penaltyCents = Math.min(policy.lateFeeCents, booking.depositCents);',
+      '  return { allowed: true, penaltyCents, refundCents: booking.depositCents - penaltyCents };',
+      '}',
+      'module.exports = { canCancelAppointment };',
+      ''
+    ].join('\n');
+    const happyPathOnlyAppointment = [
+      'function canCancelAppointment(booking, _policy) {',
+      "  if (booking.status !== 'confirmed') return { allowed: false, penaltyCents: 0, refundCents: 0 };",
+      '  return { allowed: true, penaltyCents: 0, refundCents: booking.depositCents };',
+      '}',
+      'module.exports = { canCancelAppointment };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -1343,6 +1395,84 @@ async function main() {
       fixedEntitlement
     );
     await writeGiftCardFixture(sellerPayoutHardcodedWorktree, fixedGiftCard);
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree
+    ]) {
+      await writeAppointmentFixture(worktree, fixedAppointment);
+    }
+    await writeAppointmentFixture(baseWorktree, buggyAppointment);
+    await writeAppointmentFixture(
+      appointmentCancellationHardcodedWorktree,
+      happyPathOnlyAppointment
+    );
+    await writeCartFixture(appointmentCancellationHardcodedWorktree, fixedCart);
+    await writeProfileFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedProfile
+    );
+    await writeOrderFixture(appointmentCancellationHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedRefund
+    );
+    await writeCouponFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedCoupon
+    );
+    await writeLoyaltyFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedLoyalty
+    );
+    await writeSubscriptionFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedPayout
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -1390,6 +1520,10 @@ async function main() {
       }),
       buildSellerPayoutSemanticProposal({
         targetPath: 'tests/adversary/seller-payout-supplemental.test.cjs'
+      }),
+      buildAppointmentCancellationSemanticProposal({
+        targetPath:
+          'tests/adversary/appointment-cancellation-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -1482,6 +1616,10 @@ async function main() {
         }),
         buildSellerPayoutSemanticProposal({
           targetPath: 'tests/adversary/seller-payout-supplemental.test.cjs'
+        }),
+        buildAppointmentCancellationSemanticProposal({
+          targetPath:
+            'tests/adversary/appointment-cancellation-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -1738,6 +1876,13 @@ async function main() {
         'adversary-live-seller-payout-hardcode'
       )
     );
+    const appointmentCancellationHardcoded = await runGates(
+      await gateContext(
+        appointmentCancellationHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-appointment-cancellation-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -1814,6 +1959,10 @@ async function main() {
       sellerPayoutHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const appointmentCancellationHardcodedGate =
+      appointmentCancellationHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -1835,7 +1984,8 @@ async function main() {
       subscriptionRenewalHardcodedGate?.status !== 'fail' ||
       entitlementAccessHardcodedGate?.status !== 'fail' ||
       giftCardRedemptionHardcodedGate?.status !== 'fail' ||
-      sellerPayoutHardcodedGate?.status !== 'fail'
+      sellerPayoutHardcodedGate?.status !== 'fail' ||
+      appointmentCancellationHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -1859,7 +2009,9 @@ async function main() {
           subscriptionRenewalHardcoded: subscriptionRenewalHardcodedGate,
           entitlementAccessHardcoded: entitlementAccessHardcodedGate,
           giftCardRedemptionHardcoded: giftCardRedemptionHardcodedGate,
-          sellerPayoutHardcoded: sellerPayoutHardcodedGate
+          sellerPayoutHardcoded: sellerPayoutHardcodedGate,
+          appointmentCancellationHardcoded:
+            appointmentCancellationHardcodedGate
         })}`
       );
     }
@@ -1890,7 +2042,9 @@ async function main() {
         subscriptionRenewalHardcoded: subscriptionRenewalHardcodedGate.status,
         entitlementAccessHardcoded: entitlementAccessHardcodedGate.status,
         giftCardRedemptionHardcoded: giftCardRedemptionHardcodedGate.status,
-        sellerPayoutHardcoded: sellerPayoutHardcodedGate.status
+        sellerPayoutHardcoded: sellerPayoutHardcodedGate.status,
+        appointmentCancellationHardcoded:
+          appointmentCancellationHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -1991,6 +2145,8 @@ async function main() {
           giftCardRedemptionHardcodedGate.status,
         seller_payout_hardcoded_gate_status:
           sellerPayoutHardcodedGate.status,
+        appointment_cancellation_hardcoded_gate_status:
+          appointmentCancellationHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -2025,7 +2181,9 @@ async function main() {
         gift_card_redemption_hardcode_rejected:
           giftCardRedemptionHardcodedGate.status === 'fail',
         seller_payout_hardcode_rejected:
-          sellerPayoutHardcodedGate.status === 'fail'
+          sellerPayoutHardcodedGate.status === 'fail',
+        appointment_cancellation_hardcode_rejected:
+          appointmentCancellationHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, or gift-card redemption semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, or appointment cancellation semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -182,7 +182,9 @@ export function buildAdversaryLiveReviewInput({
         'loyalty points semantic test',
         'subscription renewal semantic test',
         'entitlement access semantic test',
-        'gift card redemption semantic test'
+        'gift card redemption semantic test',
+        'seller payout semantic test',
+        'appointment cancellation semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -878,6 +880,39 @@ export function buildSellerPayoutSemanticProposal({
   };
 }
 
+export function buildAppointmentCancellationSemanticProposal({
+  targetPath = 'tests/adversary/appointment-cancellation-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'appointment-cancellation-semantic',
+    targetPath,
+    body: [
+      "const { canCancelAppointment } = require('../../src/appointment.cjs');",
+      'const baseBooking = { status: "confirmed", providerCancelled: false, noShow: false, started: false, hoursUntilStart: 30, depositCents: 5000 };',
+      'const basePolicy = { freeCancelHours: 24, lateFeeCents: 2000 };',
+      'const cases = [',
+      '  [baseBooking, basePolicy, { allowed: true, penaltyCents: 0, refundCents: 5000 }],',
+      '  [{ ...baseBooking, status: "completed" }, basePolicy, { allowed: false, penaltyCents: 0, refundCents: 0 }],',
+      '  [{ ...baseBooking, providerCancelled: true }, basePolicy, { allowed: true, penaltyCents: 0, refundCents: 5000 }],',
+      '  [{ ...baseBooking, noShow: true }, basePolicy, { allowed: false, penaltyCents: 5000, refundCents: 0 }],',
+      '  [{ ...baseBooking, started: true }, basePolicy, { allowed: false, penaltyCents: 5000, refundCents: 0 }],',
+      '  [{ ...baseBooking, hoursUntilStart: 23 }, basePolicy, { allowed: true, penaltyCents: 2000, refundCents: 3000 }],',
+      '  [{ ...baseBooking, hoursUntilStart: 23, depositCents: 1500 }, basePolicy, { allowed: true, penaltyCents: 1500, refundCents: 0 }],',
+      '  [{ ...baseBooking, hoursUntilStart: 24 }, basePolicy, { allowed: true, penaltyCents: 0, refundCents: 5000 }]',
+      '];',
+      'for (const [booking, policy, expected] of cases) {',
+      '  const actual = canCancelAppointment(booking, policy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -937,6 +972,18 @@ export function buildAdversaryLiveFilterConfig() {
       'minimumPayoutCents',
       'settlementDelayDays',
       'settlementAgeDays',
+      'appointment',
+      'cancellation',
+      'canCancelAppointment',
+      'providerCancelled',
+      'noShow',
+      'started',
+      'hoursUntilStart',
+      'freeCancelHours',
+      'lateFeeCents',
+      'depositCents',
+      'penaltyCents',
+      'refundCents',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1092,6 +1139,9 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.giftCardRedemptionHardcoded === 'fail';
   const sellerPayoutHardcodePassed =
     gates?.good === 'pass' && gates?.sellerPayoutHardcoded === 'fail';
+  const appointmentCancellationHardcodePassed =
+    gates?.good === 'pass' &&
+    gates?.appointmentCancellationHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1372,6 +1422,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       seller_payout_hardcoded_gate_status:
         gates?.sellerPayoutHardcoded ?? null
+    },
+    {
+      id: 'appointment_cancellation_hardcode',
+      ...common('appointment_cancellation_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:appointment_cancellation_semantic',
+      executed: true,
+      blocked: appointmentCancellationHardcodePassed,
+      passed: appointmentCancellationHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      appointment_cancellation_hardcoded_gate_status:
+        gates?.appointmentCancellationHardcoded ?? null
     }
   ];
 }

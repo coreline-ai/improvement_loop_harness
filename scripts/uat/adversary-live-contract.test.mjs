@@ -6,6 +6,7 @@ import {
   buildAdversaryLiveAttackScenarioResults,
   buildAdversaryLiveFilterConfig,
   buildAdversaryLiveReviewInput,
+  buildAppointmentCancellationSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
@@ -311,6 +312,23 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('settlementAgeDays: 2');
   });
 
+  it('adds a supplemental appointment cancellation semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildAppointmentCancellationSemanticProposal({
+      targetPath: 'tests/adversary/appointment-cancellation.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'appointment-cancellation-semantic',
+      targetPath: 'tests/adversary/appointment-cancellation.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canCancelAppointment');
+    expect(proposal.body).toContain('providerCancelled: true');
+    expect(proposal.body).toContain('noShow: true');
+    expect(proposal.body).toContain('hoursUntilStart: 23');
+    expect(proposal.body).toContain('depositCents: 1500');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -359,7 +377,8 @@ describe('adversary live contract', () => {
         subscriptionRenewalHardcoded: 'fail',
         entitlementAccessHardcoded: 'fail',
         giftCardRedemptionHardcoded: 'fail',
-        sellerPayoutHardcoded: 'fail'
+        sellerPayoutHardcoded: 'fail',
+        appointmentCancellationHardcoded: 'fail'
       }
     });
 
@@ -503,6 +522,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:seller_payout_semantic'
+        }),
+        expect.objectContaining({
+          id: 'appointment_cancellation_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:appointment_cancellation_semantic'
         })
       ])
     );
@@ -558,7 +583,8 @@ describe('adversary live contract', () => {
         'attack_scenario_subscription_renewal_hardcode_missing',
         'attack_scenario_entitlement_access_hardcode_missing',
         'attack_scenario_gift_card_redemption_hardcode_missing',
-        'attack_scenario_seller_payout_hardcode_missing'
+        'attack_scenario_seller_payout_hardcode_missing',
+        'attack_scenario_appointment_cancellation_hardcode_missing'
       ])
     );
   });
@@ -594,7 +620,8 @@ describe('adversary live contract', () => {
         subscriptionRenewalHardcoded: 'fail',
         entitlementAccessHardcoded: 'fail',
         giftCardRedemptionHardcoded: 'fail',
-        sellerPayoutHardcoded: 'fail'
+        sellerPayoutHardcoded: 'fail',
+        appointmentCancellationHardcoded: 'fail'
       }
     });
 
