@@ -48,6 +48,18 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-user-repo-cart-pr-candidate',
+    mode: 'user_issue',
+    variant: 'ko-user-repo-cart-pr-candidate',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-user-repo-cart-pr-candidate',
+    mode: 'user_issue',
+    variant: 'en-user-repo-cart-pr-candidate',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -63,6 +75,18 @@ const defaultCorpus = [
     id: 'auto-en-failing-behavior-find-one',
     mode: 'auto_discovery',
     variant: 'en-failing-behavior-find-one',
+    language: 'en'
+  },
+  {
+    id: 'auto-ko-project-review-fix-one',
+    mode: 'auto_discovery',
+    variant: 'ko-project-review-fix-one',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-user-repo-review-fix-one',
+    mode: 'auto_discovery',
+    variant: 'en-user-repo-review-fix-one',
     language: 'en'
   }
 ];

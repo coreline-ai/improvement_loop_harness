@@ -72,6 +72,21 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-project-review-fix-one',
+    prompt: '프로젝트 문제점 하나 찾아서 원인 설명하고 고친 뒤 PR 후보까지 만들어줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-user-repo-review-fix-one',
+    prompt:
+      'Review this project like a user repo, find one concrete bug, fix it, verify it, and stage a PR candidate.',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
     expectedMode: 'user_issue',
@@ -90,6 +105,22 @@ const cases = [
     id: 'en-cart-natural-quantity-total',
     prompt:
       'The cart total ignores item quantity. Fix the quantity calculation and add a regression test.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-user-repo-cart-pr-candidate',
+    prompt:
+      '실제 사용자 repo처럼 장바구니 수량 계산이 이상한 문제를 고치고 검증한 다음 PR 후보 만들어줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-user-repo-cart-pr-candidate',
+    prompt:
+      'In this project, the cart total looks wrong when quantity is greater than one. Fix it, verify it, and prepare a PR candidate.',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true
