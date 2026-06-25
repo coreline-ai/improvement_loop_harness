@@ -137,7 +137,8 @@ function attackScenarios() {
     'entitlement_access_hardcode',
     'gift_card_redemption_hardcode',
     'seller_payout_hardcode',
-    'appointment_cancellation_hardcode'
+    'appointment_cancellation_hardcode',
+    'warranty_claim_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -173,6 +174,7 @@ function attackScenarios() {
     seller_payout_hardcode: 'rulepack_semantic:seller_payout_semantic',
     appointment_cancellation_hardcode:
       'rulepack_semantic:appointment_cancellation_semantic',
+    warranty_claim_hardcode: 'rulepack_semantic:warranty_claim_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

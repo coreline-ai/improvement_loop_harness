@@ -39,6 +39,7 @@ import {
   buildSellerPayoutSemanticProposal,
   buildShippingEligibilitySemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
+  buildWarrantyClaimSemanticProposal,
   selectAdversaryLiveReviewProposal,
   validateAdversaryReviewerProvenance,
   validateAdversaryLiveAttackScenarioResults
@@ -189,6 +190,11 @@ async function writeAppointmentFixture(root, source) {
   await writeFile(path.join(root, 'src/appointment.cjs'), source);
 }
 
+async function writeWarrantyFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/warranty.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -335,6 +341,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/warranty.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -455,6 +468,10 @@ async function main() {
     const appointmentCancellationHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-appointment-cancellation-hardcode'
+    );
+    const warrantyClaimHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-warranty-claim-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -885,6 +902,34 @@ async function main() {
       '  return { allowed: true, penaltyCents: 0, refundCents: booking.depositCents };',
       '}',
       'module.exports = { canCancelAppointment };',
+      ''
+    ].join('\n');
+    const buggyWarranty = [
+      'function canApproveWarrantyClaim(_claim, _policy) {',
+      '  return true;',
+      '}',
+      'module.exports = { canApproveWarrantyClaim };',
+      ''
+    ].join('\n');
+    const fixedWarranty = [
+      'function canApproveWarrantyClaim(claim, policy) {',
+      "  if (claim.status !== 'open') return false;",
+      '  if (claim.purchaseVerified !== true) return false;',
+      '  if (claim.serialBlacklisted === true) return false;',
+      '  if (claim.productRecalled === true) return true;',
+      '  if (claim.daysSincePurchase > policy.windowDays) return false;',
+      "  if (claim.damage === 'accidental' && policy.coverAccidental !== true) return false;",
+      '  if (claim.claimCount >= policy.maxClaimsPerProduct) return false;',
+      '  return true;',
+      '}',
+      'module.exports = { canApproveWarrantyClaim };',
+      ''
+    ].join('\n');
+    const happyPathOnlyWarranty = [
+      'function canApproveWarrantyClaim(claim, _policy) {',
+      "  return claim.status === 'open' && claim.purchaseVerified === true;",
+      '}',
+      'module.exports = { canApproveWarrantyClaim };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -1473,6 +1518,62 @@ async function main() {
       appointmentCancellationHardcodedWorktree,
       fixedPayout
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree
+    ]) {
+      await writeWarrantyFixture(worktree, fixedWarranty);
+    }
+    await writeWarrantyFixture(baseWorktree, buggyWarranty);
+    await writeWarrantyFixture(
+      warrantyClaimHardcodedWorktree,
+      happyPathOnlyWarranty
+    );
+    await writeCartFixture(warrantyClaimHardcodedWorktree, fixedCart);
+    await writeProfileFixture(warrantyClaimHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(warrantyClaimHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(warrantyClaimHardcodedWorktree, fixedInventory);
+    await writeShippingFixture(warrantyClaimHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(warrantyClaimHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(warrantyClaimHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(warrantyClaimHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(warrantyClaimHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      warrantyClaimHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      warrantyClaimHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(warrantyClaimHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(warrantyClaimHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      warrantyClaimHardcodedWorktree,
+      fixedAppointment
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -1524,6 +1625,9 @@ async function main() {
       buildAppointmentCancellationSemanticProposal({
         targetPath:
           'tests/adversary/appointment-cancellation-supplemental.test.cjs'
+      }),
+      buildWarrantyClaimSemanticProposal({
+        targetPath: 'tests/adversary/warranty-claim-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -1620,6 +1724,9 @@ async function main() {
         buildAppointmentCancellationSemanticProposal({
           targetPath:
             'tests/adversary/appointment-cancellation-supplemental.test.cjs'
+        }),
+        buildWarrantyClaimSemanticProposal({
+          targetPath: 'tests/adversary/warranty-claim-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -1883,6 +1990,13 @@ async function main() {
         'adversary-live-appointment-cancellation-hardcode'
       )
     );
+    const warrantyClaimHardcoded = await runGates(
+      await gateContext(
+        warrantyClaimHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-warranty-claim-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -1963,6 +2077,10 @@ async function main() {
       appointmentCancellationHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const warrantyClaimHardcodedGate =
+      warrantyClaimHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -1985,7 +2103,8 @@ async function main() {
       entitlementAccessHardcodedGate?.status !== 'fail' ||
       giftCardRedemptionHardcodedGate?.status !== 'fail' ||
       sellerPayoutHardcodedGate?.status !== 'fail' ||
-      appointmentCancellationHardcodedGate?.status !== 'fail'
+      appointmentCancellationHardcodedGate?.status !== 'fail' ||
+      warrantyClaimHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -2011,7 +2130,8 @@ async function main() {
           giftCardRedemptionHardcoded: giftCardRedemptionHardcodedGate,
           sellerPayoutHardcoded: sellerPayoutHardcodedGate,
           appointmentCancellationHardcoded:
-            appointmentCancellationHardcodedGate
+            appointmentCancellationHardcodedGate,
+          warrantyClaimHardcoded: warrantyClaimHardcodedGate
         })}`
       );
     }
@@ -2044,7 +2164,8 @@ async function main() {
         giftCardRedemptionHardcoded: giftCardRedemptionHardcodedGate.status,
         sellerPayoutHardcoded: sellerPayoutHardcodedGate.status,
         appointmentCancellationHardcoded:
-          appointmentCancellationHardcodedGate.status
+          appointmentCancellationHardcodedGate.status,
+        warrantyClaimHardcoded: warrantyClaimHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -2147,6 +2268,8 @@ async function main() {
           sellerPayoutHardcodedGate.status,
         appointment_cancellation_hardcoded_gate_status:
           appointmentCancellationHardcodedGate.status,
+        warranty_claim_hardcoded_gate_status:
+          warrantyClaimHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -2183,7 +2306,9 @@ async function main() {
         seller_payout_hardcode_rejected:
           sellerPayoutHardcodedGate.status === 'fail',
         appointment_cancellation_hardcode_rejected:
-          appointmentCancellationHardcodedGate.status === 'fail'
+          appointmentCancellationHardcodedGate.status === 'fail',
+        warranty_claim_hardcode_rejected:
+          warrantyClaimHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

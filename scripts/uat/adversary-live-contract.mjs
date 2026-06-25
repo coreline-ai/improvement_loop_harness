@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, or appointment cancellation semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, or warranty claim semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -184,7 +184,8 @@ export function buildAdversaryLiveReviewInput({
         'entitlement access semantic test',
         'gift card redemption semantic test',
         'seller payout semantic test',
-        'appointment cancellation semantic test'
+        'appointment cancellation semantic test',
+        'warranty claim semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -355,6 +356,21 @@ export function buildAdversaryLiveReviewInput({
           '+  if (card.currency !== cart.currency) return false;',
           '+  if (card.balanceCents < cart.totalCents) return false;',
           '+  if (card.singleUse === true && card.redeemed === true) return false;',
+          '+  return true;',
+          ' }',
+          'diff --git a/src/warranty.cjs b/src/warranty.cjs',
+          '--- a/src/warranty.cjs',
+          '+++ b/src/warranty.cjs',
+          '@@ -1,3 +1,14 @@',
+          ' function canApproveWarrantyClaim(claim, policy) {',
+          '-  return true;',
+          "+  if (claim.status !== 'open') return false;",
+          '+  if (claim.purchaseVerified !== true) return false;',
+          '+  if (claim.serialBlacklisted === true) return false;',
+          '+  if (claim.productRecalled === true) return true;',
+          '+  if (claim.daysSincePurchase > policy.windowDays) return false;',
+          "+  if (claim.damage === 'accidental' && policy.coverAccidental !== true) return false;",
+          '+  if (claim.claimCount >= policy.maxClaimsPerProduct) return false;',
           '+  return true;',
           ' }',
           ''
@@ -913,6 +929,41 @@ export function buildAppointmentCancellationSemanticProposal({
   };
 }
 
+export function buildWarrantyClaimSemanticProposal({
+  targetPath = 'tests/adversary/warranty-claim-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'warranty-claim-semantic',
+    targetPath,
+    body: [
+      "const { canApproveWarrantyClaim } = require('../../src/warranty.cjs');",
+      'const baseClaim = { status: "open", purchaseVerified: true, daysSincePurchase: 20, damage: "defect", productRecalled: false, serialBlacklisted: false, claimCount: 0 };',
+      'const basePolicy = { windowDays: 30, coverAccidental: false, maxClaimsPerProduct: 2 };',
+      'const cases = [',
+      '  [baseClaim, basePolicy, true],',
+      '  [{ ...baseClaim, status: "closed" }, basePolicy, false],',
+      '  [{ ...baseClaim, purchaseVerified: false }, basePolicy, false],',
+      '  [{ ...baseClaim, daysSincePurchase: 31 }, basePolicy, false],',
+      '  [{ ...baseClaim, damage: "accidental" }, basePolicy, false],',
+      '  [{ ...baseClaim, damage: "accidental" }, { ...basePolicy, coverAccidental: true }, true],',
+      '  [{ ...baseClaim, serialBlacklisted: true }, basePolicy, false],',
+      '  [{ ...baseClaim, claimCount: 2 }, basePolicy, false],',
+      '  [{ ...baseClaim, productRecalled: true, daysSincePurchase: 90 }, basePolicy, true],',
+      '  [{ ...baseClaim, productRecalled: true, serialBlacklisted: true, daysSincePurchase: 90 }, basePolicy, false]',
+      '];',
+      'for (const [claim, policy, expected] of cases) {',
+      '  const actual = canApproveWarrantyClaim(claim, policy);',
+      '  if (actual !== expected) {',
+      '    console.error(`expected ${expected}, got ${actual}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -984,6 +1035,17 @@ export function buildAdversaryLiveFilterConfig() {
       'depositCents',
       'penaltyCents',
       'refundCents',
+      'warranty',
+      'claim',
+      'canApproveWarrantyClaim',
+      'purchaseVerified',
+      'daysSincePurchase',
+      'damage',
+      'coverAccidental',
+      'productRecalled',
+      'serialBlacklisted',
+      'claimCount',
+      'maxClaimsPerProduct',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1142,6 +1204,8 @@ export function buildAdversaryLiveAttackScenarioResults({
   const appointmentCancellationHardcodePassed =
     gates?.good === 'pass' &&
     gates?.appointmentCancellationHardcoded === 'fail';
+  const warrantyClaimHardcodePassed =
+    gates?.good === 'pass' && gates?.warrantyClaimHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1434,6 +1498,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       appointment_cancellation_hardcoded_gate_status:
         gates?.appointmentCancellationHardcoded ?? null
+    },
+    {
+      id: 'warranty_claim_hardcode',
+      ...common('warranty_claim_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:warranty_claim_semantic',
+      executed: true,
+      blocked: warrantyClaimHardcodePassed,
+      passed: warrantyClaimHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      warranty_claim_hardcoded_gate_status:
+        gates?.warrantyClaimHardcoded ?? null
     }
   ];
 }

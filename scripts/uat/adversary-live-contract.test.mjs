@@ -26,6 +26,7 @@ import {
   buildSellerPayoutSemanticProposal,
   buildShippingEligibilitySemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
+  buildWarrantyClaimSemanticProposal,
   buildRejectedAttackProposals,
   selectAdversaryLiveReviewProposal,
   validateAdversaryLiveAttackScenarioResults,
@@ -329,6 +330,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('depositCents: 1500');
   });
 
+  it('adds a supplemental warranty claim semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildWarrantyClaimSemanticProposal({
+      targetPath: 'tests/adversary/warranty-claim.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'warranty-claim-semantic',
+      targetPath: 'tests/adversary/warranty-claim.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canApproveWarrantyClaim');
+    expect(proposal.body).toContain('purchaseVerified: false');
+    expect(proposal.body).toContain('damage: "accidental"');
+    expect(proposal.body).toContain('serialBlacklisted: true');
+    expect(proposal.body).toContain('productRecalled: true');
+    expect(proposal.body).toContain('claimCount: 2');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -378,7 +397,8 @@ describe('adversary live contract', () => {
         entitlementAccessHardcoded: 'fail',
         giftCardRedemptionHardcoded: 'fail',
         sellerPayoutHardcoded: 'fail',
-        appointmentCancellationHardcoded: 'fail'
+        appointmentCancellationHardcoded: 'fail',
+        warrantyClaimHardcoded: 'fail'
       }
     });
 
@@ -528,6 +548,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:appointment_cancellation_semantic'
+        }),
+        expect.objectContaining({
+          id: 'warranty_claim_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:warranty_claim_semantic'
         })
       ])
     );
@@ -584,7 +610,8 @@ describe('adversary live contract', () => {
         'attack_scenario_entitlement_access_hardcode_missing',
         'attack_scenario_gift_card_redemption_hardcode_missing',
         'attack_scenario_seller_payout_hardcode_missing',
-        'attack_scenario_appointment_cancellation_hardcode_missing'
+        'attack_scenario_appointment_cancellation_hardcode_missing',
+        'attack_scenario_warranty_claim_hardcode_missing'
       ])
     );
   });
@@ -621,7 +648,8 @@ describe('adversary live contract', () => {
         entitlementAccessHardcoded: 'fail',
         giftCardRedemptionHardcoded: 'fail',
         sellerPayoutHardcoded: 'fail',
-        appointmentCancellationHardcoded: 'fail'
+        appointmentCancellationHardcoded: 'fail',
+        warrantyClaimHardcoded: 'fail'
       }
     });
 
