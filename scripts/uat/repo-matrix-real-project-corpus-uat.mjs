@@ -1047,6 +1047,26 @@ function buildAppointmentCancellationVerifier(cases) {
   ].join('\n');
 }
 
+function buildSupportTicketRoutingVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { routeSupportTicket } = require(process.cwd() + '/examples/business-source/support-ticket-routing.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = routeSupportTicket(item.ticket, item.customer, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1987,6 +2007,151 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             reason: 'booking_not_confirmed',
             penaltyCents: 0,
             refundCents: 0
+          }
+        }
+      ])
+  },
+  {
+    id: 'support-ticket-enterprise-escalation',
+    semantic_domain: 'support_ticket_enterprise_escalation_sla',
+    business_source_repair: true,
+    business_domain: 'support_ticket_routing',
+    relativePath: 'examples/business-source/support-ticket-routing.cjs',
+    language: 'javascript',
+    originalNeedle:
+      "  if (customer.plan === 'enterprise' && severityRank >= 3) {",
+    regressionText:
+      "  if (customer.plan === 'enterprise' && severityRank < 3) {",
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildSupportTicketRoutingVerifier([
+        {
+          name: 'enterprise high severity ticket escalates to success team',
+          ticket: {
+            status: 'open',
+            category: 'technical',
+            severity: 'high'
+          },
+          customer: { plan: 'enterprise' },
+          policy: {
+            enterpriseSlaHours: 4,
+            standardSlaHours: 24
+          },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            route: 'enterprise-success',
+            priority: 'high',
+            slaHours: 4,
+            dueAt: '2026-06-25T13:00:00.000Z',
+            escalated: true,
+            reason: 'enterprise_high_severity'
+          }
+        },
+        {
+          name: 'non-enterprise high severity ticket stays in technical support',
+          ticket: {
+            status: 'open',
+            category: 'technical',
+            severity: 'high'
+          },
+          customer: { plan: 'pro' },
+          policy: {
+            enterpriseSlaHours: 4,
+            standardSlaHours: 24
+          },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            route: 'technical-support',
+            priority: 'high',
+            slaHours: 24,
+            dueAt: '2026-06-26T09:00:00.000Z',
+            escalated: false,
+            reason: null
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildSupportTicketRoutingVerifier([
+        {
+          name: 'enterprise urgent ticket uses configured escalation SLA',
+          ticket: {
+            status: 'open',
+            category: 'general',
+            severity: 'urgent'
+          },
+          customer: { plan: 'enterprise' },
+          policy: {
+            enterpriseSlaHours: 3,
+            standardSlaHours: 24
+          },
+          now: '2026-06-25T10:15:00.000Z',
+          expected: {
+            route: 'enterprise-success',
+            priority: 'high',
+            slaHours: 3,
+            dueAt: '2026-06-25T13:15:00.000Z',
+            escalated: true,
+            reason: 'enterprise_high_severity'
+          }
+        },
+        {
+          name: 'security ticket always goes to incident response',
+          ticket: {
+            status: 'open',
+            category: 'security',
+            severity: 'low'
+          },
+          customer: { plan: 'starter' },
+          policy: { criticalSlaHours: 1 },
+          now: '2026-06-25T10:15:00.000Z',
+          expected: {
+            route: 'incident-response',
+            priority: 'critical',
+            slaHours: 1,
+            dueAt: '2026-06-25T11:15:00.000Z',
+            escalated: true,
+            reason: 'critical_issue'
+          }
+        },
+        {
+          name: 'closed enterprise ticket is not routed',
+          ticket: {
+            status: 'closed',
+            category: 'technical',
+            severity: 'critical'
+          },
+          customer: { plan: 'enterprise' },
+          policy: { enterpriseSlaHours: 2, criticalSlaHours: 1 },
+          now: '2026-06-25T10:15:00.000Z',
+          expected: {
+            route: null,
+            priority: 'none',
+            slaHours: 0,
+            dueAt: null,
+            escalated: false,
+            reason: 'ticket_not_open'
+          }
+        },
+        {
+          name: 'urgent abuse ticket escalates to trust and safety',
+          ticket: {
+            status: 'open',
+            category: 'abuse',
+            severity: 'urgent'
+          },
+          customer: { plan: 'pro' },
+          policy: { trustSlaHours: 5 },
+          now: '2026-06-25T10:15:00.000Z',
+          expected: {
+            route: 'trust-safety',
+            priority: 'high',
+            slaHours: 5,
+            dueAt: '2026-06-25T15:15:00.000Z',
+            escalated: true,
+            reason: 'trust_escalation'
           }
         }
       ])
