@@ -194,6 +194,12 @@ const promptVariants = {
       language: 'en',
       prompt:
         'In this project, the cart total looks wrong when quantity is greater than one. Fix it, verify it, and prepare a PR candidate.'
+    },
+    {
+      id: 'ko-cart-two-items-total-low',
+      language: 'ko',
+      prompt:
+        '상품을 두 개 담으면 장바구니 합계가 낮게 나와. 수량 계산 문제를 고치고 테스트 추가해줘'
     }
   ],
   auto_discovery: [
@@ -223,6 +229,12 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Review this project like a user repo, find one concrete bug, fix it, verify it, and stage a PR candidate.'
+    },
+    {
+      id: 'ko-user-project-failing-test-bug',
+      language: 'ko',
+      prompt:
+        '사용자 프로젝트 기준으로 버그 찾아서 하나 고치고 PR 후보 만들어줘'
     }
   ]
 };

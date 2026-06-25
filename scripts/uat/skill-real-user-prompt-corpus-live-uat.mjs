@@ -60,6 +60,12 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-cart-two-items-total-low',
+    mode: 'user_issue',
+    variant: 'ko-cart-two-items-total-low',
+    language: 'ko'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -88,6 +94,12 @@ const defaultCorpus = [
     mode: 'auto_discovery',
     variant: 'en-user-repo-review-fix-one',
     language: 'en'
+  },
+  {
+    id: 'auto-ko-user-project-failing-test-bug',
+    mode: 'auto_discovery',
+    variant: 'ko-user-project-failing-test-bug',
+    language: 'ko'
   }
 ];
 

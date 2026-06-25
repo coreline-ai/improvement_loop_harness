@@ -87,6 +87,13 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-user-project-failing-test-bug',
+    prompt: '사용자 프로젝트 기준으로 버그 찾아서 하나 고치고 PR 후보 만들어줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
     expectedMode: 'user_issue',
@@ -121,6 +128,14 @@ const cases = [
     id: 'en-user-repo-cart-pr-candidate',
     prompt:
       'In this project, the cart total looks wrong when quantity is greater than one. Fix it, verify it, and prepare a PR candidate.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-cart-two-items-total-low',
+    prompt:
+      '상품을 두 개 담으면 장바구니 합계가 낮게 나와. 수량 계산 문제를 고치고 테스트 추가해줘',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true
