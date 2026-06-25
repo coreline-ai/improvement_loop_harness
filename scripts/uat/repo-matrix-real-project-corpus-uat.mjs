@@ -1007,6 +1007,26 @@ function buildOrderFulfillmentVerifier(cases) {
   ].join('\n');
 }
 
+function buildReturnsRefundVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateReturnAuthorization } = require(process.cwd() + '/examples/business-source/returns-refund.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateReturnAuthorization(item.order, item.request, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1632,6 +1652,133 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
       ])
   },
   {
+    id: 'returns-refund-window-policy',
+    semantic_domain: 'returns_refund_window_eligibility',
+    business_source_repair: true,
+    business_domain: 'returns_refund',
+    relativePath: 'examples/business-source/returns-refund.cjs',
+    language: 'javascript',
+    originalNeedle: [
+      '  if (daysSinceDelivery > returnWindowDays) {',
+      "    return denied(currency, refundMethod, 'return_window_expired');",
+      '  }'
+    ].join('\n'),
+    regressionText: [
+      '  if (daysSinceDelivery < returnWindowDays) {',
+      "    return denied(currency, refundMethod, 'return_window_expired');",
+      '  }'
+    ].join('\n'),
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildReturnsRefundVerifier([
+        {
+          name: 'return inside policy window is eligible with restocking fee',
+          order: {
+            status: 'delivered',
+            currency: 'USD',
+            deliveredAt: '2026-06-15T00:00:00.000Z',
+            itemSubtotalCents: 10000,
+            shippingCents: 900
+          },
+          request: { reason: 'changed_mind', receiptAvailable: true },
+          policy: { returnWindowDays: 30, restockingFeeBps: 1000 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            eligible: true,
+            reason: null,
+            refundMethod: 'original_payment',
+            restockingFeeCents: 1000,
+            shippingRefundCents: 0,
+            refundCents: 9000
+          }
+        },
+        {
+          name: 'return after policy window is rejected',
+          order: {
+            status: 'delivered',
+            currency: 'USD',
+            deliveredAt: '2026-05-01T00:00:00.000Z',
+            itemSubtotalCents: 10000,
+            shippingCents: 900
+          },
+          request: { reason: 'changed_mind', receiptAvailable: true },
+          policy: { returnWindowDays: 30, restockingFeeBps: 1000 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            eligible: false,
+            reason: 'return_window_expired',
+            refundCents: 0
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildReturnsRefundVerifier([
+        {
+          name: 'damaged return waives restocking fee and refunds shipping',
+          order: {
+            status: 'fulfilled',
+            currency: 'USD',
+            deliveredAt: '2026-06-20T00:00:00.000Z',
+            itemSubtotalCents: 4500,
+            shippingCents: 800
+          },
+          request: { reason: 'damaged', receiptAvailable: true },
+          policy: { returnWindowDays: 30, restockingFeeBps: 1500 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            eligible: true,
+            reason: null,
+            refundMethod: 'original_payment',
+            restockingFeeCents: 0,
+            shippingRefundCents: 800,
+            refundCents: 5300
+          }
+        },
+        {
+          name: 'missing receipt uses store credit inside return window',
+          order: {
+            status: 'delivered',
+            currency: 'USD',
+            deliveredAt: '2026-06-05T00:00:00.000Z',
+            itemSubtotalCents: 7200,
+            shippingCents: 500
+          },
+          request: { reason: 'changed_mind', receiptAvailable: false },
+          policy: { returnWindowDays: 30, restockingFeeBps: 0 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            eligible: true,
+            reason: null,
+            refundMethod: 'store_credit',
+            restockingFeeCents: 0,
+            refundCents: 7200
+          }
+        },
+        {
+          name: 'final sale item is never returnable',
+          order: {
+            status: 'delivered',
+            currency: 'USD',
+            deliveredAt: '2026-06-24T00:00:00.000Z',
+            finalSale: true,
+            itemSubtotalCents: 2500,
+            shippingCents: 500
+          },
+          request: { reason: 'damaged', receiptAvailable: true },
+          policy: { returnWindowDays: 30, restockingFeeBps: 0 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            eligible: false,
+            reason: 'final_sale',
+            refundCents: 0
+          }
+        }
+      ])
+  },
+  {
     id: 'sampleproject-add-one',
     semantic_domain: 'arithmetic_increment',
     relativePath: 'src/sample/simple.py',
@@ -2164,13 +2311,20 @@ function buildSemanticSourceRepairPrompt({
 }
 
 async function selectSemanticSourceRepairTarget(clonePath, options = {}) {
-  const availableTargets = SEMANTIC_SOURCE_REPAIR_TARGETS.filter((target) => {
+  let availableTargets = SEMANTIC_SOURCE_REPAIR_TARGETS.filter((target) => {
     return !(
       options.businessSourceOnly &&
       target.business_source_repair !== true
     );
   });
-  const offset = Math.max(0, Number(options.semanticTargetOffset ?? 0) || 0);
+  if (options.semanticTargetId) {
+    availableTargets = availableTargets.filter(
+      (target) => target.id === options.semanticTargetId
+    );
+  }
+  const offset = options.semanticTargetId
+    ? 0
+    : Math.max(0, Number(options.semanticTargetOffset ?? 0) || 0);
   const orderedTargets = [
     ...availableTargets.slice(offset % Math.max(availableTargets.length, 1)),
     ...availableTargets.slice(0, offset % Math.max(availableTargets.length, 1))
@@ -2200,8 +2354,11 @@ async function selectSemanticSourceRepairTarget(clonePath, options = {}) {
   }
   return {
     target: null,
+    requested_semantic_target_id: options.semanticTargetId ?? null,
     failures: [
-      options.businessSourceOnly
+      options.semanticTargetId
+        ? 'requested_semantic_source_repair_target_unavailable'
+        : options.businessSourceOnly
         ? 'no_curated_business_source_repair_target'
         : 'no_curated_semantic_source_repair_target'
     ]
@@ -3452,7 +3609,8 @@ async function runCodexSemanticSourceRepairSmoke(
   const businessSourceRepair = options.businessSourceRepairSmoke === true;
   const targetSelection = await selectSemanticSourceRepairTarget(clonePath, {
     businessSourceOnly: businessSourceRepair,
-    semanticTargetOffset: options.semanticTargetOffset
+    semanticTargetOffset: options.semanticTargetOffset,
+    semanticTargetId: options.semanticTargetId
   });
   const target = targetSelection.target;
   if (!target) {
@@ -3465,6 +3623,8 @@ async function runCodexSemanticSourceRepairSmoke(
       business_source_repair: businessSourceRepair,
       business_bug_repair: businessSourceRepair,
       existing_source: true,
+      requested_semantic_target_id:
+        targetSelection.requested_semantic_target_id ?? null,
       failures: targetSelection.failures
     };
   }
@@ -3840,7 +4000,10 @@ async function analyzeRepo(repoPath, index, options = {}) {
           resolved,
           `${index}-${id}`,
           options.tmpRoot,
-          { ...options, semanticTargetOffset: index - 1 }
+          {
+            ...options,
+            semanticTargetOffset: options.semanticTargetId ? 0 : index - 1
+          }
         )
     : options.codexRepairSmoke || options.businessRepairSmoke
       ? await runCodexRepairSmoke(
@@ -3935,6 +4098,8 @@ function parseArgs(argv, env = process.env) {
     env.VIBELOOP_REAL_PROJECT_CORPUS_EXISTING_SOURCE_REPAIR_PR_SMOKE === '1';
   let semanticSourceRepairSmoke =
     env.VIBELOOP_REAL_PROJECT_CORPUS_SEMANTIC_SOURCE_REPAIR_SMOKE === '1';
+  let semanticTargetId =
+    env.VIBELOOP_REAL_PROJECT_CORPUS_SEMANTIC_TARGET_ID || null;
   let codexModel = env.VIBELOOP_REAL_PROJECT_CODEX_MODEL || 'gpt-5.5';
   let codexTimeoutMs = Number(
     env.VIBELOOP_REAL_PROJECT_CODEX_TIMEOUT_MS || DEFAULT_CODEX_TIMEOUT_MS
@@ -4000,6 +4165,13 @@ function parseArgs(argv, env = process.env) {
       semanticSourceRepairSmoke = true;
       continue;
     }
+    if (arg === '--semantic-target-id') {
+      const value = argv[index + 1];
+      if (!value) throw new Error('--semantic-target-id requires a value');
+      semanticTargetId = value;
+      index += 1;
+      continue;
+    }
     if (arg === '--codex-model') {
       const value = argv[index + 1];
       if (!value) throw new Error('--codex-model requires a value');
@@ -4051,6 +4223,7 @@ function parseArgs(argv, env = process.env) {
     existingSourceRepairSmoke,
     existingSourceRepairPrSmoke,
     semanticSourceRepairSmoke,
+    semanticTargetId,
     codexModel,
     codexTimeoutMs,
     githubOwner,
@@ -4164,6 +4337,15 @@ async function main() {
   if (codexModeCount > 1) {
     throw new Error(
       '--codex-copy-smoke, --codex-repair-smoke, --business-repair-smoke, --business-source-repair-smoke, --existing-source-repair-smoke, --existing-source-repair-pr-smoke, and --semantic-source-repair-smoke are mutually exclusive'
+    );
+  }
+  if (
+    options.semanticTargetId &&
+    !options.businessSourceRepairSmoke &&
+    !options.semanticSourceRepairSmoke
+  ) {
+    throw new Error(
+      '--semantic-target-id requires --business-source-repair-smoke or --semantic-source-repair-smoke'
     );
   }
   const scenario = options.existingSourceRepairPrSmoke
@@ -4289,6 +4471,7 @@ async function main() {
           options.existingSourceRepairPrSmoke,
         existingSourceRepairPrSmoke: options.existingSourceRepairPrSmoke,
         semanticSourceRepairSmoke: options.semanticSourceRepairSmoke,
+        semanticTargetId: options.semanticTargetId,
         codexModel: options.codexModel,
         codexTimeoutMs: options.codexTimeoutMs,
         tmpRoot,
@@ -4397,6 +4580,9 @@ async function main() {
       options.semanticSourceRepairSmoke || options.businessSourceRepairSmoke,
     semantic_bug_repair:
       options.semanticSourceRepairSmoke || options.businessSourceRepairSmoke,
+    ...(options.semanticTargetId
+      ? { requested_semantic_target_id: options.semanticTargetId }
+      : {}),
     llm_modification:
       options.codexCopySmoke ||
       options.codexRepairSmoke ||
@@ -4474,6 +4660,9 @@ async function main() {
           options.semanticSourceRepairSmoke,
         semantic_source_repair_smoke:
           options.semanticSourceRepairSmoke || options.businessSourceRepairSmoke,
+        ...(options.semanticTargetId
+          ? { requested_semantic_target_id: options.semanticTargetId }
+          : {}),
         existing_source_repair_pr_smoke: options.existingSourceRepairPrSmoke,
         modifiable_copy_smoke: options.modifiableCopySmoke
       }
