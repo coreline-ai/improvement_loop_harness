@@ -212,7 +212,8 @@ export const SKILL_PROMPT_LIVE_EVIDENCE_SCENARIO = {
     'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS'
   ],
   expected_ledger: {
-    required_skill_prompt_real_builder: true
+    required_skill_prompt_real_builder: true,
+    required_skill_prompt_ux: true
   }
 };
 
@@ -1290,6 +1291,26 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
           execution_code: ledgerJson.helper.execution_code ?? null
         }
       : null,
+    prompt_ux: ledgerJson.prompt_ux
+      ? {
+          variant_id: ledgerJson.prompt_ux.variant_id ?? null,
+          variant_source: ledgerJson.prompt_ux.variant_source ?? null,
+          language: ledgerJson.prompt_ux.language ?? null,
+          prompt_present: ledgerJson.prompt_ux.prompt_present ?? null,
+          prompt_sha256: ledgerJson.prompt_ux.prompt_sha256 ?? null,
+          prompt_char_count: ledgerJson.prompt_ux.prompt_char_count ?? null,
+          classification: ledgerJson.prompt_ux.classification
+            ? {
+                mode: ledgerJson.prompt_ux.classification.mode ?? null,
+                confidence:
+                  ledgerJson.prompt_ux.classification.confidence ?? null
+              }
+            : null,
+          expected_mode: ledgerJson.prompt_ux.expected_mode ?? null,
+          matched_expected_mode:
+            ledgerJson.prompt_ux.matched_expected_mode ?? null
+        }
+      : null,
     pr_candidate: ledgerJson.pr_candidate ?? null,
     final_verification: ledgerJson.final_verification
       ? {
@@ -1408,6 +1429,40 @@ function requiredSkillPromptLedgerFailures(ledgerSummary) {
   }
   if (ledgerSummary.failure_reasons_count !== 0) {
     failures.push('skill_prompt.failure_reasons');
+  }
+  return failures;
+}
+
+function requiredSkillPromptUxFailures(ledgerSummary) {
+  const failures = [];
+  const promptUx = ledgerSummary.prompt_ux;
+  if (!promptUx) {
+    failures.push('skill_prompt.prompt_ux');
+    return failures;
+  }
+  if (typeof promptUx.variant_id !== 'string' || promptUx.variant_id.length === 0) {
+    failures.push('skill_prompt.prompt_ux.variant_id');
+  }
+  if (promptUx.prompt_present !== true) {
+    failures.push('skill_prompt.prompt_ux.prompt_present');
+  }
+  if (
+    typeof promptUx.prompt_sha256 !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(promptUx.prompt_sha256)
+  ) {
+    failures.push('skill_prompt.prompt_ux.prompt_sha256');
+  }
+  if (!(promptUx.prompt_char_count > 0)) {
+    failures.push('skill_prompt.prompt_ux.prompt_char_count');
+  }
+  if (promptUx.classification?.mode !== ledgerSummary.helper?.mode) {
+    failures.push('skill_prompt.prompt_ux.classification');
+  }
+  if (promptUx.expected_mode !== ledgerSummary.helper?.mode) {
+    failures.push('skill_prompt.prompt_ux.expected_mode');
+  }
+  if (promptUx.matched_expected_mode !== true) {
+    failures.push('skill_prompt.prompt_ux.matched_expected_mode');
   }
   return failures;
 }
@@ -1602,6 +1657,9 @@ async function validateRequiredStatusEvidence({
     }
     if (options.expectedLedger?.required_skill_prompt_real_builder) {
       ledgerFailures.push(...requiredSkillPromptLedgerFailures(ledgerSummary));
+    }
+    if (options.expectedLedger?.required_skill_prompt_ux) {
+      ledgerFailures.push(...requiredSkillPromptUxFailures(ledgerSummary));
     }
     if (options.expectedLedger?.required_skill_prompt_github_draft_pr) {
       ledgerFailures.push(
@@ -1850,6 +1908,27 @@ export async function latestEvidenceBundle(
               execution_code: ledgerJson.helper.execution_code ?? null
             }
           : null,
+        prompt_ux: ledgerJson.prompt_ux
+          ? {
+              variant_id: ledgerJson.prompt_ux.variant_id ?? null,
+              variant_source: ledgerJson.prompt_ux.variant_source ?? null,
+              language: ledgerJson.prompt_ux.language ?? null,
+              prompt_present: ledgerJson.prompt_ux.prompt_present ?? null,
+              prompt_sha256: ledgerJson.prompt_ux.prompt_sha256 ?? null,
+              prompt_char_count:
+                ledgerJson.prompt_ux.prompt_char_count ?? null,
+              classification: ledgerJson.prompt_ux.classification
+                ? {
+                    mode: ledgerJson.prompt_ux.classification.mode ?? null,
+                    confidence:
+                      ledgerJson.prompt_ux.classification.confidence ?? null
+                  }
+                : null,
+              expected_mode: ledgerJson.prompt_ux.expected_mode ?? null,
+              matched_expected_mode:
+                ledgerJson.prompt_ux.matched_expected_mode ?? null
+            }
+          : null,
         pr_candidate: ledgerJson.pr_candidate ?? null,
         final_verification: ledgerJson.final_verification
           ? {
@@ -2046,6 +2125,9 @@ export async function latestEvidenceBundle(
     }
     if (options.expectedLedger?.required_skill_prompt_real_builder) {
       ledgerFailures.push(...requiredSkillPromptLedgerFailures(ledgerSummary));
+    }
+    if (options.expectedLedger?.required_skill_prompt_ux) {
+      ledgerFailures.push(...requiredSkillPromptUxFailures(ledgerSummary));
     }
     if (options.expectedLedger?.required_skill_prompt_github_draft_pr) {
       ledgerFailures.push(

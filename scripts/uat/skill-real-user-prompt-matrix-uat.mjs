@@ -57,8 +57,39 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-failing-tests-find-one',
+    prompt: '테스트 실패 원인을 찾아서 문제 하나 고치고 PR 후보 만들어줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-failing-behavior-find-one',
+    prompt:
+      'Find one failing behavior in this repo, fix it, verify it, and prepare a PR candidate',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-cart-natural-quantity-total',
+    prompt:
+      '장바구니 총액이 수량을 반영하지 않는 것 같아. cart quantity 처리 고치고 회귀 테스트 추가해줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-cart-natural-quantity-total',
+    prompt:
+      'The cart total ignores item quantity. Fix the quantity calculation and add a regression test.',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true
@@ -106,6 +137,20 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-natural-skill-full-live',
+    prompt: '일반 사용자가 자연어로 스킬을 끝까지 쓰는 full live UAT를 검증해줘',
+    expectedMode: 'codex_skill_prompt_uat',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-natural-language-skill-live',
+    prompt: 'verify the natural-language Skill UX full live path',
+    expectedMode: 'codex_skill_prompt_uat',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-skill-md-call',
     prompt: 'SKILL.md 호출 검증하고 prompt runner가 실행되는지 테스트해줘',
     expectedMode: 'codex_skill_prompt_uat',
@@ -115,6 +160,13 @@ const cases = [
   {
     id: 'ko-verify-only',
     prompt: '이 candidate.patch는 수정하지 말고 검증만 해줘',
+    expectedMode: 'verify_only',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-existing-patch-final-reverify',
+    prompt: '기존 패치 수정하지 말고 final reverify만 해줘',
     expectedMode: 'verify_only',
     singleIssue: true,
     critical: true
@@ -141,6 +193,13 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-self-improvement-flow-natural',
+    prompt: '자가개선 루프가 후보 만들고 검증하고 선택하는지 UAT로 확인해줘',
+    expectedMode: 'self_improvement_uat',
+    singleIssue: false,
+    critical: true
+  },
+  {
     id: 'ko-report-summary',
     prompt: 'eval-report.json 보고서 요약해줘',
     expectedMode: 'report',
@@ -148,8 +207,22 @@ const cases = [
     critical: false
   },
   {
+    id: 'ko-selection-eval-report-summary',
+    prompt: 'selection-report.json와 eval-report.json 결과만 요약해줘',
+    expectedMode: 'report',
+    singleIssue: false,
+    critical: false
+  },
+  {
     id: 'unknown-needs-clarification',
     prompt: '이거 괜찮게 처리해줘',
+    expectedMode: 'unknown',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'unknown-project-look-around',
+    prompt: '프로젝트 좀 봐줘',
     expectedMode: 'unknown',
     singleIssue: true,
     critical: true

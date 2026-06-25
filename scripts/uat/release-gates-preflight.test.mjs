@@ -123,6 +123,21 @@ function skillPromptLiveLedger({
       executed: true,
       execution_code: 0
     },
+    prompt_ux: {
+      variant_id:
+        mode === 'user_issue'
+          ? 'ko-cart-natural-quantity-total'
+          : 'ko-failing-tests-find-one',
+      variant_source: 'built-in',
+      language: 'ko',
+      prompt_present: true,
+      prompt_sha256:
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      prompt_char_count: 42,
+      classification: { mode, confidence: 0.9 },
+      expected_mode: mode,
+      matched_expected_mode: true
+    },
     pr_candidate: true,
     final_verification: {
       provenance_ok: true,
@@ -223,8 +238,8 @@ function skillPromptMatrixLedger(overrides = {}) {
         'CODEX_HOME/skills/vibeloop-harness/scripts/classify-intent.mjs',
       ...(overrides.actual_user_environment ?? {})
     },
-    total_cases: 18,
-    passed_cases: 18,
+    total_cases: 28,
+    passed_cases: 28,
     failed_cases: 0,
     critical_failures: 0,
     unexpected_unknown: 0,
@@ -2552,8 +2567,8 @@ ELIFECYCLE Command failed with exit code 20.`);
       ok: true,
       ledger_summary: expect.objectContaining({
         proof_scope: 'copied_skill_prompt_routing_matrix',
-        total_cases: 18,
-        passed_cases: 18,
+        total_cases: 28,
+        passed_cases: 28,
         failed_cases: 0,
         unexpected_unknown: 0
       })

@@ -397,8 +397,8 @@ function skillPromptMatrixLedger(overrides = {}) {
         'CODEX_HOME/skills/vibeloop-harness/scripts/classify-intent.mjs',
       ...(overrides.actual_user_environment ?? {})
     },
-    total_cases: 18,
-    passed_cases: 18,
+    total_cases: 28,
+    passed_cases: 28,
     failed_cases: 0,
     critical_failures: 0,
     unexpected_unknown: 0,
@@ -411,6 +411,7 @@ function skillPromptMatrixLedger(overrides = {}) {
 
 function skillPromptLiveLedger(overrides = {}) {
   const githubDraftPr = overrides.githubDraftPr === true;
+  const helperMode = overrides.helper?.mode ?? 'auto_discovery';
   return {
     status: 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
     evidence_missing_count: 0,
@@ -429,11 +430,27 @@ function skillPromptLiveLedger(overrides = {}) {
     },
     helper: {
       invoked: true,
-      mode: 'auto_discovery',
+      mode: helperMode,
       command_kind: 'vibeloop_orchestrate',
       executed: true,
       execution_code: 0,
       ...(overrides.helper ?? {})
+    },
+    prompt_ux: {
+      variant_id:
+        helperMode === 'user_issue'
+          ? 'ko-cart-natural-quantity-total'
+          : 'ko-failing-tests-find-one',
+      variant_source: 'built-in',
+      language: 'ko',
+      prompt_present: true,
+      prompt_sha256:
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      prompt_char_count: 42,
+      classification: { mode: helperMode, confidence: 0.9 },
+      expected_mode: helperMode,
+      matched_expected_mode: true,
+      ...(overrides.prompt_ux ?? {})
     },
     pr_candidate: true,
     final_verification: {
@@ -570,7 +587,7 @@ describe('release evidence audit', () => {
     );
   });
 
-  it('validates merged CI evidence artifacts without running live preflights', async () => {
+  it('validates merged evidence artifacts without running live preflights', async () => {
     const root = await tempRoot();
     await writeValidCiEvidence(root);
 
@@ -579,7 +596,7 @@ describe('release evidence audit', () => {
     });
 
     expect(report.status).toBe('pass');
-    expect(report.mode).toBe('ci-artifact-evidence-only');
+    expect(report.mode).toBe('local-or-artifact-evidence-audit');
     expect(report.scope).toBe('default-release-gates');
     expect(report.audit_summary).toEqual(
       expect.objectContaining({
@@ -843,8 +860,8 @@ describe('release evidence audit', () => {
         ledger_summary: expect.objectContaining({
           status: 'SKILL_PROMPT_MATRIX_UAT_PASS',
           proof_scope: 'copied_skill_prompt_routing_matrix',
-          total_cases: 18,
-          passed_cases: 18,
+          total_cases: 28,
+          passed_cases: 28,
           failed_cases: 0,
           unexpected_unknown: 0
         })

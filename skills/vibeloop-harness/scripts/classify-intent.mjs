@@ -53,7 +53,7 @@ const patterns = {
   skillPromptLiveUat: [
     [
       'skill_prompt',
-      /skill\s*prompt|skill\s*layer|스킬\s*프롬프트|skill\.md|스킬\s*호출/i
+      /skill\s*prompt|skill\s*layer|natural[-\s]*language\s*skill|스킬\s*프롬프트|자연어(?:로)?\s*스킬|스킬.*(?:live|uat|ux|제품성|경로|호출)|skill\.md/i
     ],
     ['live_or_uat', /live|uat|실환경|실\s*환경|호출|검증|테스트/i]
   ],
@@ -72,15 +72,15 @@ const patterns = {
   autoDiscovery: [
     [
       'auto_discovery',
-      /자동\s*문제\s*발견|문제(?:점)?\s*찾|버그\s*찾|결함\s*찾|오류\s*찾|자율\s*개선|autonomous|discover/i
+      /자동\s*문제\s*발견|문제(?:점)?(?:\s*\S+){0,3}\s*찾|찾아서\s*문제|원인(?:을)?\s*찾|버그\s*찾|결함\s*찾|오류\s*찾|find\s+one|failing\s+behavior|자율\s*개선|autonomous|discover/i
     ],
     ['scan_repo', /repo\s*scan|프로젝트\s*스캔|전체\s*스캔|분석해서\s*수정/i],
     ['sequential_issue', /하나씩|1개씩|순차|issue\s*queue|다중\s*이슈/i]
   ],
   userIssue: [
-    ['fix_request', /고쳐|수정|fix|repair|버그|bug|개선/i],
+    ['fix_request', /고쳐|고치|수정|fix|repair|버그|bug|개선/i],
     ['specific_path', /(?:src|lib|app|packages|tests)\/[\w./-]+|\b[\w.-]+\.(?:js|ts|tsx|py|rb|go|rs|java|cjs|mjs)\b/i],
-    ['specific_symptom', /quantity|sku|login|auth|timeout|에러|오류|실패|깨짐/i]
+    ['specific_symptom', /quantity|cart|sku|login|auth|timeout|장바구니|총액|수량|에러|오류|실패|깨짐/i]
   ],
   report: [
     ['report', /report|eval-report|리포트|보고서|요약|summar/i]
@@ -180,7 +180,7 @@ function classify(prompt) {
   }
   if (
     matches.skillPromptLiveUat.length >= 2 &&
-    /uat|테스트|검증|run|실행|호출/i.test(text)
+    /uat|live|테스트|검증|run|실행|호출/i.test(text)
   ) {
     return {
       mode: 'codex_skill_prompt_uat',

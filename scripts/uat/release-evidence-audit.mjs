@@ -219,7 +219,7 @@ export async function buildReleaseEvidenceAuditReport(options = {}) {
   return {
     status: failed.length > 0 ? 'fail' : 'pass',
     scenario: 'release-evidence-audit',
-    mode: 'ci-artifact-evidence-only',
+    mode: 'local-or-artifact-evidence-audit',
     scope,
     requested_evidence_roots: requestedRoots,
     evidence_roots: evidenceRoots,
@@ -247,7 +247,7 @@ export async function buildReleaseEvidenceAuditReport(options = {}) {
     evidence,
     next_step:
       failed.length > 0
-        ? 'Download or merge the CI evidence artifacts, then rerun corepack pnpm uat:release-evidence-audit before claiming artifact-backed release evidence.'
+        ? 'Provide the missing local or downloaded evidence artifacts, then rerun corepack pnpm uat:release-evidence-audit before claiming evidence-backed product status.'
         : undefined
   };
 }

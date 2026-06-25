@@ -20,6 +20,7 @@
 // GitHub opt-in lane proves draft PR publication for this natural-language Skill
 // path, still not arbitrary-repo full autonomous improvement PASS.
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
   cp,
@@ -50,6 +51,10 @@ const skillFile = path.join(repoRoot, 'skills/vibeloop-harness/SKILL.md');
 const promptRunner = path.join(
   repoRoot,
   'skills/vibeloop-harness/scripts/run-from-prompt.mjs'
+);
+const classifier = path.join(
+  repoRoot,
+  'skills/vibeloop-harness/scripts/classify-intent.mjs'
 );
 const scenarioRoot = path.join(
   repoRoot,
@@ -159,8 +164,80 @@ const activeLimitations = [
     : 'GitHub draft PR publication is not exercised in this local-promotion lane',
   'single issue / bounded fixture scope; not arbitrary-repo full autonomous improvement PASS'
 ];
-const userPrompt =
-  process.env.VIBELOOP_SKILL_PROMPT_UAT_PROMPT ?? scenario.defaultPrompt;
+const promptVariants = {
+  user_issue: [
+    {
+      id: 'ko-default-cart-path',
+      language: 'ko',
+      prompt: scenarios.user_issue.defaultPrompt
+    },
+    {
+      id: 'ko-cart-natural-quantity-total',
+      language: 'ko',
+      prompt:
+        '장바구니 총액이 수량을 반영하지 않는 것 같아. cart quantity 처리 고치고 회귀 테스트 추가해줘'
+    },
+    {
+      id: 'en-cart-natural-quantity-total',
+      language: 'en',
+      prompt:
+        'The cart total ignores item quantity. Fix the quantity calculation and add a regression test.'
+    }
+  ],
+  auto_discovery: [
+    {
+      id: 'ko-default-auto-pr-candidate',
+      language: 'ko',
+      prompt: scenarios.auto_discovery.defaultPrompt
+    },
+    {
+      id: 'ko-failing-tests-find-one',
+      language: 'ko',
+      prompt: '테스트 실패 원인을 찾아서 문제 하나 고치고 PR 후보 만들어줘'
+    },
+    {
+      id: 'en-failing-behavior-find-one',
+      language: 'en',
+      prompt:
+        'Find one failing behavior in this repo, fix it, verify it, and prepare a PR candidate'
+    }
+  ]
+};
+
+function selectPromptVariant() {
+  const explicitPrompt = process.env.VIBELOOP_SKILL_PROMPT_UAT_PROMPT;
+  const requestedVariant =
+    process.env.VIBELOOP_SKILL_PROMPT_UAT_PROMPT_VARIANT ?? 'default';
+  if (explicitPrompt) {
+    return {
+      id: requestedVariant === 'default' ? 'custom-env-prompt' : requestedVariant,
+      source: 'env',
+      language: process.env.VIBELOOP_SKILL_PROMPT_UAT_PROMPT_LANGUAGE ?? 'custom',
+      prompt: explicitPrompt
+    };
+  }
+
+  const variants = promptVariants[requestedMode] ?? [];
+  const selected =
+    requestedVariant === 'default'
+      ? variants[0]
+      : variants.find((variant) => variant.id === requestedVariant);
+  if (!selected) {
+    throw new Error(
+      `unsupported VIBELOOP_SKILL_PROMPT_UAT_PROMPT_VARIANT=${requestedVariant}; available=${variants
+        .map((variant) => variant.id)
+        .join(',')}`
+    );
+  }
+  return { ...selected, source: 'built-in' };
+}
+
+function sha256Text(value) {
+  return createHash('sha256').update(String(value)).digest('hex');
+}
+
+const promptVariant = selectPromptVariant();
+const userPrompt = promptVariant.prompt;
 
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
@@ -308,6 +385,28 @@ function parseFinalJson(text) {
   }
 }
 
+function promptUxSummary(promptClassification) {
+  return {
+    variant_id: promptVariant.id,
+    variant_source: promptVariant.source,
+    language: promptVariant.language,
+    prompt_present: String(userPrompt).trim().length > 0,
+    prompt_sha256: sha256Text(userPrompt),
+    prompt_char_count: [...String(userPrompt)].length,
+    prompt_preview: redact(userPrompt).slice(0, 120),
+    classification: promptClassification
+      ? {
+          mode: promptClassification.mode ?? null,
+          confidence: promptClassification.confidence ?? null,
+          reason_codes: promptClassification.reason_codes ?? []
+        }
+      : null,
+    expected_mode: scenario.expectedHelperMode,
+    matched_expected_mode:
+      promptClassification?.mode === scenario.expectedHelperMode
+  };
+}
+
 function selectedIssue(parsed) {
   return Array.isArray(parsed?.issues) ? parsed.issues[0] : null;
 }
@@ -397,7 +496,8 @@ function passReasons({
   finalMessage,
   helperStat,
   startedAt,
-  githubSummary
+  githubSummary,
+  promptClassification
 }) {
   const parsed = helper?.execution?.parsed;
   const currentPromotion = promotion(helper);
@@ -435,6 +535,9 @@ function passReasons({
   }
   if (githubDraftPrRequested && githubSummary?.verified !== true) {
     reasons.push('github_draft_pr_not_verified');
+  }
+  if (promptClassification?.mode !== scenario.expectedHelperMode) {
+    reasons.push('prompt_variant_classifier_mismatch');
   }
   if (finalMessage?.skill_file_read !== true) {
     reasons.push('codex_final_did_not_report_skill_read');
@@ -540,10 +643,32 @@ async function main() {
   let githubRepoCreated = false;
   let fullRepo = null;
   let token = null;
+  let promptClassification = null;
   try {
     await mkdir(dataDir, { recursive: true });
     const baseCommit = await prepareRepo(targetRepo);
     await writeOutputSchema(outputSchemaPath);
+    const promptClassificationResult = await run(
+      process.execPath,
+      [classifier, '--prompt', userPrompt],
+      { timeoutMs: 30_000 }
+    );
+    if (promptClassificationResult.code !== 0) {
+      return blocked('PROMPT_CLASSIFIER_FAILED', {
+        stderr: redact(promptClassificationResult.stderr).trim()
+      });
+    }
+    promptClassification = parseFinalJson(promptClassificationResult.stdout);
+    if (!promptClassification) {
+      return blocked('PROMPT_CLASSIFIER_OUTPUT_INVALID', {
+        stdout: redact(promptClassificationResult.stdout).trim().slice(0, 500)
+      });
+    }
+    if (promptClassification.mode !== scenario.expectedHelperMode) {
+      return blocked('PROMPT_VARIANT_CLASSIFIER_MISMATCH', {
+        prompt_ux: promptUxSummary(promptClassification)
+      });
+    }
     if (githubDraftPrRequested) {
       if ((await run('gh', ['auth', 'status'], { timeoutMs: 30_000 })).code !== 0) {
         return blocked('GH_NOT_AUTHENTICATED');
@@ -741,7 +866,8 @@ Acceptance authority: deterministic VibeLoop reports only.
       finalMessage,
       helperStat,
       startedAt,
-      githubSummary
+      githubSummary,
+      promptClassification
     });
     pass = reasons.length === 0;
     const parsed = helper?.execution?.parsed ?? null;
@@ -758,6 +884,7 @@ Acceptance authority: deterministic VibeLoop reports only.
       scenario: activeScenarioName,
       mode: activeModeLabel,
       requested_mode: requestedMode,
+      prompt_ux: promptUxSummary(promptClassification),
       github_draft_pr: githubDraftPrRequested && githubSummary.count > 0,
       github_draft_pr_verified:
         githubDraftPrRequested && githubSummary.verified === true,
@@ -875,6 +1002,7 @@ Acceptance authority: deterministic VibeLoop reports only.
       ],
       extraJson: {
         orchestrator: ledger.orchestrator,
+        prompt_ux: ledger.prompt_ux,
         helper: ledger.helper,
         target_repo: ledger.target_repo,
         github: ledger.github
