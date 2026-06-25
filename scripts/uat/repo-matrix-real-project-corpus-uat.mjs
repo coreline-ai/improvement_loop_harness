@@ -967,6 +967,26 @@ function buildCheckoutPricingVerifier(cases) {
   ].join('\n');
 }
 
+function buildSubscriptionSeatBillingVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { calculateSubscriptionInvoice } = require(process.cwd() + '/examples/business-source/subscription-seat-billing.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = calculateSubscriptionInvoice(item.account, item.usage, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1249,6 +1269,137 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             taxCents: 0,
             shippingCents: 300,
             totalCents: 300
+          }
+        }
+      ])
+  },
+  {
+    id: 'subscription-seat-billing-active-status',
+    semantic_domain: 'subscription_invoice_status_eligibility',
+    business_source_repair: true,
+    business_domain: 'subscription_billing',
+    relativePath: 'examples/business-source/subscription-seat-billing.cjs',
+    language: 'javascript',
+    originalNeedle:
+      "  if (account.status !== 'active') return zeroInvoice(currency);",
+    regressionText:
+      "  if (account.status === 'active') return zeroInvoice(currency);",
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildSubscriptionSeatBillingVerifier([
+        {
+          name: 'active monthly account bills minimum seats and metered usage',
+          account: {
+            status: 'active',
+            currency: 'USD',
+            plan: 'monthly',
+            minimumSeats: 3,
+            seatPriceCents: 2500,
+            apiCallPriceCents: 2,
+            taxRateBps: 800
+          },
+          usage: { activeSeats: 2, apiCalls: 100 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            currency: 'USD',
+            billableSeats: 3,
+            subtotalCents: 7700,
+            discountCents: 0,
+            taxCents: 616,
+            totalCents: 8316
+          }
+        },
+        {
+          name: 'paused account is not billable',
+          account: {
+            status: 'paused',
+            currency: 'USD',
+            plan: 'monthly',
+            minimumSeats: 3,
+            seatPriceCents: 2500,
+            apiCallPriceCents: 2,
+            taxRateBps: 800
+          },
+          usage: { activeSeats: 10, apiCalls: 1000 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            currency: 'USD',
+            billableSeats: 0,
+            subtotalCents: 0,
+            discountCents: 0,
+            taxCents: 0,
+            totalCents: 0
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildSubscriptionSeatBillingVerifier([
+        {
+          name: 'active account in trial period is not billable yet',
+          account: {
+            status: 'active',
+            currency: 'USD',
+            plan: 'monthly',
+            minimumSeats: 2,
+            seatPriceCents: 3000,
+            trialEndsAt: '2026-07-01T00:00:00.000Z'
+          },
+          usage: { activeSeats: 5, apiCalls: 0 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            currency: 'USD',
+            billableSeats: 0,
+            subtotalCents: 0,
+            discountCents: 0,
+            taxCents: 0,
+            totalCents: 0
+          }
+        },
+        {
+          name: 'canceled account after current period is not billable',
+          account: {
+            status: 'active',
+            currency: 'USD',
+            plan: 'monthly',
+            cancelAtPeriodEnd: true,
+            currentPeriodEndsAt: '2026-06-01T00:00:00.000Z',
+            minimumSeats: 2,
+            seatPriceCents: 3000
+          },
+          usage: { activeSeats: 4, apiCalls: 0 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            currency: 'USD',
+            billableSeats: 0,
+            subtotalCents: 0,
+            discountCents: 0,
+            taxCents: 0,
+            totalCents: 0
+          }
+        },
+        {
+          name: 'annual plan applies discount before tax',
+          account: {
+            status: 'active',
+            currency: 'USD',
+            plan: 'annual',
+            minimumSeats: 1,
+            seatPriceCents: 1000,
+            apiCallPriceCents: 5,
+            taxRateBps: 725
+          },
+          usage: { activeSeats: 4, apiCalls: 200 },
+          now: '2026-06-25T00:00:00.000Z',
+          expected: {
+            currency: 'USD',
+            billableSeats: 4,
+            subtotalCents: 5000,
+            discountCents: 750,
+            taxCents: 308,
+            totalCents: 4558
           }
         }
       ])
@@ -1786,13 +1937,18 @@ function buildSemanticSourceRepairPrompt({
 }
 
 async function selectSemanticSourceRepairTarget(clonePath, options = {}) {
-  for (const target of SEMANTIC_SOURCE_REPAIR_TARGETS) {
-    if (
+  const availableTargets = SEMANTIC_SOURCE_REPAIR_TARGETS.filter((target) => {
+    return !(
       options.businessSourceOnly &&
       target.business_source_repair !== true
-    ) {
-      continue;
-    }
+    );
+  });
+  const offset = Math.max(0, Number(options.semanticTargetOffset ?? 0) || 0);
+  const orderedTargets = [
+    ...availableTargets.slice(offset % Math.max(availableTargets.length, 1)),
+    ...availableTargets.slice(0, offset % Math.max(availableTargets.length, 1))
+  ];
+  for (const target of orderedTargets) {
     const filePath = path.join(clonePath, target.relativePath);
     let fileStat;
     try {
@@ -3068,7 +3224,8 @@ async function runCodexSemanticSourceRepairSmoke(
 
   const businessSourceRepair = options.businessSourceRepairSmoke === true;
   const targetSelection = await selectSemanticSourceRepairTarget(clonePath, {
-    businessSourceOnly: businessSourceRepair
+    businessSourceOnly: businessSourceRepair,
+    semanticTargetOffset: options.semanticTargetOffset
   });
   const target = targetSelection.target;
   if (!target) {
@@ -3452,12 +3609,12 @@ async function analyzeRepo(repoPath, index, options = {}) {
   }
   const codexRepair =
     options.businessSourceRepairSmoke || options.semanticSourceRepairSmoke
-    ? await runCodexSemanticSourceRepairSmoke(
-        resolved,
-        `${index}-${id}`,
-        options.tmpRoot,
-        options
-      )
+      ? await runCodexSemanticSourceRepairSmoke(
+          resolved,
+          `${index}-${id}`,
+          options.tmpRoot,
+          { ...options, semanticTargetOffset: index - 1 }
+        )
     : options.codexRepairSmoke || options.businessRepairSmoke
       ? await runCodexRepairSmoke(
           resolved,

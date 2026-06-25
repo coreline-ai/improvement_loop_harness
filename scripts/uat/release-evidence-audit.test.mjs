@@ -2024,8 +2024,9 @@ describe('release evidence audit', () => {
         scenario,
         expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 1,
-          min_pass_count: 1,
+          min_cell_count: 2,
+          min_pass_count: 2,
+          min_distinct_semantic_target_count: 2,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_business_source_repair: true,
@@ -2072,8 +2073,8 @@ describe('release evidence audit', () => {
         provider: 'codex',
         model: 'gpt-5.5'
       },
-      cell_count: 1,
-      pass_count: 1,
+      cell_count: 2,
+      pass_count: 2,
       fail_count: 0,
       cells: [
         {
@@ -2087,8 +2088,32 @@ describe('release evidence audit', () => {
             semantic_source_repair: true,
             semantic_bug_repair: true,
             semantic_domain: 'checkout_coupon_segment_eligibility',
+            semantic_target_id: 'checkout-pricing-coupon-segment',
             existing_source: true,
             repair_source: 'examples/business-source/checkout-pricing.cjs',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'subscription-billing-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_source_repair: true,
+            business_bug_repair: true,
+            business_domain: 'subscription_billing',
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'subscription_invoice_status_eligibility',
+            semantic_target_id: 'subscription-seat-billing-active-status',
+            existing_source: true,
+            repair_source:
+              'examples/business-source/subscription-seat-billing.cjs',
             visible_acceptance: { status: 'pass' },
             hidden_acceptance: { status: 'pass' },
             diff_scope: { status: 'pass' },
@@ -2149,8 +2174,8 @@ describe('release evidence audit', () => {
           provider: 'codex',
           model: 'gpt-5.5'
         },
-        cell_count: 1,
-        pass_count: 1,
+        cell_count: 2,
+        pass_count: 2,
         fail_count: 0,
         cells: [
           {
@@ -2163,8 +2188,32 @@ describe('release evidence audit', () => {
               semantic_source_repair: true,
               semantic_bug_repair: true,
               semantic_domain: 'checkout_coupon_segment_eligibility',
+              semantic_target_id: 'checkout-pricing-coupon-segment',
               existing_source: true,
               repair_source: 'examples/business-source/checkout-pricing.cjs',
+              visible_acceptance: { status: 'pass' },
+              hidden_acceptance: { status: 'pass' },
+              diff_scope: { status: 'pass' },
+              source_changed: true,
+              visible_test_unchanged: true,
+              source_repo_integrity: { status: 'pass' }
+            }
+          },
+          {
+            id: 'subscription-billing-project',
+            status: 'pass',
+            codex_repair: {
+              status: 'pass',
+              business_source_repair: true,
+              business_bug_repair: true,
+              business_domain: 'subscription_billing',
+              semantic_source_repair: true,
+              semantic_bug_repair: true,
+              semantic_domain: 'subscription_invoice_status_eligibility',
+              semantic_target_id: 'subscription-seat-billing-active-status',
+              existing_source: true,
+              repair_source:
+                'examples/business-source/subscription-seat-billing.cjs',
               visible_acceptance: { status: 'pass' },
               hidden_acceptance: { status: 'pass' },
               diff_scope: { status: 'pass' },

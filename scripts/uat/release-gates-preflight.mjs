@@ -375,8 +375,9 @@ export const REAL_PROJECT_BUSINESS_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
   require_manifest: true,
   expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
   expected_ledger: {
-    min_cell_count: 1,
-    min_pass_count: 1,
+    min_cell_count: 2,
+    min_pass_count: 2,
+    min_distinct_semantic_target_count: 2,
     max_fail_count: 0,
     required_codex_repair_smoke: true,
     required_business_source_repair: true,
@@ -606,6 +607,8 @@ function summarizeMatrixCells(cells) {
     codex_repair_semantic_bug_repair:
       cell.codex_repair?.semantic_bug_repair ?? null,
     codex_repair_semantic_domain: cell.codex_repair?.semantic_domain ?? null,
+    codex_repair_semantic_target_id:
+      cell.codex_repair?.semantic_target_id ?? null,
     codex_repair_existing_source: cell.codex_repair?.existing_source ?? null,
     codex_repair_existing_source_language:
       cell.codex_repair?.existing_source_language ?? null,
@@ -633,6 +636,22 @@ function summarizeChecks(checks) {
       }
     ])
   );
+}
+
+function distinctSemanticTargetCount(cellSummaries) {
+  const targets = new Set();
+  for (const cell of cellSummaries ?? []) {
+    const target =
+      cell.codex_repair_semantic_target_id ??
+      (cell.codex_repair_semantic_domain &&
+      cell.codex_repair_repair_source
+        ? `${cell.codex_repair_semantic_domain}:${cell.codex_repair_repair_source}`
+        : null);
+    if (typeof target === 'string' && target.length > 0) {
+      targets.add(target);
+    }
+  }
+  return targets.size;
 }
 
 function requiredCheckFailures(checkSummaries, requiredChecks = []) {
@@ -1947,6 +1966,14 @@ export async function latestEvidenceBundle(
       !(ledgerSummary.fail_count <= options.expectedLedger.max_fail_count)
     ) {
       ledgerFailures.push('fail_count');
+    }
+    if (
+      options.expectedLedger?.min_distinct_semantic_target_count !==
+        undefined &&
+      distinctSemanticTargetCount(ledgerSummary.cells) <
+        options.expectedLedger.min_distinct_semantic_target_count
+    ) {
+      ledgerFailures.push('codex_repair.distinct_semantic_targets');
     }
     if (
       options.expectedLedger?.required_modifiable_copy_smoke &&
