@@ -71,6 +71,7 @@ const builderMode =
   process.env.VIBELOOP_SKILL_PROMPT_CORPUS_BUILDER ?? 'codex';
 const githubDraftPrRequested =
   process.env.VIBELOOP_SKILL_PROMPT_CORPUS_GITHUB_DRAFT_PR === '1';
+const keepRemote = process.env.VIBELOOP_UAT_KEEP_REMOTE === '1';
 const childTimeoutMs = Number(
   process.env.VIBELOOP_SKILL_PROMPT_CORPUS_CHILD_TIMEOUT_MS ??
     process.env.VIBELOOP_SKILL_PROMPT_UAT_TIMEOUT_MS ??
@@ -186,6 +187,29 @@ function selectedCorpus() {
       }
       return selected;
     });
+}
+
+async function githubCleanupBlocker() {
+  if (!githubDraftPrRequested || keepRemote) return null;
+  const result = await run('gh', ['auth', 'status'], { timeoutMs: 30_000 });
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (result.code !== 0) {
+    return {
+      reason: 'GH_AUTH_STATUS_FAILED',
+      gh_exit_code: result.code,
+      stderr: result.stderr.trim()
+    };
+  }
+  if (!/\bdelete_repo\b/.test(output)) {
+    return {
+      reason: 'GITHUB_DRAFT_PR_CORPUS_REQUIRES_DELETE_REPO_OR_KEEP_REMOTE',
+      required_scope: 'delete_repo',
+      keep_remote: keepRemote,
+      next_step:
+        'Run gh auth refresh -h github.com -s delete_repo for cleanup-capable ephemeral repos, or rerun with VIBELOOP_UAT_KEEP_REMOTE=1 to intentionally preserve UAT repos.'
+    };
+  }
+  return null;
 }
 
 function expectedStatus(testCase) {
@@ -331,6 +355,22 @@ async function main() {
     throw new Error(
       `unsupported VIBELOOP_SKILL_PROMPT_CORPUS_BUILDER=${builderMode}; expected fixture or codex`
     );
+  }
+  const cleanupBlocker = await githubCleanupBlocker();
+  if (cleanupBlocker) {
+    console.log(
+      JSON.stringify(
+        {
+          status: 'blocked',
+          scenario,
+          ...cleanupBlocker
+        },
+        null,
+        2
+      )
+    );
+    process.exitCode = 20;
+    return;
   }
 
   const corpus = selectedCorpus();
