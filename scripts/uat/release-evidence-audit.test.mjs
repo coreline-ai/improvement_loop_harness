@@ -409,6 +409,64 @@ function skillPromptMatrixLedger(overrides = {}) {
   };
 }
 
+function skillPromptJourneyLedger(overrides = {}) {
+  return {
+    status: 'SKILL_PROMPT_JOURNEY_UAT_PASS',
+    proof_scope: 'copied_skill_prompt_runner_end_to_end_journey',
+    not_live_codex_or_github_pass: true,
+    actual_user_environment: {
+      copied_skill_install: true,
+      clean_codex_home: true,
+      codex_home_skills_entries: ['vibeloop-harness'],
+      copied_skill_path: 'CODEX_HOME/skills/vibeloop-harness',
+      prompt_runner:
+        'CODEX_HOME/skills/vibeloop-harness/scripts/run-from-prompt.mjs',
+      vendor_cli: 'CODEX_HOME/skills/vibeloop-harness/vendor/vibeloop.mjs',
+      external_user_repos: 2,
+      command_agents: true,
+      ...(overrides.actual_user_environment ?? {})
+    },
+    prompt_journey: {
+      deterministic_command_agent: true,
+      step_count: 3,
+      executed_step_count: 3,
+      passed_step_count: 3,
+      pr_candidate_steps: 2,
+      final_reverify_passed_steps: 2,
+      promotion_branch_count: 2,
+      generated_task_eval_count: 1,
+      report_summary_steps: 1,
+      user_issue: {
+        mode: 'user_issue',
+        command_kind: 'vibeloop_improve',
+        pr_candidate: true,
+        final_verification_passed: true,
+        promotion_branch: 'pr-candidate/prompt-journey-user'
+      },
+      auto_discovery: {
+        mode: 'auto_discovery',
+        command_kind: 'vibeloop_orchestrate',
+        pr_candidate: true,
+        final_verification_passed: true,
+        promotion_branch: 'pr-candidate/prompt-journey-auto'
+      },
+      report_summary: {
+        mode: 'report',
+        command_kind: 'summarize_report',
+        next_action: 'prepare_pr_candidate'
+      },
+      ...(overrides.prompt_journey ?? {})
+    },
+    total_cases: 3,
+    passed_cases: 3,
+    failed_cases: 0,
+    false_pass: 0,
+    leak: 0,
+    evidence_missing_count: 0,
+    ...(overrides.ledger ?? {})
+  };
+}
+
 function skillPromptLiveLedger(overrides = {}) {
   const githubDraftPr = overrides.githubDraftPr === true;
   const helperMode = overrides.helper?.mode ?? 'auto_discovery';
@@ -864,6 +922,47 @@ describe('release evidence audit', () => {
           passed_cases: 28,
           failed_cases: 0,
           unexpected_unknown: 0
+        })
+      })
+    );
+  });
+
+  it('can audit Skill prompt journey evidence as an explicit scenario', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-journey-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-journey-run',
+      skillPromptJourneyLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-journey-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P1',
+        scenario,
+        expected_status: 'SKILL_PROMPT_JOURNEY_UAT_PASS'
+      })
+    ]);
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          status: 'SKILL_PROMPT_JOURNEY_UAT_PASS',
+          proof_scope: 'copied_skill_prompt_runner_end_to_end_journey',
+          prompt_journey: expect.objectContaining({
+            step_count: 3,
+            pr_candidate_steps: 2,
+            report_summary_steps: 1
+          })
         })
       })
     );

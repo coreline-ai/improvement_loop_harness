@@ -248,6 +248,17 @@ export const SKILL_PROMPT_MATRIX_EVIDENCE_SCENARIO = {
   }
 };
 
+export const SKILL_PROMPT_JOURNEY_EVIDENCE_SCENARIO = {
+  gate: 'P1',
+  name: 'Skill natural-language prompt journey evidence',
+  scenario: 'skill-real-user-prompt-journey-uat',
+  require_manifest: true,
+  expected_status: 'SKILL_PROMPT_JOURNEY_UAT_PASS',
+  expected_ledger: {
+    required_skill_prompt_journey: true
+  }
+};
+
 export const SKILL_FULL_UAT_EVIDENCE_SCENARIO = {
   gate: 'P1',
   name: 'Skill full fixture UAT evidence',
@@ -1355,6 +1366,7 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
     not_live_codex_or_github_pass:
       ledgerJson.not_live_codex_or_github_pass ?? null,
     actual_user_environment: ledgerJson.actual_user_environment ?? null,
+    prompt_journey: ledgerJson.prompt_journey ?? null,
     total_cases: ledgerJson.total_cases ?? null,
     passed_cases: ledgerJson.passed_cases ?? null,
     failed_cases: ledgerJson.failed_cases ?? null,
@@ -1627,6 +1639,122 @@ function requiredSkillPromptMatrixFailures(ledgerSummary) {
   return failures;
 }
 
+function requiredSkillPromptJourneyFailures(ledgerSummary) {
+  const failures = [];
+  const journey = ledgerSummary.prompt_journey;
+  if (
+    ledgerSummary.proof_scope !==
+    'copied_skill_prompt_runner_end_to_end_journey'
+  ) {
+    failures.push('skill_prompt_journey.proof_scope');
+  }
+  if (ledgerSummary.not_live_codex_or_github_pass !== true) {
+    failures.push('skill_prompt_journey.not_live_codex_or_github_pass');
+  }
+  if (ledgerSummary.actual_user_environment?.copied_skill_install !== true) {
+    failures.push('skill_prompt_journey.copied_skill_install');
+  }
+  if (ledgerSummary.actual_user_environment?.clean_codex_home !== true) {
+    failures.push('skill_prompt_journey.clean_codex_home');
+  }
+  if (
+    JSON.stringify(
+      ledgerSummary.actual_user_environment?.codex_home_skills_entries ?? null
+    ) !== JSON.stringify(['vibeloop-harness'])
+  ) {
+    failures.push('skill_prompt_journey.codex_home_skills_entries');
+  }
+  if (
+    ledgerSummary.actual_user_environment?.copied_skill_path !==
+    'CODEX_HOME/skills/vibeloop-harness'
+  ) {
+    failures.push('skill_prompt_journey.copied_skill_path');
+  }
+  if (
+    ledgerSummary.actual_user_environment?.prompt_runner !==
+    'CODEX_HOME/skills/vibeloop-harness/scripts/run-from-prompt.mjs'
+  ) {
+    failures.push('skill_prompt_journey.prompt_runner');
+  }
+  if (
+    ledgerSummary.actual_user_environment?.vendor_cli !==
+    'CODEX_HOME/skills/vibeloop-harness/vendor/vibeloop.mjs'
+  ) {
+    failures.push('skill_prompt_journey.vendor_cli');
+  }
+  if (!(ledgerSummary.actual_user_environment?.external_user_repos >= 2)) {
+    failures.push('skill_prompt_journey.external_user_repos');
+  }
+  if (ledgerSummary.actual_user_environment?.command_agents !== true) {
+    failures.push('skill_prompt_journey.command_agents');
+  }
+  if (journey?.deterministic_command_agent !== true) {
+    failures.push('skill_prompt_journey.deterministic_command_agent');
+  }
+  if (!(journey?.step_count >= 3)) {
+    failures.push('skill_prompt_journey.step_count');
+  }
+  if (journey?.executed_step_count !== journey?.step_count) {
+    failures.push('skill_prompt_journey.executed_step_count');
+  }
+  if (journey?.passed_step_count !== journey?.step_count) {
+    failures.push('skill_prompt_journey.passed_step_count');
+  }
+  if (!(journey?.pr_candidate_steps >= 2)) {
+    failures.push('skill_prompt_journey.pr_candidate_steps');
+  }
+  if (!(journey?.final_reverify_passed_steps >= 2)) {
+    failures.push('skill_prompt_journey.final_reverify_passed_steps');
+  }
+  if (!(journey?.promotion_branch_count >= 2)) {
+    failures.push('skill_prompt_journey.promotion_branch_count');
+  }
+  if (!(journey?.generated_task_eval_count >= 1)) {
+    failures.push('skill_prompt_journey.generated_task_eval_count');
+  }
+  if (!(journey?.report_summary_steps >= 1)) {
+    failures.push('skill_prompt_journey.report_summary_steps');
+  }
+  if (
+    journey?.user_issue?.mode !== 'user_issue' ||
+    journey?.user_issue?.command_kind !== 'vibeloop_improve' ||
+    journey?.user_issue?.pr_candidate !== true ||
+    journey?.user_issue?.final_verification_passed !== true ||
+    !journey?.user_issue?.promotion_branch
+  ) {
+    failures.push('skill_prompt_journey.user_issue');
+  }
+  if (
+    journey?.auto_discovery?.mode !== 'auto_discovery' ||
+    journey?.auto_discovery?.command_kind !== 'vibeloop_orchestrate' ||
+    journey?.auto_discovery?.pr_candidate !== true ||
+    journey?.auto_discovery?.final_verification_passed !== true ||
+    !journey?.auto_discovery?.promotion_branch
+  ) {
+    failures.push('skill_prompt_journey.auto_discovery');
+  }
+  if (
+    journey?.report_summary?.mode !== 'report' ||
+    journey?.report_summary?.command_kind !== 'summarize_report' ||
+    journey?.report_summary?.next_action !== 'prepare_pr_candidate'
+  ) {
+    failures.push('skill_prompt_journey.report_summary');
+  }
+  if (ledgerSummary.passed_cases !== ledgerSummary.total_cases) {
+    failures.push('skill_prompt_journey.passed_cases');
+  }
+  if (ledgerSummary.failed_cases !== 0) {
+    failures.push('skill_prompt_journey.failed_cases');
+  }
+  if (ledgerSummary.false_pass !== 0) {
+    failures.push('skill_prompt_journey.false_pass');
+  }
+  if (ledgerSummary.leak !== 0) {
+    failures.push('skill_prompt_journey.leak');
+  }
+  return failures;
+}
+
 async function validateRequiredStatusEvidence({
   scenario,
   scenarioDir,
@@ -1668,6 +1796,9 @@ async function validateRequiredStatusEvidence({
     }
     if (options.expectedLedger?.required_skill_prompt_matrix) {
       ledgerFailures.push(...requiredSkillPromptMatrixFailures(ledgerSummary));
+    }
+    if (options.expectedLedger?.required_skill_prompt_journey) {
+      ledgerFailures.push(...requiredSkillPromptJourneyFailures(ledgerSummary));
     }
     if (ledgerFailures.length > 0) {
       return {
@@ -1978,6 +2109,7 @@ export async function latestEvidenceBundle(
         not_live_codex_or_github_pass:
           ledgerJson.not_live_codex_or_github_pass ?? null,
         actual_user_environment: ledgerJson.actual_user_environment ?? null,
+        prompt_journey: ledgerJson.prompt_journey ?? null,
         required_cases: ledgerJson.required_cases ?? null,
         total_cases: ledgerJson.total_cases ?? null,
         passed_cases: ledgerJson.passed_cases ?? null,
@@ -2139,6 +2271,9 @@ export async function latestEvidenceBundle(
     }
     if (options.expectedLedger?.required_skill_prompt_matrix) {
       ledgerFailures.push(...requiredSkillPromptMatrixFailures(ledgerSummary));
+    }
+    if (options.expectedLedger?.required_skill_prompt_journey) {
+      ledgerFailures.push(...requiredSkillPromptJourneyFailures(ledgerSummary));
     }
     if (
       options.expectedLedger?.required_hidden_acceptance &&

@@ -250,6 +250,64 @@ function skillPromptMatrixLedger(overrides = {}) {
   };
 }
 
+function skillPromptJourneyLedger(overrides = {}) {
+  return {
+    status: 'SKILL_PROMPT_JOURNEY_UAT_PASS',
+    proof_scope: 'copied_skill_prompt_runner_end_to_end_journey',
+    not_live_codex_or_github_pass: true,
+    actual_user_environment: {
+      copied_skill_install: true,
+      clean_codex_home: true,
+      codex_home_skills_entries: ['vibeloop-harness'],
+      copied_skill_path: 'CODEX_HOME/skills/vibeloop-harness',
+      prompt_runner:
+        'CODEX_HOME/skills/vibeloop-harness/scripts/run-from-prompt.mjs',
+      vendor_cli: 'CODEX_HOME/skills/vibeloop-harness/vendor/vibeloop.mjs',
+      external_user_repos: 2,
+      command_agents: true,
+      ...(overrides.actual_user_environment ?? {})
+    },
+    prompt_journey: {
+      deterministic_command_agent: true,
+      step_count: 3,
+      executed_step_count: 3,
+      passed_step_count: 3,
+      pr_candidate_steps: 2,
+      final_reverify_passed_steps: 2,
+      promotion_branch_count: 2,
+      generated_task_eval_count: 1,
+      report_summary_steps: 1,
+      user_issue: {
+        mode: 'user_issue',
+        command_kind: 'vibeloop_improve',
+        pr_candidate: true,
+        final_verification_passed: true,
+        promotion_branch: 'pr-candidate/prompt-journey-user'
+      },
+      auto_discovery: {
+        mode: 'auto_discovery',
+        command_kind: 'vibeloop_orchestrate',
+        pr_candidate: true,
+        final_verification_passed: true,
+        promotion_branch: 'pr-candidate/prompt-journey-auto'
+      },
+      report_summary: {
+        mode: 'report',
+        command_kind: 'summarize_report',
+        next_action: 'prepare_pr_candidate'
+      },
+      ...(overrides.prompt_journey ?? {})
+    },
+    total_cases: 3,
+    passed_cases: 3,
+    failed_cases: 0,
+    false_pass: 0,
+    leak: 0,
+    evidence_missing_count: 0,
+    ...(overrides.ledger ?? {})
+  };
+}
+
 async function copiedEntry(root, scenario, runId, bundlePath, kind = 'report') {
   const filePath = path.join(root, scenario, runId, bundlePath);
   const fileStat = await stat(filePath);
@@ -2610,6 +2668,93 @@ ELIFECYCLE Command failed with exit code 20.`);
         'skill_prompt_matrix.critical_failures',
         'skill_prompt_matrix.unexpected_unknown',
         'skill_prompt_matrix.false_pass'
+      ])
+    });
+  });
+
+  it('validates Skill prompt journey evidence invariants', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-journey-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-journey-run',
+      new Date('2026-06-25T00:00:00.000Z'),
+      skillPromptJourneyLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-journey-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatus: 'SKILL_PROMPT_JOURNEY_UAT_PASS',
+        expectedLedger: { required_skill_prompt_journey: true }
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      ledger_summary: expect.objectContaining({
+        proof_scope: 'copied_skill_prompt_runner_end_to_end_journey',
+        not_live_codex_or_github_pass: true,
+        prompt_journey: expect.objectContaining({
+          step_count: 3,
+          pr_candidate_steps: 2,
+          report_summary_steps: 1
+        })
+      })
+    });
+  });
+
+  it('fails Skill prompt journey evidence when the prompt path weakens', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-journey-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-journey-run',
+      new Date('2026-06-25T00:00:00.000Z'),
+      skillPromptJourneyLedger({
+        actual_user_environment: { clean_codex_home: false },
+        prompt_journey: {
+          passed_step_count: 2,
+          auto_discovery: {
+            mode: 'auto_discovery',
+            command_kind: 'vibeloop_orchestrate',
+            pr_candidate: false,
+            final_verification_passed: false,
+            promotion_branch: null
+          },
+          report_summary: {
+            mode: 'report',
+            command_kind: 'summarize_report',
+            next_action: 'inspect_decision_reasons'
+          }
+        },
+        ledger: {
+          passed_cases: 2,
+          failed_cases: 1,
+          false_pass: 1
+        }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-journey-run');
+
+    await expect(
+      latestEvidenceBundle(scenario, root, {
+        requireManifest: true,
+        expectedStatus: 'SKILL_PROMPT_JOURNEY_UAT_PASS',
+        expectedLedger: { required_skill_prompt_journey: true }
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 'invalid_ledger',
+      ledger_failures: expect.arrayContaining([
+        'skill_prompt_journey.clean_codex_home',
+        'skill_prompt_journey.passed_step_count',
+        'skill_prompt_journey.auto_discovery',
+        'skill_prompt_journey.report_summary',
+        'skill_prompt_journey.passed_cases',
+        'skill_prompt_journey.failed_cases',
+        'skill_prompt_journey.false_pass'
       ])
     });
   });
