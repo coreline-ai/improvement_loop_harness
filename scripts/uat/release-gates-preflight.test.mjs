@@ -162,13 +162,28 @@ function skillPromptLiveLedger({
             draft_prs: [
               {
                 branch_name: `${branchName}-remote`,
+                head_sha: '0123456789abcdef0123456789abcdef01234567',
                 github_repo: 'coreline-ai/vibeloop-skill-prompt-test',
                 pr_url:
                   'https://github.com/coreline-ai/vibeloop-skill-prompt-test/pull/1',
                 pr_number: 1,
                 pushed: true,
                 pr_reused: false,
-                base_ref: 'main'
+                base_ref: 'main',
+                live_pr_view: {
+                  confirmed: true,
+                  state: 'OPEN',
+                  is_draft: true,
+                  auto_merge_disabled: true,
+                  base_ref_matches: true,
+                  head_ref_matches: true,
+                  head_sha_matches: true,
+                  body_freshness: 'created_for_this_run',
+                  body_sha256:
+                    'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+                  body_char_count: 128,
+                  failures: []
+                }
               }
             ]
           }

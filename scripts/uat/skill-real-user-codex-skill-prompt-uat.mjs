@@ -450,32 +450,149 @@ function draftPrs(helper) {
   return parsed.draft_pr ? [parsed.draft_pr] : [];
 }
 
-function githubDraftPrSummary(helper, expectedRepo) {
-  const draftPrsForRun = draftPrs(helper);
-  const verified =
-    draftPrsForRun.length > 0 &&
-    draftPrsForRun.every(
-      (draftPr) =>
-        draftPr?.pushed === true &&
-        typeof draftPr?.branch_name === 'string' &&
-        draftPr.branch_name.length > 0 &&
-        typeof draftPr?.pr_url === 'string' &&
-        draftPr.pr_url.includes('/pull/') &&
-        (expectedRepo ? draftPr.github_repo === expectedRepo : true)
-    );
+function prNumberFromDraftPr(draftPr) {
+  if (Number.isInteger(draftPr?.pr_number)) return draftPr.pr_number;
+  const match = String(draftPr?.pr_url ?? '').match(/\/pull\/(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+async function inspectGithubDraftPr(draftPr) {
+  const repo = draftPr?.github_repo ?? null;
+  const prNumber = prNumberFromDraftPr(draftPr);
+  if (!repo || !prNumber) {
+    return {
+      confirmed: false,
+      failures: ['missing_repo_or_pr_number']
+    };
+  }
+  const result = await run(
+    'gh',
+    [
+      'pr',
+      'view',
+      String(prNumber),
+      '--repo',
+      repo,
+      '--json',
+      [
+        'number',
+        'state',
+        'isDraft',
+        'baseRefName',
+        'headRefName',
+        'headRefOid',
+        'title',
+        'url',
+        'autoMergeRequest',
+        'body'
+      ].join(',')
+    ],
+    { timeoutMs: 60_000 }
+  );
+  if (result.code !== 0) {
+    return {
+      confirmed: false,
+      failures: ['gh_pr_view_failed'],
+      exit_code: result.code,
+      stderr: redact(result.stderr).trim().slice(0, 500)
+    };
+  }
+  let view;
+  try {
+    view = JSON.parse(result.stdout);
+  } catch {
+    return {
+      confirmed: false,
+      failures: ['gh_pr_view_json_invalid'],
+      stdout: redact(result.stdout).trim().slice(0, 500)
+    };
+  }
+
+  const expectedBodyFreshness =
+    draftPr.pr_reused === true
+      ? 'reused_existing_pr_exact_body_match_checked_by_core'
+      : 'created_for_this_run';
+  const checks = {
+    number_matches: Number(view.number) === prNumber,
+    url_matches: view.url === draftPr.pr_url,
+    open: view.state === 'OPEN',
+    draft: view.isDraft === true,
+    auto_merge_disabled:
+      view.autoMergeRequest === null || view.autoMergeRequest === undefined,
+    base_ref_matches: view.baseRefName === draftPr.base_ref,
+    head_ref_matches: view.headRefName === draftPr.branch_name,
+    head_sha_matches: view.headRefOid === draftPr.head_sha,
+    body_hash_recorded: typeof view.body === 'string'
+  };
+  const failures = Object.entries(checks)
+    .filter(([, ok]) => ok !== true)
+    .map(([key]) => key);
+
   return {
-    requested: githubDraftPrRequested,
-    verified,
-    count: draftPrsForRun.length,
-    draft_prs: draftPrsForRun.map((draftPr) => ({
+    confirmed: failures.length === 0,
+    checked_at: new Date().toISOString(),
+    failures,
+    number: view.number ?? null,
+    state: view.state ?? null,
+    is_draft: view.isDraft ?? null,
+    auto_merge: view.autoMergeRequest ?? null,
+    auto_merge_disabled: checks.auto_merge_disabled,
+    base_ref: view.baseRefName ?? null,
+    head_ref: view.headRefName ?? null,
+    head_sha: view.headRefOid ?? null,
+    expected_head_sha: draftPr.head_sha ?? null,
+    title: view.title ?? null,
+    url: view.url ?? null,
+    number_matches: checks.number_matches,
+    url_matches: checks.url_matches,
+    base_ref_matches: checks.base_ref_matches,
+    head_ref_matches: checks.head_ref_matches,
+    head_sha_matches: checks.head_sha_matches,
+    body_freshness: expectedBodyFreshness,
+    body_sha256: sha256Text(view.body ?? ''),
+    body_char_count: String(view.body ?? '').length
+  };
+}
+
+async function githubDraftPrSummary(helper, expectedRepo) {
+  const draftPrsForRun = draftPrs(helper);
+  const summaries = [];
+  for (const draftPr of draftPrsForRun) {
+    summaries.push({
       branch_name: draftPr.branch_name ?? null,
+      head_sha: draftPr.head_sha ?? null,
       github_repo: draftPr.github_repo ?? null,
       pr_url: draftPr.pr_url ?? null,
       pr_number: draftPr.pr_number ?? null,
       pushed: draftPr.pushed ?? null,
       pr_reused: draftPr.pr_reused ?? null,
-      base_ref: draftPr.base_ref ?? null
-    }))
+      base_ref: draftPr.base_ref ?? null,
+      live_pr_view: githubDraftPrRequested
+        ? await inspectGithubDraftPr(draftPr)
+        : null
+    });
+  }
+  const verified =
+    summaries.length > 0 &&
+    summaries.every(
+      (draftPr) =>
+        draftPr?.pushed === true &&
+        typeof draftPr?.branch_name === 'string' &&
+        draftPr.branch_name.length > 0 &&
+        typeof draftPr?.head_sha === 'string' &&
+        /^[a-f0-9]{40}$/.test(draftPr.head_sha) &&
+        typeof draftPr?.pr_url === 'string' &&
+        draftPr.pr_url.includes('/pull/') &&
+        draftPr.pr_reused === false &&
+        draftPr.base_ref === 'main' &&
+        draftPr.live_pr_view?.confirmed === true &&
+        (expectedRepo ? draftPr.github_repo === expectedRepo : true)
+    );
+  return {
+    requested: githubDraftPrRequested,
+    verified,
+    count: summaries.length,
+    draft_prs: summaries
   };
 }
 
@@ -859,7 +976,7 @@ Acceptance authority: deterministic VibeLoop reports only.
     const finalMessage = existsSync(finalMessagePath)
       ? parseFinalJson(await readFile(finalMessagePath, 'utf8'))
       : parseFinalJson(codexResult.stdout);
-    const githubSummary = githubDraftPrSummary(helper, fullRepo);
+    const githubSummary = await githubDraftPrSummary(helper, fullRepo);
     const reasons = passReasons({
       codexResult,
       helper,

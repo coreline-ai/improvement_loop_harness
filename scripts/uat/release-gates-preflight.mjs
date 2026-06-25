@@ -1350,12 +1350,36 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
           draft_prs: Array.isArray(ledgerJson.github.draft_prs)
             ? ledgerJson.github.draft_prs.map((draftPr) => ({
                 branch_name: draftPr.branch_name ?? null,
+                head_sha: draftPr.head_sha ?? null,
                 github_repo: draftPr.github_repo ?? null,
                 pr_url: draftPr.pr_url ?? null,
                 pr_number: draftPr.pr_number ?? null,
                 pushed: draftPr.pushed ?? null,
                 pr_reused: draftPr.pr_reused ?? null,
-                base_ref: draftPr.base_ref ?? null
+                base_ref: draftPr.base_ref ?? null,
+                live_pr_view: draftPr.live_pr_view
+                  ? {
+                      confirmed: draftPr.live_pr_view.confirmed ?? null,
+                      state: draftPr.live_pr_view.state ?? null,
+                      is_draft: draftPr.live_pr_view.is_draft ?? null,
+                      auto_merge_disabled:
+                        draftPr.live_pr_view.auto_merge_disabled ?? null,
+                      base_ref_matches:
+                        draftPr.live_pr_view.base_ref_matches ?? null,
+                      head_ref_matches:
+                        draftPr.live_pr_view.head_ref_matches ?? null,
+                      head_sha_matches:
+                        draftPr.live_pr_view.head_sha_matches ?? null,
+                      body_freshness:
+                        draftPr.live_pr_view.body_freshness ?? null,
+                      body_sha256: draftPr.live_pr_view.body_sha256 ?? null,
+                      body_char_count:
+                        draftPr.live_pr_view.body_char_count ?? null,
+                      failures: Array.isArray(draftPr.live_pr_view.failures)
+                        ? draftPr.live_pr_view.failures
+                        : []
+                    }
+                  : null
               }))
             : []
         }
@@ -1499,6 +1523,21 @@ function requiredSkillPromptGithubDraftPrFailures(ledgerSummary) {
         !draftPr.pr_url.includes('/pull/') ||
         typeof draftPr.branch_name !== 'string' ||
         draftPr.branch_name.length === 0 ||
+        typeof draftPr.head_sha !== 'string' ||
+        !/^[a-f0-9]{40}$/.test(draftPr.head_sha) ||
+        draftPr.pr_reused !== false ||
+        draftPr.base_ref !== 'main' ||
+        draftPr.live_pr_view?.confirmed !== true ||
+        draftPr.live_pr_view?.state !== 'OPEN' ||
+        draftPr.live_pr_view?.is_draft !== true ||
+        draftPr.live_pr_view?.auto_merge_disabled !== true ||
+        draftPr.live_pr_view?.base_ref_matches !== true ||
+        draftPr.live_pr_view?.head_ref_matches !== true ||
+        draftPr.live_pr_view?.head_sha_matches !== true ||
+        draftPr.live_pr_view?.body_freshness !== 'created_for_this_run' ||
+        typeof draftPr.live_pr_view?.body_sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(draftPr.live_pr_view.body_sha256) ||
+        !(draftPr.live_pr_view?.body_char_count > 0) ||
         !draftPr.github_repo
     )
   ) {
@@ -2002,12 +2041,39 @@ export async function latestEvidenceBundle(
               draft_prs: Array.isArray(ledgerJson.github.draft_prs)
                 ? ledgerJson.github.draft_prs.map((draftPr) => ({
                     branch_name: draftPr.branch_name ?? null,
+                    head_sha: draftPr.head_sha ?? null,
                     github_repo: draftPr.github_repo ?? null,
                     pr_url: draftPr.pr_url ?? null,
                     pr_number: draftPr.pr_number ?? null,
                     pushed: draftPr.pushed ?? null,
                     pr_reused: draftPr.pr_reused ?? null,
-                    base_ref: draftPr.base_ref ?? null
+                    base_ref: draftPr.base_ref ?? null,
+                    live_pr_view: draftPr.live_pr_view
+                      ? {
+                          confirmed: draftPr.live_pr_view.confirmed ?? null,
+                          state: draftPr.live_pr_view.state ?? null,
+                          is_draft: draftPr.live_pr_view.is_draft ?? null,
+                          auto_merge_disabled:
+                            draftPr.live_pr_view.auto_merge_disabled ?? null,
+                          base_ref_matches:
+                            draftPr.live_pr_view.base_ref_matches ?? null,
+                          head_ref_matches:
+                            draftPr.live_pr_view.head_ref_matches ?? null,
+                          head_sha_matches:
+                            draftPr.live_pr_view.head_sha_matches ?? null,
+                          body_freshness:
+                            draftPr.live_pr_view.body_freshness ?? null,
+                          body_sha256:
+                            draftPr.live_pr_view.body_sha256 ?? null,
+                          body_char_count:
+                            draftPr.live_pr_view.body_char_count ?? null,
+                          failures: Array.isArray(
+                            draftPr.live_pr_view.failures
+                          )
+                            ? draftPr.live_pr_view.failures
+                            : []
+                        }
+                      : null
                   }))
                 : []
             }
