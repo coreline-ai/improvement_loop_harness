@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, or warranty claim semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, or support ticket routing semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -185,7 +185,8 @@ export function buildAdversaryLiveReviewInput({
         'gift card redemption semantic test',
         'seller payout semantic test',
         'appointment cancellation semantic test',
-        'warranty claim semantic test'
+        'warranty claim semantic test',
+        'support ticket routing semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -964,6 +965,38 @@ export function buildWarrantyClaimSemanticProposal({
   };
 }
 
+export function buildSupportTicketRoutingSemanticProposal({
+  targetPath = 'tests/adversary/support-ticket-routing-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'support-ticket-routing-semantic',
+    targetPath,
+    body: [
+      "const { routeSupportTicket } = require('../../src/support-ticket.cjs');",
+      'const baseTicket = { status: "open", category: "technical", severity: "high" };',
+      'const baseCustomer = { plan: "enterprise" };',
+      'const basePolicy = { enterpriseSlaHours: 4, standardSlaHours: 24, criticalSlaHours: 1, trustSlaHours: 5 };',
+      'const cases = [',
+      '  [baseTicket, baseCustomer, basePolicy, { route: "enterprise-success", priority: "high", slaHours: 4, escalated: true, reason: "enterprise_high_severity" }],',
+      '  [{ ...baseTicket, severity: "normal" }, baseCustomer, basePolicy, { route: "technical-support", priority: "normal", slaHours: 24, escalated: false, reason: null }],',
+      '  [{ ...baseTicket, status: "closed" }, baseCustomer, basePolicy, { route: null, priority: "none", slaHours: 0, escalated: false, reason: "ticket_not_open" }],',
+      '  [{ ...baseTicket, category: "security", severity: "low" }, { plan: "starter" }, basePolicy, { route: "incident-response", priority: "critical", slaHours: 1, escalated: true, reason: "critical_issue" }],',
+      '  [{ ...baseTicket, category: "abuse", severity: "urgent" }, { plan: "pro" }, basePolicy, { route: "trust-safety", priority: "high", slaHours: 5, escalated: true, reason: "trust_escalation" }],',
+      '  [{ ...baseTicket, severity: "high" }, { plan: "pro" }, basePolicy, { route: "technical-support", priority: "high", slaHours: 24, escalated: false, reason: null }]',
+      '];',
+      'for (const [ticket, customer, policy, expected] of cases) {',
+      '  const actual = routeSupportTicket(ticket, customer, policy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1046,6 +1079,16 @@ export function buildAdversaryLiveFilterConfig() {
       'serialBlacklisted',
       'claimCount',
       'maxClaimsPerProduct',
+      'support',
+      'ticket',
+      'routeSupportTicket',
+      'enterprise-success',
+      'incident-response',
+      'trust-safety',
+      'enterpriseSlaHours',
+      'criticalSlaHours',
+      'trustSlaHours',
+      'ticket_not_open',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1206,6 +1249,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.appointmentCancellationHardcoded === 'fail';
   const warrantyClaimHardcodePassed =
     gates?.good === 'pass' && gates?.warrantyClaimHardcoded === 'fail';
+  const supportTicketRoutingHardcodePassed =
+    gates?.good === 'pass' && gates?.supportTicketRoutingHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1510,6 +1555,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       warranty_claim_hardcoded_gate_status:
         gates?.warrantyClaimHardcoded ?? null
+    },
+    {
+      id: 'support_ticket_routing_hardcode',
+      ...common('support_ticket_routing_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:support_ticket_routing_semantic',
+      executed: true,
+      blocked: supportTicketRoutingHardcodePassed,
+      passed: supportTicketRoutingHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      support_ticket_routing_hardcoded_gate_status:
+        gates?.supportTicketRoutingHardcoded ?? null
     }
   ];
 }

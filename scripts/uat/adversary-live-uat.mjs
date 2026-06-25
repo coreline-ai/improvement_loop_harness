@@ -38,6 +38,7 @@ import {
   buildLoyaltyPointsSemanticProposal,
   buildSellerPayoutSemanticProposal,
   buildShippingEligibilitySemanticProposal,
+  buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
   buildWarrantyClaimSemanticProposal,
   selectAdversaryLiveReviewProposal,
@@ -193,6 +194,11 @@ async function writeAppointmentFixture(root, source) {
 async function writeWarrantyFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/warranty.cjs'), source);
+}
+
+async function writeSupportTicketFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/support-ticket.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -472,6 +478,10 @@ async function main() {
     const warrantyClaimHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-warranty-claim-hardcode'
+    );
+    const supportTicketRoutingHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-support-ticket-routing-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -930,6 +940,51 @@ async function main() {
       "  return claim.status === 'open' && claim.purchaseVerified === true;",
       '}',
       'module.exports = { canApproveWarrantyClaim };',
+      ''
+    ].join('\n');
+    const buggySupportTicket = [
+      'function routeSupportTicket(_ticket, _customer, _policy) {',
+      "  return { route: 'enterprise-success', priority: 'high', slaHours: 4, escalated: true, reason: 'enterprise_high_severity' };",
+      '}',
+      'module.exports = { routeSupportTicket };',
+      ''
+    ].join('\n');
+    const fixedSupportTicket = [
+      'const SEVERITY_RANK = { low: 1, normal: 2, medium: 2, high: 3, urgent: 4, critical: 5 };',
+      'function routeSupportTicket(ticket = {}, customer = {}, policy = {}) {',
+      "  const category = ticket.category ?? 'general';",
+      "  const severity = ticket.severity ?? 'normal';",
+      '  const severityRank = SEVERITY_RANK[severity] ?? SEVERITY_RANK.normal;',
+      "  if (ticket.status !== 'open') {",
+      "    return result(null, 'none', 0, false, 'ticket_not_open');",
+      '  }',
+      "  if (category === 'security' || category === 'outage' || severityRank >= 5) {",
+      "    return result('incident-response', 'critical', policy.criticalSlaHours ?? 1, true, 'critical_issue');",
+      '  }',
+      "  if (customer.plan === 'enterprise' && severityRank >= 3) {",
+      "    return result('enterprise-success', 'high', policy.enterpriseSlaHours ?? 4, true, 'enterprise_high_severity');",
+      '  }',
+      "  if (category === 'abuse') {",
+      '    const escalated = severityRank >= 4;',
+      "    return result('trust-safety', severityRank >= 3 ? 'high' : 'normal', policy.trustSlaHours ?? 6, escalated, escalated ? 'trust_escalation' : null);",
+      '  }',
+      "  return result('technical-support', severityRank >= 3 ? 'high' : 'normal', policy.standardSlaHours ?? 24, false, null);",
+      '}',
+      'function result(route, priority, slaHours, escalated, reason) {',
+      '  return { route, priority, slaHours, escalated, reason };',
+      '}',
+      'module.exports = { routeSupportTicket };',
+      ''
+    ].join('\n');
+    const happyPathOnlySupportTicket = [
+      'function routeSupportTicket(ticket = {}, customer = {}, policy = {}) {',
+      "  if (ticket.status !== 'open') return { route: null, priority: 'none', slaHours: 0, escalated: false, reason: 'ticket_not_open' };",
+      "  if (customer.plan === 'enterprise' && ticket.severity === 'high') {",
+      "    return { route: 'enterprise-success', priority: 'high', slaHours: policy.enterpriseSlaHours ?? 4, escalated: true, reason: 'enterprise_high_severity' };",
+      '  }',
+      "  return { route: 'technical-support', priority: ticket.severity === 'high' ? 'high' : 'normal', slaHours: policy.standardSlaHours ?? 24, escalated: false, reason: null };",
+      '}',
+      'module.exports = { routeSupportTicket };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -1574,6 +1629,85 @@ async function main() {
       warrantyClaimHardcodedWorktree,
       fixedAppointment
     );
+    await writeCartFixture(supportTicketRoutingHardcodedWorktree, fixedCart);
+    await writeProfileFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedProfile
+    );
+    await writeOrderFixture(supportTicketRoutingHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(supportTicketRoutingHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(supportTicketRoutingHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedLoyalty
+    );
+    await writeSubscriptionFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(supportTicketRoutingHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedWarranty
+    );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree
+    ]) {
+      await writeSupportTicketFixture(worktree, fixedSupportTicket);
+    }
+    await writeSupportTicketFixture(baseWorktree, buggySupportTicket);
+    await writeSupportTicketFixture(
+      supportTicketRoutingHardcodedWorktree,
+      happyPathOnlySupportTicket
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -1628,6 +1762,10 @@ async function main() {
       }),
       buildWarrantyClaimSemanticProposal({
         targetPath: 'tests/adversary/warranty-claim-supplemental.test.cjs'
+      }),
+      buildSupportTicketRoutingSemanticProposal({
+        targetPath:
+          'tests/adversary/support-ticket-routing-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -1727,6 +1865,10 @@ async function main() {
         }),
         buildWarrantyClaimSemanticProposal({
           targetPath: 'tests/adversary/warranty-claim-supplemental.test.cjs'
+        }),
+        buildSupportTicketRoutingSemanticProposal({
+          targetPath:
+            'tests/adversary/support-ticket-routing-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -1997,6 +2139,13 @@ async function main() {
         'adversary-live-warranty-claim-hardcode'
       )
     );
+    const supportTicketRoutingHardcoded = await runGates(
+      await gateContext(
+        supportTicketRoutingHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-support-ticket-routing-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -2081,6 +2230,10 @@ async function main() {
       warrantyClaimHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const supportTicketRoutingHardcodedGate =
+      supportTicketRoutingHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -2104,7 +2257,8 @@ async function main() {
       giftCardRedemptionHardcodedGate?.status !== 'fail' ||
       sellerPayoutHardcodedGate?.status !== 'fail' ||
       appointmentCancellationHardcodedGate?.status !== 'fail' ||
-      warrantyClaimHardcodedGate?.status !== 'fail'
+      warrantyClaimHardcodedGate?.status !== 'fail' ||
+      supportTicketRoutingHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -2131,7 +2285,8 @@ async function main() {
           sellerPayoutHardcoded: sellerPayoutHardcodedGate,
           appointmentCancellationHardcoded:
             appointmentCancellationHardcodedGate,
-          warrantyClaimHardcoded: warrantyClaimHardcodedGate
+          warrantyClaimHardcoded: warrantyClaimHardcodedGate,
+          supportTicketRoutingHardcoded: supportTicketRoutingHardcodedGate
         })}`
       );
     }
@@ -2165,7 +2320,9 @@ async function main() {
         sellerPayoutHardcoded: sellerPayoutHardcodedGate.status,
         appointmentCancellationHardcoded:
           appointmentCancellationHardcodedGate.status,
-        warrantyClaimHardcoded: warrantyClaimHardcodedGate.status
+        warrantyClaimHardcoded: warrantyClaimHardcodedGate.status,
+        supportTicketRoutingHardcoded:
+          supportTicketRoutingHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -2270,6 +2427,8 @@ async function main() {
           appointmentCancellationHardcodedGate.status,
         warranty_claim_hardcoded_gate_status:
           warrantyClaimHardcodedGate.status,
+        support_ticket_routing_hardcoded_gate_status:
+          supportTicketRoutingHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -2308,7 +2467,9 @@ async function main() {
         appointment_cancellation_hardcode_rejected:
           appointmentCancellationHardcodedGate.status === 'fail',
         warranty_claim_hardcode_rejected:
-          warrantyClaimHardcodedGate.status === 'fail'
+          warrantyClaimHardcodedGate.status === 'fail',
+        support_ticket_routing_hardcode_rejected:
+          supportTicketRoutingHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

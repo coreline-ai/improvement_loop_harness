@@ -25,6 +25,7 @@ import {
   buildCartTaxSemanticProposal,
   buildSellerPayoutSemanticProposal,
   buildShippingEligibilitySemanticProposal,
+  buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
   buildWarrantyClaimSemanticProposal,
   buildRejectedAttackProposals,
@@ -348,6 +349,23 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('claimCount: 2');
   });
 
+  it('adds a supplemental support ticket routing semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildSupportTicketRoutingSemanticProposal({
+      targetPath: 'tests/adversary/support-ticket-routing.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'support-ticket-routing-semantic',
+      targetPath: 'tests/adversary/support-ticket-routing.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('routeSupportTicket');
+    expect(proposal.body).toContain('enterprise-success');
+    expect(proposal.body).toContain('incident-response');
+    expect(proposal.body).toContain('trust-safety');
+    expect(proposal.body).toContain('ticket_not_open');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -398,7 +416,8 @@ describe('adversary live contract', () => {
         giftCardRedemptionHardcoded: 'fail',
         sellerPayoutHardcoded: 'fail',
         appointmentCancellationHardcoded: 'fail',
-        warrantyClaimHardcoded: 'fail'
+        warrantyClaimHardcoded: 'fail',
+        supportTicketRoutingHardcoded: 'fail'
       }
     });
 
@@ -554,6 +573,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:warranty_claim_semantic'
+        }),
+        expect.objectContaining({
+          id: 'support_ticket_routing_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:support_ticket_routing_semantic'
         })
       ])
     );
@@ -611,7 +636,8 @@ describe('adversary live contract', () => {
         'attack_scenario_gift_card_redemption_hardcode_missing',
         'attack_scenario_seller_payout_hardcode_missing',
         'attack_scenario_appointment_cancellation_hardcode_missing',
-        'attack_scenario_warranty_claim_hardcode_missing'
+        'attack_scenario_warranty_claim_hardcode_missing',
+        'attack_scenario_support_ticket_routing_hardcode_missing'
       ])
     );
   });
@@ -649,7 +675,8 @@ describe('adversary live contract', () => {
         giftCardRedemptionHardcoded: 'fail',
         sellerPayoutHardcoded: 'fail',
         appointmentCancellationHardcoded: 'fail',
-        warrantyClaimHardcoded: 'fail'
+        warrantyClaimHardcoded: 'fail',
+        supportTicketRoutingHardcoded: 'fail'
       }
     });
 
