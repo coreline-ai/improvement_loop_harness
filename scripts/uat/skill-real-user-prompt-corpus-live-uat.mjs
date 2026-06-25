@@ -66,6 +66,18 @@ const defaultCorpus = [
     language: 'ko'
   },
   {
+    id: 'user-ko-checkout-quantity-line-total',
+    mode: 'user_issue',
+    variant: 'ko-checkout-quantity-line-total',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-checkout-quantity-regression',
+    mode: 'user_issue',
+    variant: 'en-checkout-quantity-regression',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -100,6 +112,18 @@ const defaultCorpus = [
     mode: 'auto_discovery',
     variant: 'ko-user-project-failing-test-bug',
     language: 'ko'
+  },
+  {
+    id: 'auto-ko-scan-project-one-regression',
+    mode: 'auto_discovery',
+    variant: 'ko-scan-project-one-regression',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-scan-one-regression-pr-candidate',
+    mode: 'auto_discovery',
+    variant: 'en-scan-one-regression-pr-candidate',
+    language: 'en'
   }
 ];
 

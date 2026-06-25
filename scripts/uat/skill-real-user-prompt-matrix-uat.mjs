@@ -94,6 +94,22 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-scan-project-one-regression',
+    prompt:
+      '프로젝트를 스캔해서 재현 가능한 문제 하나 찾아 고치고 검증 가능한 PR 후보로 정리해줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-scan-one-regression-pr-candidate',
+    prompt:
+      'Scan the project, find one regression, fix it, verify it, and prepare a PR candidate.',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
     expectedMode: 'user_issue',
@@ -136,6 +152,22 @@ const cases = [
     id: 'ko-cart-two-items-total-low',
     prompt:
       '상품을 두 개 담으면 장바구니 합계가 낮게 나와. 수량 계산 문제를 고치고 테스트 추가해줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-checkout-quantity-line-total',
+    prompt:
+      '결제 직전 장바구니 합계가 단가만 쓰는 것 같아. quantity가 3인 항목도 정확히 계산하게 고치고 PR 후보 만들어줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-checkout-quantity-regression',
+    prompt:
+      'Checkout totals only use the unit price when a line has quantity 3. Fix the cart total regression and add a test.',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true
