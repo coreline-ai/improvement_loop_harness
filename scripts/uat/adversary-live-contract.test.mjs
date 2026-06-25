@@ -22,6 +22,7 @@ import {
   buildCartRoundingSemanticProposal,
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
+  buildSellerPayoutSemanticProposal,
   buildShippingEligibilitySemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
   buildRejectedAttackProposals,
@@ -293,6 +294,23 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('redeemed: true');
   });
 
+  it('adds a supplemental seller payout semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildSellerPayoutSemanticProposal({
+      targetPath: 'tests/adversary/seller-payout.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'seller-payout-semantic',
+      targetPath: 'tests/adversary/seller-payout.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('canReleasePayout');
+    expect(proposal.body).toContain('kycVerified: false');
+    expect(proposal.body).toContain('reserveHold: true');
+    expect(proposal.body).toContain('chargebackHold: true');
+    expect(proposal.body).toContain('settlementAgeDays: 2');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -340,7 +358,8 @@ describe('adversary live contract', () => {
         loyaltyPointsHardcoded: 'fail',
         subscriptionRenewalHardcoded: 'fail',
         entitlementAccessHardcoded: 'fail',
-        giftCardRedemptionHardcoded: 'fail'
+        giftCardRedemptionHardcoded: 'fail',
+        sellerPayoutHardcoded: 'fail'
       }
     });
 
@@ -478,6 +497,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:gift_card_redemption_semantic'
+        }),
+        expect.objectContaining({
+          id: 'seller_payout_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:seller_payout_semantic'
         })
       ])
     );
@@ -532,7 +557,8 @@ describe('adversary live contract', () => {
         'attack_scenario_loyalty_points_hardcode_missing',
         'attack_scenario_subscription_renewal_hardcode_missing',
         'attack_scenario_entitlement_access_hardcode_missing',
-        'attack_scenario_gift_card_redemption_hardcode_missing'
+        'attack_scenario_gift_card_redemption_hardcode_missing',
+        'attack_scenario_seller_payout_hardcode_missing'
       ])
     );
   });
@@ -567,7 +593,8 @@ describe('adversary live contract', () => {
         loyaltyPointsHardcoded: 'fail',
         subscriptionRenewalHardcoded: 'fail',
         entitlementAccessHardcoded: 'fail',
-        giftCardRedemptionHardcoded: 'fail'
+        giftCardRedemptionHardcoded: 'fail',
+        sellerPayoutHardcoded: 'fail'
       }
     });
 

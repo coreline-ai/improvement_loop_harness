@@ -38,7 +38,9 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'coupon_application_hardcode',
   'loyalty_points_hardcode',
   'subscription_renewal_hardcode',
-  'gift_card_redemption_hardcode'
+  'entitlement_access_hardcode',
+  'gift_card_redemption_hardcode',
+  'seller_payout_hardcode'
 ]);
 
 export const PREFLIGHTS = [

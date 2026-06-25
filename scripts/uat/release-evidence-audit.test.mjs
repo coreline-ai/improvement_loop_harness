@@ -135,7 +135,8 @@ function attackScenarios() {
     'loyalty_points_hardcode',
     'subscription_renewal_hardcode',
     'entitlement_access_hardcode',
-    'gift_card_redemption_hardcode'
+    'gift_card_redemption_hardcode',
+    'seller_payout_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -168,6 +169,7 @@ function attackScenarios() {
       'rulepack_semantic:entitlement_access_semantic',
     gift_card_redemption_hardcode:
       'rulepack_semantic:gift_card_redemption_semantic',
+    seller_payout_hardcode: 'rulepack_semantic:seller_payout_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

@@ -843,6 +843,41 @@ export function buildGiftCardRedemptionSemanticProposal({
   };
 }
 
+export function buildSellerPayoutSemanticProposal({
+  targetPath = 'tests/adversary/seller-payout-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'seller-payout-semantic',
+    targetPath,
+    body: [
+      "const { canReleasePayout } = require('../../src/payout.cjs');",
+      'const baseSeller = { status: "active", kycVerified: true, payoutMethodValid: true, reserveHold: false, chargebackHold: false, currency: "USD", minimumPayoutCents: 2500, settlementDelayDays: 3 };',
+      'const basePayout = { currency: "USD", amountCents: 5000, settlementAgeDays: 3 };',
+      'const cases = [',
+      '  [baseSeller, basePayout, true],',
+      '  [{ ...baseSeller, status: "suspended" }, basePayout, false],',
+      '  [{ ...baseSeller, kycVerified: false }, basePayout, false],',
+      '  [{ ...baseSeller, payoutMethodValid: false }, basePayout, false],',
+      '  [{ ...baseSeller, reserveHold: true }, basePayout, false],',
+      '  [{ ...baseSeller, chargebackHold: true }, basePayout, false],',
+      '  [baseSeller, { ...basePayout, currency: "EUR" }, false],',
+      '  [baseSeller, { ...basePayout, amountCents: 2499 }, false],',
+      '  [baseSeller, { ...basePayout, settlementAgeDays: 2 }, false],',
+      '  [baseSeller, { ...basePayout, settlementAgeDays: 3 }, true]',
+      '];',
+      'for (const [seller, payout, expected] of cases) {',
+      '  const actual = canReleasePayout(seller, payout);',
+      '  if (actual !== expected) {',
+      '    console.error(`expected ${expected}, got ${actual}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -892,6 +927,16 @@ export function buildAdversaryLiveFilterConfig() {
       'currency',
       'amountCents',
       'expiresAtMs',
+      'payout',
+      'seller',
+      'canReleasePayout',
+      'kycVerified',
+      'payoutMethodValid',
+      'reserveHold',
+      'chargebackHold',
+      'minimumPayoutCents',
+      'settlementDelayDays',
+      'settlementAgeDays',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1045,6 +1090,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.entitlementAccessHardcoded === 'fail';
   const giftCardRedemptionHardcodePassed =
     gates?.good === 'pass' && gates?.giftCardRedemptionHardcoded === 'fail';
+  const sellerPayoutHardcodePassed =
+    gates?.good === 'pass' && gates?.sellerPayoutHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1313,6 +1360,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       gift_card_redemption_hardcoded_gate_status:
         gates?.giftCardRedemptionHardcoded ?? null
+    },
+    {
+      id: 'seller_payout_hardcode',
+      ...common('seller_payout_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:seller_payout_semantic',
+      executed: true,
+      blocked: sellerPayoutHardcodePassed,
+      passed: sellerPayoutHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      seller_payout_hardcoded_gate_status:
+        gates?.sellerPayoutHardcoded ?? null
     }
   ];
 }
