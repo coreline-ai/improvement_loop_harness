@@ -1027,6 +1027,26 @@ function buildReturnsRefundVerifier(cases) {
   ].join('\n');
 }
 
+function buildAppointmentCancellationVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateCancellation } = require(process.cwd() + '/examples/business-source/appointment-cancellation.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateCancellation(item.booking, item.request, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -1773,6 +1793,199 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
           expected: {
             eligible: false,
             reason: 'final_sale',
+            refundCents: 0
+          }
+        }
+      ])
+  },
+  {
+    id: 'appointment-cancellation-window-policy',
+    semantic_domain: 'appointment_cancellation_window_penalty',
+    business_source_repair: true,
+    business_domain: 'appointment_cancellation',
+    relativePath: 'examples/business-source/appointment-cancellation.cjs',
+    language: 'javascript',
+    originalNeedle: [
+      '  if (hoursUntilStart < freeCancelHours) {',
+      '    const lateFeeCents = Math.min(',
+      '      depositCents,',
+      '      policy.lateCancellationFeeCents ?? depositCents',
+      '    );',
+      "    return penalized(currency, refundMethod, 'late_cancellation', lateFeeCents);",
+      '  }'
+    ].join('\n'),
+    regressionText: [
+      '  if (hoursUntilStart > freeCancelHours) {',
+      '    const lateFeeCents = Math.min(',
+      '      depositCents,',
+      '      policy.lateCancellationFeeCents ?? depositCents',
+      '    );',
+      "    return penalized(currency, refundMethod, 'late_cancellation', lateFeeCents);",
+      '  }'
+    ].join('\n'),
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildAppointmentCancellationVerifier([
+        {
+          name: 'early customer cancellation refunds deposit',
+          booking: {
+            status: 'confirmed',
+            currency: 'USD',
+            startsAt: '2026-06-27T12:00:00.000Z',
+            depositCents: 5000,
+            serviceFeeCents: 900
+          },
+          request: { reason: 'changed_mind', refundToOriginalPayment: true },
+          policy: { freeCancelHours: 24, lateCancellationFeeCents: 2500 },
+          now: '2026-06-25T12:00:00.000Z',
+          expected: {
+            cancellable: true,
+            reason: null,
+            refundMethod: 'original_payment',
+            penaltyCents: 0,
+            refundCents: 5000
+          }
+        },
+        {
+          name: 'late customer cancellation charges configured fee',
+          booking: {
+            status: 'confirmed',
+            currency: 'USD',
+            startsAt: '2026-06-25T18:00:00.000Z',
+            depositCents: 5000,
+            serviceFeeCents: 900
+          },
+          request: { reason: 'changed_mind', refundToOriginalPayment: true },
+          policy: { freeCancelHours: 24, lateCancellationFeeCents: 2500 },
+          now: '2026-06-25T12:00:00.000Z',
+          expected: {
+            cancellable: true,
+            reason: 'late_cancellation',
+            refundMethod: 'original_payment',
+            penaltyCents: 2500,
+            refundCents: 0
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildAppointmentCancellationVerifier([
+        {
+          name: 'hidden early cancellation to account credit refunds deposit',
+          booking: {
+            status: 'confirmed',
+            currency: 'USD',
+            startsAt: '2026-06-30T09:00:00.000Z',
+            depositCents: 6200,
+            serviceFeeCents: 850
+          },
+          request: { reason: 'changed_mind', refundToOriginalPayment: false },
+          policy: { freeCancelHours: 36, lateCancellationFeeCents: 3100 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            cancellable: true,
+            reason: null,
+            refundMethod: 'account_credit',
+            penaltyCents: 0,
+            refundCents: 6200
+          }
+        },
+        {
+          name: 'hidden late cancellation fee is capped by deposit',
+          booking: {
+            status: 'confirmed',
+            currency: 'USD',
+            startsAt: '2026-06-25T17:00:00.000Z',
+            depositCents: 1800,
+            serviceFeeCents: 400
+          },
+          request: { reason: 'changed_mind', refundToOriginalPayment: true },
+          policy: { freeCancelHours: 24, lateCancellationFeeCents: 5000 },
+          now: '2026-06-25T13:00:00.000Z',
+          expected: {
+            cancellable: true,
+            reason: 'late_cancellation',
+            refundMethod: 'original_payment',
+            penaltyCents: 1800,
+            refundCents: 0
+          }
+        },
+        {
+          name: 'provider cancellation refunds deposit and service fee',
+          booking: {
+            status: 'confirmed',
+            currency: 'USD',
+            startsAt: '2026-06-25T18:00:00.000Z',
+            depositCents: 7000,
+            serviceFeeCents: 1200
+          },
+          request: { reason: 'provider_cancelled', refundToOriginalPayment: false },
+          policy: { freeCancelHours: 48, lateCancellationFeeCents: 5000 },
+          now: '2026-06-25T15:00:00.000Z',
+          expected: {
+            cancellable: true,
+            reason: null,
+            refundMethod: 'account_credit',
+            penaltyCents: 0,
+            refundCents: 8200
+          }
+        },
+        {
+          name: 'no-show forfeits deposit and service fee',
+          booking: {
+            status: 'confirmed',
+            currency: 'USD',
+            startsAt: '2026-06-25T10:00:00.000Z',
+            depositCents: 4000,
+            serviceFeeCents: 600
+          },
+          request: { reason: 'customer_no_show', noShow: true },
+          policy: { freeCancelHours: 24, lateCancellationFeeCents: 2000 },
+          now: '2026-06-25T12:00:00.000Z',
+          expected: {
+            cancellable: true,
+            reason: 'no_show',
+            penaltyCents: 4600,
+            refundCents: 0
+          }
+        },
+        {
+          name: 'started appointment is penalized after start time',
+          booking: {
+            status: 'confirmed',
+            currency: 'USD',
+            startsAt: '2026-06-25T10:00:00.000Z',
+            depositCents: 3000,
+            serviceFeeCents: 500
+          },
+          request: { reason: 'changed_mind', refundToOriginalPayment: true },
+          policy: { freeCancelHours: 12, lateCancellationFeeCents: 1500 },
+          now: '2026-06-25T10:30:00.000Z',
+          expected: {
+            cancellable: true,
+            reason: 'appointment_started',
+            penaltyCents: 3000,
+            refundCents: 0
+          }
+        },
+        {
+          name: 'unconfirmed booking is not cancellable',
+          booking: {
+            status: 'pending',
+            currency: 'USD',
+            startsAt: '2026-06-28T10:00:00.000Z',
+            depositCents: 3000,
+            serviceFeeCents: 500
+          },
+          request: { reason: 'changed_mind', refundToOriginalPayment: true },
+          policy: { freeCancelHours: 12, lateCancellationFeeCents: 1500 },
+          now: '2026-06-25T10:30:00.000Z',
+          expected: {
+            cancellable: false,
+            reason: 'booking_not_confirmed',
+            penaltyCents: 0,
             refundCents: 0
           }
         }
