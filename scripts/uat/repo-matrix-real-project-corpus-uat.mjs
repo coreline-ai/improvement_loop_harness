@@ -1267,6 +1267,26 @@ function buildTaxFilingComplianceVerifier(cases) {
   ].join('\n');
 }
 
+function buildVendorInvoiceApprovalVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { approveVendorInvoice } = require(process.cwd() + '/examples/business-source/vendor-invoice-approval.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = approveVendorInvoice(item.invoice, item.vendor, item.purchaseOrder, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -4772,6 +4792,295 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             reason: 'form_mismatch',
             requiresBackupWithholding: false,
             accepted: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'vendor-invoice-po-approval',
+    semantic_domain: 'vendor_invoice_purchase_order_approval_gate',
+    business_source_repair: true,
+    business_domain: 'vendor_invoice_approval',
+    relativePath: 'examples/business-source/vendor-invoice-approval.cjs',
+    language: 'javascript',
+    originalNeedle: '  if (purchaseOrder.approved !== true) {',
+    regressionText: '  if (purchaseOrder.approved === true) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildVendorInvoiceApprovalVerifier([
+        {
+          name: 'approved purchase order can approve matched invoice',
+          invoice: {
+            id: 'invoice_visible_approved',
+            number: 'INV-100',
+            vendorId: 'vendor_visible_a',
+            purchaseOrderId: 'po_visible_a',
+            amountCents: 45000,
+            currency: 'USD',
+            receiptMatched: true
+          },
+          vendor: {
+            id: 'vendor_visible_a',
+            status: 'active',
+            taxIdVerified: true
+          },
+          purchaseOrder: {
+            id: 'po_visible_a',
+            vendorId: 'vendor_visible_a',
+            status: 'open',
+            approved: true,
+            remainingCents: 50000,
+            currency: 'USD'
+          },
+          policy: {
+            requireTaxId: true,
+            autoApproveLimitCents: 100000,
+            receiptToleranceCents: 250
+          },
+          now: '2026-06-27T10:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            payableCents: 45000,
+            withholdingCents: 0,
+            requiresManualReview: false,
+            approved: true
+          }
+        },
+        {
+          name: 'unapproved purchase order is denied',
+          invoice: {
+            id: 'invoice_visible_unapproved',
+            number: 'INV-101',
+            vendorId: 'vendor_visible_b',
+            purchaseOrderId: 'po_visible_b',
+            amountCents: 25000,
+            currency: 'USD',
+            receiptMatched: true
+          },
+          vendor: {
+            id: 'vendor_visible_b',
+            status: 'active',
+            taxIdVerified: true
+          },
+          purchaseOrder: {
+            id: 'po_visible_b',
+            vendorId: 'vendor_visible_b',
+            status: 'open',
+            approved: false,
+            remainingCents: 50000,
+            currency: 'USD'
+          },
+          policy: {
+            requireTaxId: true,
+            autoApproveLimitCents: 100000,
+            receiptToleranceCents: 250
+          },
+          now: '2026-06-27T10:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'purchase_order_not_approved',
+            payableCents: 0,
+            withholdingCents: 0,
+            requiresManualReview: false,
+            approved: false
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildVendorInvoiceApprovalVerifier([
+        {
+          name: 'approved PO over remaining amount requires review',
+          invoice: {
+            id: 'invoice_hidden_over_remaining',
+            number: 'INV-200',
+            vendorId: 'vendor_hidden_a',
+            purchaseOrderId: 'po_hidden_a',
+            amountCents: 75000,
+            currency: 'USD',
+            receiptMatched: true
+          },
+          vendor: {
+            id: 'vendor_hidden_a',
+            status: 'active',
+            taxIdVerified: true
+          },
+          purchaseOrder: {
+            id: 'po_hidden_a',
+            vendorId: 'vendor_hidden_a',
+            status: 'open',
+            approved: true,
+            remainingCents: 50000,
+            currency: 'USD'
+          },
+          policy: {
+            requireTaxId: true,
+            autoApproveLimitCents: 100000,
+            receiptToleranceCents: 250
+          },
+          now: '2026-06-27T10:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'amount_exceeds_po_remaining',
+            requiresManualReview: true,
+            approved: false
+          }
+        },
+        {
+          name: 'duplicate invoice is denied even with approved PO',
+          invoice: {
+            id: 'invoice_hidden_duplicate',
+            number: 'INV-201',
+            vendorId: 'vendor_hidden_b',
+            purchaseOrderId: 'po_hidden_b',
+            amountCents: 30000,
+            currency: 'USD',
+            receiptMatched: true
+          },
+          vendor: {
+            id: 'vendor_hidden_b',
+            status: 'active',
+            taxIdVerified: true
+          },
+          purchaseOrder: {
+            id: 'po_hidden_b',
+            vendorId: 'vendor_hidden_b',
+            status: 'open',
+            approved: true,
+            remainingCents: 90000,
+            currency: 'USD',
+            invoiceNumbers: ['INV-201']
+          },
+          policy: {
+            requireTaxId: true,
+            autoApproveLimitCents: 100000,
+            receiptToleranceCents: 250
+          },
+          now: '2026-06-27T10:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'duplicate_invoice',
+            requiresManualReview: false,
+            approved: false
+          }
+        },
+        {
+          name: 'receipt variance above tolerance requires review',
+          invoice: {
+            id: 'invoice_hidden_receipt_variance',
+            number: 'INV-202',
+            vendorId: 'vendor_hidden_c',
+            purchaseOrderId: 'po_hidden_c',
+            amountCents: 40000,
+            currency: 'USD',
+            receiptMatched: true,
+            receiptVarianceCents: 500
+          },
+          vendor: {
+            id: 'vendor_hidden_c',
+            status: 'active',
+            taxIdVerified: true
+          },
+          purchaseOrder: {
+            id: 'po_hidden_c',
+            vendorId: 'vendor_hidden_c',
+            status: 'open',
+            approved: true,
+            remainingCents: 80000,
+            currency: 'USD'
+          },
+          policy: {
+            requireTaxId: true,
+            autoApproveLimitCents: 100000,
+            receiptToleranceCents: 250
+          },
+          now: '2026-06-27T10:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'receipt_tolerance_exceeded',
+            requiresManualReview: true,
+            approved: false
+          }
+        },
+        {
+          name: 'backup withholding reduces payable amount',
+          invoice: {
+            id: 'invoice_hidden_withholding',
+            number: 'INV-203',
+            vendorId: 'vendor_hidden_d',
+            purchaseOrderId: 'po_hidden_d',
+            amountCents: 50000,
+            currency: 'USD',
+            receiptMatched: true
+          },
+          vendor: {
+            id: 'vendor_hidden_d',
+            status: 'active',
+            taxIdVerified: true,
+            backupWithholding: true
+          },
+          purchaseOrder: {
+            id: 'po_hidden_d',
+            vendorId: 'vendor_hidden_d',
+            status: 'open',
+            approved: true,
+            remainingCents: 60000,
+            currency: 'USD'
+          },
+          policy: {
+            requireTaxId: true,
+            autoApproveLimitCents: 100000,
+            receiptToleranceCents: 250,
+            withholdingRate: 0.24
+          },
+          now: '2026-06-27T10:00:00.000Z',
+          expected: {
+            status: 'approved_with_withholding',
+            reason: null,
+            payableCents: 38000,
+            withholdingCents: 12000,
+            requiresManualReview: false,
+            approved: true
+          }
+        },
+        {
+          name: 'unverified vendor tax id requires review',
+          invoice: {
+            id: 'invoice_hidden_tax',
+            number: 'INV-204',
+            vendorId: 'vendor_hidden_e',
+            purchaseOrderId: 'po_hidden_e',
+            amountCents: 10000,
+            currency: 'USD',
+            receiptMatched: true
+          },
+          vendor: {
+            id: 'vendor_hidden_e',
+            status: 'active',
+            taxIdVerified: false
+          },
+          purchaseOrder: {
+            id: 'po_hidden_e',
+            vendorId: 'vendor_hidden_e',
+            status: 'open',
+            approved: true,
+            remainingCents: 60000,
+            currency: 'USD'
+          },
+          policy: {
+            requireTaxId: true,
+            autoApproveLimitCents: 100000,
+            receiptToleranceCents: 250
+          },
+          now: '2026-06-27T10:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'tax_id_unverified',
+            requiresManualReview: true,
+            approved: false
           }
         }
       ])
