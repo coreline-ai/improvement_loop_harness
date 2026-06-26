@@ -1307,6 +1307,26 @@ function buildReleaseReadinessVerifier(cases) {
   ].join('\n');
 }
 
+function buildBackupRestoreVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateBackupRestore } = require(process.cwd() + '/examples/business-source/backup-restore.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateBackupRestore(item.backup, item.restore, item.approval, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -5481,6 +5501,387 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             releaseAllowed: false,
             requiresManualReview: false,
             rollbackRequired: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'backup-restore-dr-drill',
+    semantic_domain: 'backup_restore_dr_drill_readiness_gate',
+    business_source_repair: true,
+    business_domain: 'backup_restore',
+    relativePath: 'examples/business-source/backup-restore.cjs',
+    language: 'javascript',
+    originalNeedle:
+      '  if ((restore.drillWithinDays ?? 0) > (policy.maxDrillAgeDays ?? 30)) {',
+    regressionText: '  if ((restore.drillWithinDays ?? 0) < 0) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildBackupRestoreVerifier([
+        {
+          name: 'approved restore passes backup readiness gates',
+          backup: {
+            id: 'backup_visible_approved',
+            status: 'available',
+            encrypted: true,
+            integrityVerified: true,
+            snapshotAgeHours: 4
+          },
+          restore: {
+            id: 'restore_visible_approved',
+            targetEnvironment: 'production',
+            dataClass: 'standard',
+            crossRegion: false,
+            emergency: false,
+            rpoMinutes: 20,
+            dryRunPassed: true,
+            drillWithinDays: 10
+          },
+          approval: {
+            securityApproved: true,
+            drOwnerApproved: true,
+            incidentCommanderApproved: true
+          },
+          policy: {
+            allowedRestoreEnvironments: ['staging', 'production', 'dr'],
+            maxSnapshotAgeHours: 24,
+            maxRpoMinutes: 60,
+            maxDrillAgeDays: 30,
+            allowEmergencyOverride: true
+          },
+          now: '2026-06-27T12:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            restoreAllowed: true,
+            requiresManualReview: false,
+            emergencyOverrideRequired: false
+          }
+        },
+        {
+          name: 'stale DR drill requires manual review',
+          backup: {
+            id: 'backup_visible_stale_drill',
+            status: 'available',
+            encrypted: true,
+            integrityVerified: true,
+            snapshotAgeHours: 8
+          },
+          restore: {
+            id: 'restore_visible_stale_drill',
+            targetEnvironment: 'production',
+            dataClass: 'standard',
+            crossRegion: false,
+            emergency: false,
+            rpoMinutes: 15,
+            dryRunPassed: true,
+            drillWithinDays: 45
+          },
+          approval: {
+            securityApproved: true,
+            drOwnerApproved: true,
+            incidentCommanderApproved: true
+          },
+          policy: {
+            allowedRestoreEnvironments: ['staging', 'production', 'dr'],
+            maxSnapshotAgeHours: 24,
+            maxRpoMinutes: 60,
+            maxDrillAgeDays: 30,
+            allowEmergencyOverride: true
+          },
+          now: '2026-06-27T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'dr_drill_stale',
+            restoreAllowed: false,
+            requiresManualReview: true,
+            emergencyOverrideRequired: false
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildBackupRestoreVerifier([
+        {
+          name: 'hidden stale DR drill is held for review',
+          backup: {
+            id: 'backup_hidden_stale_drill',
+            status: 'available',
+            encrypted: true,
+            integrityVerified: true,
+            snapshotAgeHours: 3
+          },
+          restore: {
+            id: 'restore_hidden_stale_drill',
+            targetEnvironment: 'dr',
+            dataClass: 'standard',
+            crossRegion: true,
+            emergency: false,
+            rpoMinutes: 25,
+            dryRunPassed: true,
+            drillWithinDays: 31
+          },
+          approval: {
+            securityApproved: true,
+            drOwnerApproved: true,
+            incidentCommanderApproved: true
+          },
+          policy: {
+            allowedRestoreEnvironments: ['staging', 'production', 'dr'],
+            maxSnapshotAgeHours: 24,
+            maxRpoMinutes: 60,
+            maxDrillAgeDays: 30,
+            allowEmergencyOverride: true
+          },
+          now: '2026-06-27T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'dr_drill_stale',
+            restoreAllowed: false,
+            requiresManualReview: true,
+            emergencyOverrideRequired: false
+          }
+        },
+        {
+          name: 'integrity verification is required before restore',
+          backup: {
+            id: 'backup_hidden_integrity',
+            status: 'available',
+            encrypted: true,
+            integrityVerified: false,
+            snapshotAgeHours: 3
+          },
+          restore: {
+            id: 'restore_hidden_integrity',
+            targetEnvironment: 'production',
+            dataClass: 'standard',
+            crossRegion: false,
+            emergency: false,
+            rpoMinutes: 15,
+            dryRunPassed: true,
+            drillWithinDays: 7
+          },
+          approval: {
+            securityApproved: true,
+            drOwnerApproved: true,
+            incidentCommanderApproved: true
+          },
+          policy: {
+            allowedRestoreEnvironments: ['staging', 'production', 'dr'],
+            maxSnapshotAgeHours: 24,
+            maxRpoMinutes: 60,
+            maxDrillAgeDays: 30,
+            allowEmergencyOverride: true
+          },
+          now: '2026-06-27T12:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'integrity_check_required',
+            restoreAllowed: false,
+            requiresManualReview: false,
+            emergencyOverrideRequired: false
+          }
+        },
+        {
+          name: 'dry run must pass before restore',
+          backup: {
+            id: 'backup_hidden_dry_run',
+            status: 'available',
+            encrypted: true,
+            integrityVerified: true,
+            snapshotAgeHours: 6
+          },
+          restore: {
+            id: 'restore_hidden_dry_run',
+            targetEnvironment: 'production',
+            dataClass: 'standard',
+            crossRegion: false,
+            emergency: false,
+            rpoMinutes: 15,
+            dryRunPassed: false,
+            drillWithinDays: 7
+          },
+          approval: {
+            securityApproved: true,
+            drOwnerApproved: true,
+            incidentCommanderApproved: true
+          },
+          policy: {
+            allowedRestoreEnvironments: ['staging', 'production', 'dr'],
+            maxSnapshotAgeHours: 24,
+            maxRpoMinutes: 60,
+            maxDrillAgeDays: 30,
+            allowEmergencyOverride: true
+          },
+          now: '2026-06-27T12:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'dry_run_required',
+            restoreAllowed: false,
+            requiresManualReview: false,
+            emergencyOverrideRequired: false
+          }
+        },
+        {
+          name: 'sensitive data restore needs security approval',
+          backup: {
+            id: 'backup_hidden_sensitive',
+            status: 'available',
+            encrypted: true,
+            integrityVerified: true,
+            snapshotAgeHours: 5
+          },
+          restore: {
+            id: 'restore_hidden_sensitive',
+            targetEnvironment: 'production',
+            dataClass: 'sensitive',
+            crossRegion: false,
+            emergency: false,
+            rpoMinutes: 20,
+            dryRunPassed: true,
+            drillWithinDays: 8
+          },
+          approval: {
+            securityApproved: false,
+            drOwnerApproved: true,
+            incidentCommanderApproved: true
+          },
+          policy: {
+            allowedRestoreEnvironments: ['staging', 'production', 'dr'],
+            maxSnapshotAgeHours: 24,
+            maxRpoMinutes: 60,
+            maxDrillAgeDays: 30,
+            allowEmergencyOverride: true
+          },
+          now: '2026-06-27T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'security_approval_required',
+            restoreAllowed: false,
+            requiresManualReview: true,
+            emergencyOverrideRequired: false
+          }
+        },
+        {
+          name: 'cross-region restore needs DR owner approval',
+          backup: {
+            id: 'backup_hidden_cross_region',
+            status: 'available',
+            encrypted: true,
+            integrityVerified: true,
+            snapshotAgeHours: 5
+          },
+          restore: {
+            id: 'restore_hidden_cross_region',
+            targetEnvironment: 'dr',
+            dataClass: 'standard',
+            crossRegion: true,
+            emergency: false,
+            rpoMinutes: 20,
+            dryRunPassed: true,
+            drillWithinDays: 8
+          },
+          approval: {
+            securityApproved: true,
+            drOwnerApproved: false,
+            incidentCommanderApproved: true
+          },
+          policy: {
+            allowedRestoreEnvironments: ['staging', 'production', 'dr'],
+            maxSnapshotAgeHours: 24,
+            maxRpoMinutes: 60,
+            maxDrillAgeDays: 30,
+            allowEmergencyOverride: true
+          },
+          now: '2026-06-27T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'dr_owner_approval_required',
+            restoreAllowed: false,
+            requiresManualReview: true,
+            emergencyOverrideRequired: false
+          }
+        },
+        {
+          name: 'emergency restore needs incident commander approval',
+          backup: {
+            id: 'backup_hidden_emergency',
+            status: 'available',
+            encrypted: true,
+            integrityVerified: true,
+            snapshotAgeHours: 2
+          },
+          restore: {
+            id: 'restore_hidden_emergency',
+            targetEnvironment: 'production',
+            dataClass: 'standard',
+            crossRegion: false,
+            emergency: true,
+            rpoMinutes: 10,
+            dryRunPassed: true,
+            drillWithinDays: 5
+          },
+          approval: {
+            securityApproved: true,
+            drOwnerApproved: true,
+            incidentCommanderApproved: false
+          },
+          policy: {
+            allowedRestoreEnvironments: ['staging', 'production', 'dr'],
+            maxSnapshotAgeHours: 24,
+            maxRpoMinutes: 60,
+            maxDrillAgeDays: 30,
+            allowEmergencyOverride: true
+          },
+          now: '2026-06-27T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'emergency_override_required',
+            restoreAllowed: false,
+            requiresManualReview: true,
+            emergencyOverrideRequired: true
+          }
+        },
+        {
+          name: 'RPO breach requires manual review',
+          backup: {
+            id: 'backup_hidden_rpo',
+            status: 'available',
+            encrypted: true,
+            integrityVerified: true,
+            snapshotAgeHours: 5
+          },
+          restore: {
+            id: 'restore_hidden_rpo',
+            targetEnvironment: 'production',
+            dataClass: 'standard',
+            crossRegion: false,
+            emergency: false,
+            rpoMinutes: 90,
+            dryRunPassed: true,
+            drillWithinDays: 8
+          },
+          approval: {
+            securityApproved: true,
+            drOwnerApproved: true,
+            incidentCommanderApproved: true
+          },
+          policy: {
+            allowedRestoreEnvironments: ['staging', 'production', 'dr'],
+            maxSnapshotAgeHours: 24,
+            maxRpoMinutes: 60,
+            maxDrillAgeDays: 30,
+            allowEmergencyOverride: true
+          },
+          now: '2026-06-27T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'rpo_breach',
+            restoreAllowed: false,
+            requiresManualReview: true,
+            emergencyOverrideRequired: false
           }
         }
       ])
