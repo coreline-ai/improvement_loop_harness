@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, or payroll overtime semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, or vendor invoice approval semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -190,7 +190,8 @@ export function buildAdversaryLiveReviewInput({
         'payment dispute representment semantic test',
         'warehouse allocation semantic test',
         'insurance claim adjudication semantic test',
-        'payroll overtime semantic test'
+        'payroll overtime semantic test',
+        'vendor invoice approval semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1139,6 +1140,44 @@ export function buildPayrollOvertimeSemanticProposal({
   };
 }
 
+export function buildVendorInvoiceSemanticProposal({
+  targetPath = 'tests/adversary/vendor-invoice-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'vendor-invoice-semantic',
+    targetPath,
+    body: [
+      "const { approveVendorInvoice } = require('../../src/vendor-invoice.cjs');",
+      'const baseVendor = { active: true, onHold: false, taxIdVerified: true, currency: "USD", withholdingRequired: false };',
+      'const basePo = { status: "approved", currency: "USD", remainingCents: 50000, closed: false, receiptRequired: true };',
+      'const baseReceipt = { received: true, acceptedCents: 30000, rejectedCents: 0 };',
+      'const baseInvoice = { status: "submitted", invoiceId: "inv-100", amountCents: 30000, currency: "USD", duplicate: false, taxWithheldCents: 0 };',
+      'const basePolicy = { toleranceCents: 500, allowUnreceiptedServices: false, withholdingRate: 0.1 };',
+      'const cases = [',
+      '  [baseVendor, basePo, baseReceipt, baseInvoice, basePolicy, { status: "approved", reason: null, payableCents: 30000, holdCents: 0, requiresManualReview: false }],',
+      '  [{ ...baseVendor, active: false }, basePo, baseReceipt, baseInvoice, basePolicy, { status: "denied", reason: "vendor_inactive", payableCents: 0, holdCents: 0, requiresManualReview: false }],',
+      '  [{ ...baseVendor, onHold: true }, basePo, baseReceipt, baseInvoice, basePolicy, { status: "denied", reason: "vendor_on_hold", payableCents: 0, holdCents: 0, requiresManualReview: false }],',
+      '  [baseVendor, { ...basePo, status: "draft" }, baseReceipt, baseInvoice, basePolicy, { status: "denied", reason: "po_not_approved", payableCents: 0, holdCents: 0, requiresManualReview: false }],',
+      '  [baseVendor, { ...basePo, remainingCents: 25000 }, baseReceipt, baseInvoice, basePolicy, { status: "review", reason: "po_amount_exceeded", payableCents: 25000, holdCents: 5000, requiresManualReview: true }],',
+      '  [baseVendor, basePo, { ...baseReceipt, received: false }, baseInvoice, basePolicy, { status: "denied", reason: "receipt_required", payableCents: 0, holdCents: 0, requiresManualReview: false }],',
+      '  [baseVendor, basePo, { ...baseReceipt, acceptedCents: 29400 }, baseInvoice, basePolicy, { status: "review", reason: "receipt_mismatch", payableCents: 29400, holdCents: 600, requiresManualReview: true }],',
+      '  [baseVendor, basePo, baseReceipt, { ...baseInvoice, duplicate: true }, basePolicy, { status: "denied", reason: "duplicate_invoice", payableCents: 0, holdCents: 0, requiresManualReview: false }],',
+      '  [{ ...baseVendor, withholdingRequired: true }, basePo, baseReceipt, { ...baseInvoice, taxWithheldCents: 2000 }, basePolicy, { status: "review", reason: "tax_withholding_shortfall", payableCents: 30000, holdCents: 1000, requiresManualReview: true }],',
+      '  [{ ...baseVendor, withholdingRequired: true }, basePo, baseReceipt, { ...baseInvoice, taxWithheldCents: 3000 }, basePolicy, { status: "approved", reason: null, payableCents: 27000, holdCents: 0, requiresManualReview: false }]',
+      '];',
+      'for (const [vendor, po, receipt, invoice, policy, expected] of cases) {',
+      '  const actual = approveVendorInvoice(vendor, po, receipt, invoice, policy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1280,6 +1319,24 @@ export function buildAdversaryLiveFilterConfig() {
       'managerApproved',
       'regularPayCents',
       'overtimePayCents',
+      'vendorInvoice',
+      'vendor',
+      'invoice',
+      'approveVendorInvoice',
+      'onHold',
+      'taxIdVerified',
+      'receiptRequired',
+      'acceptedCents',
+      'rejectedCents',
+      'remainingCents',
+      'toleranceCents',
+      'allowUnreceiptedServices',
+      'withholdingRequired',
+      'withholdingRate',
+      'taxWithheldCents',
+      'payableCents',
+      'holdCents',
+      'duplicate_invoice',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1450,6 +1507,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.insuranceClaimHardcoded === 'fail';
   const payrollOvertimeHardcodePassed =
     gates?.good === 'pass' && gates?.payrollOvertimeHardcoded === 'fail';
+  const vendorInvoiceHardcodePassed =
+    gates?.good === 'pass' && gates?.vendorInvoiceHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1814,6 +1873,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       payroll_overtime_hardcoded_gate_status:
         gates?.payrollOvertimeHardcoded ?? null
+    },
+    {
+      id: 'vendor_invoice_hardcode',
+      ...common('vendor_invoice_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:vendor_invoice_semantic',
+      executed: true,
+      blocked: vendorInvoiceHardcodePassed,
+      passed: vendorInvoiceHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      vendor_invoice_hardcoded_gate_status:
+        gates?.vendorInvoiceHardcoded ?? null
     }
   ];
 }

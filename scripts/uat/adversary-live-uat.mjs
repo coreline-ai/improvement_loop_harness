@@ -43,6 +43,7 @@ import {
   buildShippingEligibilitySemanticProposal,
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
+  buildVendorInvoiceSemanticProposal,
   buildWarrantyClaimSemanticProposal,
   buildWarehouseAllocationSemanticProposal,
   selectAdversaryLiveReviewProposal,
@@ -223,6 +224,11 @@ async function writeInsuranceClaimFixture(root, source) {
 async function writePayrollFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/payroll.cjs'), source);
+}
+
+async function writeVendorInvoiceFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/vendor-invoice.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -557,6 +563,10 @@ async function main() {
     const payrollOvertimeHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-payroll-overtime-hardcode'
+    );
+    const vendorInvoiceHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-vendor-invoice-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1270,6 +1280,66 @@ async function main() {
       "  return { status: 'denied', regularPayCents: 0, overtimePayCents: 0, totalPayCents: 0, reason };",
       '}',
       'module.exports = { calculateOvertimePay };',
+      ''
+    ].join('\n');
+    const buggyVendorInvoice = [
+      'function approveVendorInvoice(_vendor = {}, _po = {}, _receipt = {}, invoice = {}, _policy = {}) {',
+      "  return { status: 'approved', reason: null, payableCents: invoice.amountCents ?? 0, holdCents: 0, requiresManualReview: false };",
+      '}',
+      'module.exports = { approveVendorInvoice };',
+      ''
+    ].join('\n');
+    const fixedVendorInvoice = [
+      'function approveVendorInvoice(vendor = {}, po = {}, receipt = {}, invoice = {}, policy = {}) {',
+      "  if (invoice.status !== 'submitted') return denied('invoice_not_submitted');",
+      "  if (vendor.active !== true) return denied('vendor_inactive');",
+      "  if (vendor.onHold === true) return denied('vendor_on_hold');",
+      "  if (vendor.taxIdVerified !== true) return denied('vendor_tax_id_unverified');",
+      "  if (po.status !== 'approved' || po.closed === true) return denied('po_not_approved');",
+      "  if (invoice.currency !== po.currency || invoice.currency !== vendor.currency) return denied('currency_mismatch');",
+      "  if (invoice.duplicate === true) return denied('duplicate_invoice');",
+      '  const amount = Math.max(0, invoice.amountCents ?? 0);',
+      '  if (amount > (po.remainingCents ?? 0)) {',
+      '    return review("po_amount_exceeded", po.remainingCents ?? 0, amount - (po.remainingCents ?? 0));',
+      '  }',
+      '  if (po.receiptRequired === true && receipt.received !== true && policy.allowUnreceiptedServices !== true) {',
+      "    return denied('receipt_required');",
+      '  }',
+      '  if (po.receiptRequired === true && receipt.received === true) {',
+      '    const accepted = Math.max(0, receipt.acceptedCents ?? 0);',
+      '    if (accepted + (policy.toleranceCents ?? 0) < amount) {',
+      '      return review("receipt_mismatch", accepted, amount - accepted);',
+      '    }',
+      '  }',
+      '  const requiredWithholding = vendor.withholdingRequired === true ? Math.round(amount * (policy.withholdingRate ?? 0)) : 0;',
+      '  const withheld = Math.max(0, invoice.taxWithheldCents ?? 0);',
+      '  if (withheld < requiredWithholding) {',
+      '    return review("tax_withholding_shortfall", amount, requiredWithholding - withheld);',
+      '  }',
+      '  return { status: "approved", reason: null, payableCents: amount - withheld, holdCents: 0, requiresManualReview: false };',
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, payableCents: 0, holdCents: 0, requiresManualReview: false };",
+      '}',
+      'function review(reason, payableCents, holdCents) {',
+      "  return { status: 'review', reason, payableCents, holdCents, requiresManualReview: true };",
+      '}',
+      'module.exports = { approveVendorInvoice };',
+      ''
+    ].join('\n');
+    const happyPathOnlyVendorInvoice = [
+      'function approveVendorInvoice(vendor = {}, po = {}, receipt = {}, invoice = {}) {',
+      "  if (vendor.active !== true) return denied('vendor_inactive');",
+      "  if (vendor.onHold === true) return denied('vendor_on_hold');",
+      "  if (po.status !== 'approved') return denied('po_not_approved');",
+      "  if (po.receiptRequired === true && receipt.received !== true) return denied('receipt_required');",
+      "  if (invoice.duplicate === true) return denied('duplicate_invoice');",
+      "  return { status: 'approved', reason: null, payableCents: invoice.amountCents ?? 0, holdCents: 0, requiresManualReview: false };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, payableCents: 0, holdCents: 0, requiresManualReview: false };",
+      '}',
+      'module.exports = { approveVendorInvoice };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -2300,6 +2370,86 @@ async function main() {
       payrollOvertimeHardcodedWorktree,
       fixedInsuranceClaim
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree
+    ]) {
+      await writeVendorInvoiceFixture(worktree, fixedVendorInvoice);
+    }
+    await writeVendorInvoiceFixture(baseWorktree, buggyVendorInvoice);
+    await writeVendorInvoiceFixture(
+      vendorInvoiceHardcodedWorktree,
+      happyPathOnlyVendorInvoice
+    );
+    await writeCartFixture(vendorInvoiceHardcodedWorktree, fixedCart);
+    await writeProfileFixture(vendorInvoiceHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(vendorInvoiceHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(vendorInvoiceHardcodedWorktree, fixedInventory);
+    await writeShippingFixture(vendorInvoiceHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(vendorInvoiceHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(vendorInvoiceHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(vendorInvoiceHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(vendorInvoiceHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      vendorInvoiceHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      vendorInvoiceHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(vendorInvoiceHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(vendorInvoiceHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      vendorInvoiceHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(vendorInvoiceHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(
+      vendorInvoiceHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      vendorInvoiceHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      vendorInvoiceHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      vendorInvoiceHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(vendorInvoiceHardcodedWorktree, fixedPayroll);
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -2371,6 +2521,9 @@ async function main() {
       }),
       buildPayrollOvertimeSemanticProposal({
         targetPath: 'tests/adversary/payroll-overtime-supplemental.test.cjs'
+      }),
+      buildVendorInvoiceSemanticProposal({
+        targetPath: 'tests/adversary/vendor-invoice-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -2792,6 +2945,13 @@ async function main() {
         'adversary-live-payroll-overtime-hardcode'
       )
     );
+    const vendorInvoiceHardcoded = await runGates(
+      await gateContext(
+        vendorInvoiceHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-vendor-invoice-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -2896,6 +3056,10 @@ async function main() {
       payrollOvertimeHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const vendorInvoiceHardcodedGate =
+      vendorInvoiceHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -2924,7 +3088,8 @@ async function main() {
       paymentDisputeHardcodedGate?.status !== 'fail' ||
       warehouseAllocationHardcodedGate?.status !== 'fail' ||
       insuranceClaimHardcodedGate?.status !== 'fail' ||
-      payrollOvertimeHardcodedGate?.status !== 'fail'
+      payrollOvertimeHardcodedGate?.status !== 'fail' ||
+      vendorInvoiceHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -2956,7 +3121,8 @@ async function main() {
           paymentDisputeHardcoded: paymentDisputeHardcodedGate,
           warehouseAllocationHardcoded: warehouseAllocationHardcodedGate,
           insuranceClaimHardcoded: insuranceClaimHardcodedGate,
-          payrollOvertimeHardcoded: payrollOvertimeHardcodedGate
+          payrollOvertimeHardcoded: payrollOvertimeHardcodedGate,
+          vendorInvoiceHardcoded: vendorInvoiceHardcodedGate
         })}`
       );
     }
@@ -2996,7 +3162,8 @@ async function main() {
         paymentDisputeHardcoded: paymentDisputeHardcodedGate.status,
         warehouseAllocationHardcoded: warehouseAllocationHardcodedGate.status,
         insuranceClaimHardcoded: insuranceClaimHardcodedGate.status,
-        payrollOvertimeHardcoded: payrollOvertimeHardcodedGate.status
+        payrollOvertimeHardcoded: payrollOvertimeHardcodedGate.status,
+        vendorInvoiceHardcoded: vendorInvoiceHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -3111,6 +3278,8 @@ async function main() {
           insuranceClaimHardcodedGate.status,
         payroll_overtime_hardcoded_gate_status:
           payrollOvertimeHardcodedGate.status,
+        vendor_invoice_hardcoded_gate_status:
+          vendorInvoiceHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -3159,7 +3328,9 @@ async function main() {
         insurance_claim_hardcode_rejected:
           insuranceClaimHardcodedGate.status === 'fail',
         payroll_overtime_hardcode_rejected:
-          payrollOvertimeHardcodedGate.status === 'fail'
+          payrollOvertimeHardcodedGate.status === 'fail',
+        vendor_invoice_hardcode_rejected:
+          vendorInvoiceHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

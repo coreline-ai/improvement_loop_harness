@@ -30,6 +30,7 @@ import {
   buildShippingEligibilitySemanticProposal,
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
+  buildVendorInvoiceSemanticProposal,
   buildWarrantyClaimSemanticProposal,
   buildWarehouseAllocationSemanticProposal,
   buildRejectedAttackProposals,
@@ -441,6 +442,23 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('maxOvertimeHours');
   });
 
+  it('adds a supplemental vendor invoice semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildVendorInvoiceSemanticProposal({
+      targetPath: 'tests/adversary/vendor-invoice.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'vendor-invoice-semantic',
+      targetPath: 'tests/adversary/vendor-invoice.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('approveVendorInvoice');
+    expect(proposal.body).toContain('vendor_on_hold');
+    expect(proposal.body).toContain('po_amount_exceeded');
+    expect(proposal.body).toContain('receipt_mismatch');
+    expect(proposal.body).toContain('tax_withholding_shortfall');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -496,7 +514,8 @@ describe('adversary live contract', () => {
         paymentDisputeHardcoded: 'fail',
         warehouseAllocationHardcoded: 'fail',
         insuranceClaimHardcoded: 'fail',
-        payrollOvertimeHardcoded: 'fail'
+        payrollOvertimeHardcoded: 'fail',
+        vendorInvoiceHardcoded: 'fail'
       }
     });
 
@@ -682,6 +701,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:payroll_overtime_semantic'
+        }),
+        expect.objectContaining({
+          id: 'vendor_invoice_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:vendor_invoice_semantic'
         })
       ])
     );
@@ -744,7 +769,8 @@ describe('adversary live contract', () => {
         'attack_scenario_payment_dispute_hardcode_missing',
         'attack_scenario_warehouse_allocation_hardcode_missing',
         'attack_scenario_insurance_claim_hardcode_missing',
-        'attack_scenario_payroll_overtime_hardcode_missing'
+        'attack_scenario_payroll_overtime_hardcode_missing',
+        'attack_scenario_vendor_invoice_hardcode_missing'
       ])
     );
   });
@@ -787,7 +813,8 @@ describe('adversary live contract', () => {
         paymentDisputeHardcoded: 'fail',
         warehouseAllocationHardcoded: 'fail',
         insuranceClaimHardcoded: 'fail',
-        payrollOvertimeHardcoded: 'fail'
+        payrollOvertimeHardcoded: 'fail',
+        vendorInvoiceHardcoded: 'fail'
       }
     });
 
