@@ -1147,6 +1147,26 @@ function buildMerchantOnboardingReviewVerifier(cases) {
   ].join('\n');
 }
 
+function buildDataRetentionDeletionVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { processDataDeletionRequest } = require(process.cwd() + '/examples/business-source/data-retention-deletion.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = processDataDeletionRequest(item.account, item.request, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -3136,6 +3156,244 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             status: 'rejected',
             reason: 'terms_not_accepted',
             payoutEnabled: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'data-retention-legal-hold',
+    semantic_domain: 'data_retention_legal_hold_erasure_gate',
+    business_source_repair: true,
+    business_domain: 'data_retention_deletion',
+    relativePath: 'examples/business-source/data-retention-deletion.cjs',
+    language: 'javascript',
+    originalNeedle: '  if (account.legalHold === true) {',
+    regressionText: '  if (account.legalHold === false) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildDataRetentionDeletionVerifier([
+        {
+          name: 'verified regional erasure deletes old active account',
+          account: {
+            id: 'acct_visible_delete',
+            status: 'active',
+            region: 'EU',
+            legalHold: false,
+            openCase: false,
+            exportReady: true,
+            lastActivityAt: '2024-01-01T00:00:00.000Z',
+            verifiedRequester: true,
+            minorData: false
+          },
+          request: {
+            confirmed: true,
+            requesterVerified: true
+          },
+          policy: {
+            minRetentionDays: 365,
+            requireExportReady: true,
+            regionalErasureRegions: ['EU', 'CA'],
+            auditTrailRetentionDays: 90
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'deleted',
+            reason: null,
+            dataDeleted: true,
+            requiresManualReview: false,
+            deletionScope: 'full',
+            retainedAuditDays: 90,
+            scheduledAt: '2026-06-25T10:00:00.000Z'
+          }
+        },
+        {
+          name: 'legal hold blocks erasure even when request is verified',
+          account: {
+            id: 'acct_visible_hold',
+            status: 'active',
+            region: 'EU',
+            legalHold: true,
+            openCase: false,
+            exportReady: true,
+            lastActivityAt: '2024-01-01T00:00:00.000Z',
+            verifiedRequester: true,
+            minorData: false
+          },
+          request: {
+            confirmed: true,
+            requesterVerified: true
+          },
+          policy: {
+            minRetentionDays: 365,
+            requireExportReady: true,
+            regionalErasureRegions: ['EU', 'CA']
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'legal_hold',
+            dataDeleted: false,
+            requiresManualReview: false,
+            deletionScope: null
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildDataRetentionDeletionVerifier([
+        {
+          name: 'export must be ready before deletion',
+          account: {
+            id: 'acct_hidden_export',
+            status: 'active',
+            region: 'CA',
+            legalHold: false,
+            openCase: false,
+            exportReady: false,
+            lastActivityAt: '2024-01-01T00:00:00.000Z',
+            verifiedRequester: true,
+            minorData: false
+          },
+          request: {
+            confirmed: true,
+            requesterVerified: true
+          },
+          policy: {
+            minRetentionDays: 365,
+            requireExportReady: true,
+            regionalErasureRegions: ['EU', 'CA']
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'data_export_pending',
+            dataDeleted: false,
+            requiresManualReview: true
+          }
+        },
+        {
+          name: 'retention window denies recent activity',
+          account: {
+            id: 'acct_hidden_recent',
+            status: 'active',
+            region: 'EU',
+            legalHold: false,
+            openCase: false,
+            exportReady: true,
+            lastActivityAt: '2026-06-01T00:00:00.000Z',
+            verifiedRequester: true,
+            minorData: false
+          },
+          request: {
+            confirmed: true,
+            requesterVerified: true
+          },
+          policy: {
+            minRetentionDays: 365,
+            requireExportReady: true,
+            regionalErasureRegions: ['EU', 'CA']
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'retention_period_active',
+            dataDeleted: false,
+            requiresManualReview: false
+          }
+        },
+        {
+          name: 'non-regional deletion is limited scope',
+          account: {
+            id: 'acct_hidden_us',
+            status: 'active',
+            region: 'US',
+            legalHold: false,
+            openCase: false,
+            exportReady: true,
+            lastActivityAt: '2024-01-01T00:00:00.000Z',
+            verifiedRequester: true,
+            minorData: false
+          },
+          request: {
+            confirmed: true,
+            requesterVerified: true
+          },
+          policy: {
+            minRetentionDays: 365,
+            requireExportReady: true,
+            regionalErasureRegions: ['EU', 'CA'],
+            auditTrailRetentionDays: 45
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'deleted',
+            reason: null,
+            dataDeleted: true,
+            deletionScope: 'limited',
+            retainedAuditDays: 45
+          }
+        },
+        {
+          name: 'minor data requires manual review',
+          account: {
+            id: 'acct_hidden_minor',
+            status: 'active',
+            region: 'EU',
+            legalHold: false,
+            openCase: false,
+            exportReady: true,
+            lastActivityAt: '2024-01-01T00:00:00.000Z',
+            verifiedRequester: true,
+            minorData: true
+          },
+          request: {
+            confirmed: true,
+            requesterVerified: true
+          },
+          policy: {
+            minRetentionDays: 365,
+            requireExportReady: true,
+            regionalErasureRegions: ['EU', 'CA'],
+            minorDataManualReview: true
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'minor_data_review',
+            dataDeleted: false,
+            requiresManualReview: true
+          }
+        },
+        {
+          name: 'unverified requester is denied before review',
+          account: {
+            id: 'acct_hidden_unverified',
+            status: 'active',
+            region: 'EU',
+            legalHold: false,
+            openCase: true,
+            exportReady: true,
+            lastActivityAt: '2024-01-01T00:00:00.000Z',
+            verifiedRequester: true,
+            minorData: false
+          },
+          request: {
+            confirmed: true,
+            requesterVerified: false
+          },
+          policy: {
+            minRetentionDays: 365,
+            requireExportReady: true,
+            regionalErasureRegions: ['EU', 'CA']
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'requester_not_verified',
+            dataDeleted: false,
+            requiresManualReview: false
           }
         }
       ])
