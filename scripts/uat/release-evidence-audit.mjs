@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { readdir, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -93,14 +95,19 @@ export function selectReleaseEvidenceAuditScenarios(options = {}) {
 }
 
 function applyAuditRequirementOverrides(evidenceScenarios, options = {}) {
-  if (!options.requireSkillPromptCorpusGithubPr) return evidenceScenarios;
+  if (
+    !options.requireSkillPromptCorpusGithubPr &&
+    !options.requireSkillPromptCorpusLivePrState
+  ) {
+    return evidenceScenarios;
+  }
 
   const hasPromptCorpus = evidenceScenarios.some(
     (scenario) => scenario.scenario === 'skill-real-user-prompt-corpus-live-uat'
   );
   if (!hasPromptCorpus) {
     throw new Error(
-      '--require-skill-prompt-corpus-github-pr requires --scenario skill-real-user-prompt-corpus-live-uat'
+      '--require-skill-prompt-corpus-github-pr and --require-skill-prompt-corpus-live-pr-state require --scenario skill-real-user-prompt-corpus-live-uat'
     );
   }
 
@@ -117,6 +124,194 @@ function applyAuditRequirementOverrides(evidenceScenarios, options = {}) {
       }
     };
   });
+}
+
+async function readJsonFile(filePath) {
+  return JSON.parse(await readFile(filePath, 'utf8'));
+}
+
+function execFileJson(file, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      file,
+      args,
+      {
+        encoding: 'utf8',
+        maxBuffer: 10 * 1024 * 1024,
+        ...options
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          error.stderr = stderr;
+          reject(error);
+          return;
+        }
+        try {
+          resolve(JSON.parse(stdout));
+        } catch (parseError) {
+          reject(parseError);
+        }
+      }
+    );
+  });
+}
+
+async function defaultGithubPrView({ repo, number }) {
+  return execFileJson(process.env.GH_BIN ?? 'gh', [
+    'pr',
+    'view',
+    String(number),
+    '--repo',
+    repo,
+    '--json',
+    'number,state,isDraft,headRefName,headRefOid,baseRefName,body,url,autoMergeRequest'
+  ]);
+}
+
+function sha256Text(value) {
+  return createHash('sha256').update(value ?? '', 'utf8').digest('hex');
+}
+
+function resolveEvidencePath(filePath, ledgerPath) {
+  if (!filePath) return null;
+  return path.isAbsolute(filePath)
+    ? filePath
+    : path.resolve(path.dirname(ledgerPath), filePath);
+}
+
+export async function auditSkillPromptCorpusLivePrState(
+  evidenceResult,
+  options = {}
+) {
+  const failures = [];
+  const prs = [];
+  if (
+    evidenceResult?.scenario !== 'skill-real-user-prompt-corpus-live-uat' ||
+    !evidenceResult.ledger
+  ) {
+    return {
+      ok: false,
+      checked_count: 0,
+      failures: ['skill_prompt_corpus.live_pr_state.ledger']
+    };
+  }
+
+  let ledger;
+  try {
+    ledger = await readJsonFile(evidenceResult.ledger);
+  } catch (error) {
+    return {
+      ok: false,
+      checked_count: 0,
+      failures: ['skill_prompt_corpus.live_pr_state.ledger_read'],
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+
+  const variants = ledger.prompt_corpus?.variants;
+  if (!Array.isArray(variants) || variants.length === 0) {
+    return {
+      ok: false,
+      checked_count: 0,
+      failures: ['skill_prompt_corpus.live_pr_state.variants']
+    };
+  }
+
+  const githubPrView = options.githubPrView ?? defaultGithubPrView;
+  for (const variant of variants) {
+    const childLedgerPath = resolveEvidencePath(
+      variant.evidence_ledger,
+      evidenceResult.ledger
+    );
+    if (!childLedgerPath) {
+      failures.push(`${variant.id}:missing_child_ledger`);
+      continue;
+    }
+
+    let childLedger;
+    try {
+      childLedger = await readJsonFile(childLedgerPath);
+    } catch {
+      failures.push(`${variant.id}:child_ledger_read`);
+      continue;
+    }
+
+    const repo = childLedger.github?.repo;
+    const draftPr = childLedger.github?.draft_prs?.[0];
+    const prNumber = draftPr?.pr_number;
+    if (!repo || !prNumber) {
+      failures.push(`${variant.id}:missing_pr_ref`);
+      continue;
+    }
+
+    let live;
+    try {
+      live = await githubPrView({ repo, number: prNumber, variant });
+    } catch (error) {
+      failures.push(`${variant.id}:live_pr_view_error`);
+      prs.push({
+        id: variant.id,
+        repo,
+        number: prNumber,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      continue;
+    }
+
+    const expectedHead = draftPr.live_pr_view?.head_ref ?? draftPr.branch_name;
+    const expectedHeadSha =
+      draftPr.live_pr_view?.expected_head_sha ??
+      draftPr.live_pr_view?.head_sha ??
+      draftPr.head_sha;
+    const expectedBase = draftPr.live_pr_view?.base_ref ?? draftPr.base_ref;
+    const expectedBodySha = draftPr.live_pr_view?.body_sha256;
+    const expectedBodyChars = draftPr.live_pr_view?.body_char_count;
+    const liveBody = typeof live.body === 'string' ? live.body : '';
+    const bodyShaMatches =
+      typeof expectedBodySha === 'string'
+        ? sha256Text(liveBody) === expectedBodySha
+        : true;
+    const bodyLengthMatches =
+      typeof expectedBodyChars === 'number'
+        ? liveBody.length === expectedBodyChars
+        : true;
+    const checks = {
+      state_open: live.state === 'OPEN',
+      is_draft: live.isDraft === true,
+      auto_merge_disabled: live.autoMergeRequest == null,
+      base_ref_matches: !expectedBase || live.baseRefName === expectedBase,
+      head_ref_matches: !expectedHead || live.headRefName === expectedHead,
+      head_sha_matches: !expectedHeadSha || live.headRefOid === expectedHeadSha,
+      body_sha_matches: bodyShaMatches,
+      body_length_matches: bodyLengthMatches
+    };
+    const ok = Object.values(checks).every(Boolean);
+    if (!ok) {
+      failures.push(`${variant.id}:live_pr_state`);
+    }
+    prs.push({
+      id: variant.id,
+      repo,
+      number: prNumber,
+      url: live.url ?? draftPr.pr_url ?? null,
+      ok,
+      state: live.state ?? null,
+      is_draft: live.isDraft ?? null,
+      base_ref: live.baseRefName ?? null,
+      head_ref: live.headRefName ?? null,
+      head_sha: live.headRefOid ?? null,
+      checks
+    });
+  }
+
+  return {
+    ok: failures.length === 0,
+    checked_count: prs.length,
+    expected_count: variants.length,
+    failures,
+    prs
+  };
 }
 
 function defaultEvidenceRoot(env = process.env) {
@@ -238,6 +433,27 @@ export async function buildReleaseEvidenceAuditReport(options = {}) {
     });
   }
 
+  if (options.requireSkillPromptCorpusLivePrState) {
+    for (const result of evidence) {
+      if (result.scenario !== 'skill-real-user-prompt-corpus-live-uat') {
+        continue;
+      }
+      const livePrStateAudit = await auditSkillPromptCorpusLivePrState(
+        result,
+        options
+      );
+      result.live_pr_state_audit = livePrStateAudit;
+      if (!livePrStateAudit.ok) {
+        result.ok = false;
+        result.status = 'invalid_live_pr_state';
+        result.ledger_failures = [
+          ...(result.ledger_failures ?? []),
+          'skill_prompt_corpus.live_pr_state'
+        ];
+      }
+    }
+  }
+
   const failed = evidence.filter((result) => !result.ok);
   const copiedIntegrityCheckedCount = evidence.reduce(
     (total, result) =>
@@ -263,7 +479,10 @@ export async function buildReleaseEvidenceAuditReport(options = {}) {
       scenario: scenario.scenario,
       expected_status: scenario.expected_status,
       expected_statuses: scenario.expected_statuses,
-      required_statuses: scenario.required_statuses
+      required_statuses: scenario.required_statuses,
+      require_live_pr_state:
+        options.requireSkillPromptCorpusLivePrState === true &&
+        scenario.scenario === 'skill-real-user-prompt-corpus-live-uat'
     })),
     audit_summary: {
       required_count: evidence.length,
@@ -296,6 +515,7 @@ function parseArgs(argv) {
   const scenarioNames = [];
   let allReleaseEvidence = false;
   let requireSkillPromptCorpusGithubPr = false;
+  let requireSkillPromptCorpusLivePrState = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--') {
@@ -328,13 +548,19 @@ function parseArgs(argv) {
       requireSkillPromptCorpusGithubPr = true;
       continue;
     }
+    if (arg === '--require-skill-prompt-corpus-live-pr-state') {
+      requireSkillPromptCorpusGithubPr = true;
+      requireSkillPromptCorpusLivePrState = true;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
   return {
     evidenceRoots: evidenceRoots.length > 0 ? evidenceRoots : undefined,
     scenarioNames: scenarioNames.length > 0 ? scenarioNames : undefined,
     allReleaseEvidence,
-    requireSkillPromptCorpusGithubPr
+    requireSkillPromptCorpusGithubPr,
+    requireSkillPromptCorpusLivePrState
   };
 }
 

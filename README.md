@@ -295,6 +295,7 @@ corepack pnpm uat:skill-loop:codex-skill-prompt:auto:real-builder # P1 자연어
 corepack pnpm uat:skill-loop:prompt-corpus-live # P1 자연어 Skill 16-variant local/live corpus + real builder
 corepack pnpm uat:skill-loop:prompt-corpus-live:github-pr # P1 현재 기본 16-variant corpus + GitHub draft PR 검증(delete_repo scope 또는 VIBELOOP_UAT_KEEP_REMOTE=1 필요; 최신 보존 증거는 R69 6-variant)
 corepack pnpm uat:skill-loop:prompt-corpus-live:github-pr:release-evidence-audit # P1 16-variant GitHub PR corpus 전용 감사(local-only evidence면 fail)
+corepack pnpm uat:skill-loop:prompt-corpus-live:github-pr:live-state-audit # P1 저장 evidence + 현재 GitHub PR OPEN draft live-state 재검증
 corepack pnpm uat:skill-loop:full-live:ux  # P1 clean Skill full + prompt matrix/journey + 현재 기본 16-variant prompt corpus live, CI/release audit 아님
 corepack pnpm uat:skill-loop:full-live:ux:github-pr # P1 full UX + 현재 기본 16-variant corpus GitHub draft PR 검증 + 전용 audit(최신 보존 증거는 R69 6-variant)
 corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-full-uat,skill-real-user-prompt-matrix-uat,skill-real-user-prompt-journey-uat,skill-real-user-prompt-corpus-live-uat # P1 local Skill full-live UX evidence audit

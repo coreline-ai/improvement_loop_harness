@@ -742,6 +742,90 @@ function skillPromptCorpusLiveLedger(overrides = {}) {
   };
 }
 
+async function writeSkillPromptCorpusGithubPrEvidence(root, options = {}) {
+  const scenario = 'skill-real-user-prompt-corpus-live-uat';
+  const runId = options.runId ?? 'skill-prompt-corpus-live-github-run';
+  const runDir = path.join(root, scenario, runId);
+  const ledger = skillPromptCorpusLiveLedger({ githubDraftPr: true });
+  const liveViews = new Map();
+  await mkdir(runDir, { recursive: true });
+
+  for (const [index, variant] of ledger.prompt_corpus.variants.entries()) {
+    const repo = `coreline-ai/vibeloop-skill-prompt-test-${index + 1}`;
+    const number = index + 1;
+    const branch =
+      variant.mode === 'user_issue'
+        ? `pr-candidate/skill-prompt-${index + 1}`
+        : `pr-candidate/skill-prompt-auto-${index + 1}/task-616e019fbc8d`;
+    const headSha = `${String(index + 1).padStart(40, 'a')}`.slice(-40);
+    const body = `VibeLoop PR body ${index + 1}`;
+    const bodySha = createHash('sha256').update(body).digest('hex');
+    const childPath = path.join(runDir, `${variant.id}-ledger.json`);
+    variant.evidence_ledger = childPath;
+
+    await writeFile(
+      childPath,
+      `${JSON.stringify(
+        {
+          status: variant.expected_status,
+          scenario: 'skill-real-user-codex-skill-prompt-github-draft-pr-uat',
+          github: {
+            repo,
+            draft_prs: [
+              {
+                branch_name: branch,
+                head_sha: headSha,
+                github_repo: repo,
+                pr_url: `https://github.com/${repo}/pull/${number}`,
+                pr_number: number,
+                pushed: true,
+                pr_reused: false,
+                base_ref: 'main',
+                live_pr_view: {
+                  confirmed: true,
+                  state: 'OPEN',
+                  is_draft: true,
+                  auto_merge: null,
+                  auto_merge_disabled: true,
+                  base_ref: 'main',
+                  head_ref: branch,
+                  head_sha: headSha,
+                  expected_head_sha: headSha,
+                  body_freshness: 'created_for_this_run',
+                  body_sha256: bodySha,
+                  body_char_count: body.length,
+                  failures: []
+                }
+              }
+            ]
+          }
+        },
+        null,
+        2
+      )}\n`
+    );
+    liveViews.set(`${repo}#${number}`, {
+      number,
+      state: options.closedIndex === index ? 'CLOSED' : 'OPEN',
+      isDraft: true,
+      autoMergeRequest: null,
+      baseRefName: 'main',
+      headRefName: branch,
+      headRefOid: headSha,
+      body,
+      url: `https://github.com/${repo}/pull/${number}`
+    });
+  }
+
+  await writeLedger(root, scenario, runId, ledger);
+  await writeManifest(root, scenario, runId);
+  return {
+    scenario,
+    runId,
+    githubPrView: async ({ repo, number }) => liveViews.get(`${repo}#${number}`)
+  };
+}
+
 async function writeValidCiEvidence(root) {
   await writeLedger(
     root,
@@ -1234,6 +1318,68 @@ describe('release evidence audit', () => {
             requested_variant_count: 16,
             passed_variant_count: 16
           })
+        })
+      })
+    );
+  });
+
+  it('can require current live PR state for Skill prompt corpus GitHub draft PR evidence', async () => {
+    const root = await tempRoot();
+    const { scenario, githubPrView } =
+      await writeSkillPromptCorpusGithubPrEvidence(root);
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario],
+      requireSkillPromptCorpusLivePrState: true,
+      githubPrView
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P1',
+        scenario,
+        require_live_pr_state: true
+      })
+    ]);
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: true,
+        live_pr_state_audit: expect.objectContaining({
+          ok: true,
+          checked_count: 16,
+          expected_count: 16,
+          failures: []
+        })
+      })
+    );
+  });
+
+  it('fails current live PR-state audit when a GitHub draft PR was closed after branch cleanup', async () => {
+    const root = await tempRoot();
+    const { scenario, githubPrView } =
+      await writeSkillPromptCorpusGithubPrEvidence(root, { closedIndex: 3 });
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario],
+      requireSkillPromptCorpusLivePrState: true,
+      githubPrView
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        status: 'invalid_live_pr_state',
+        ledger_failures: expect.arrayContaining([
+          'skill_prompt_corpus.live_pr_state'
+        ]),
+        live_pr_state_audit: expect.objectContaining({
+          ok: false,
+          checked_count: 16,
+          failures: expect.arrayContaining(['user-4:live_pr_state'])
         })
       })
     );
