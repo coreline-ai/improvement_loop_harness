@@ -78,6 +78,18 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-real-user-total-too-low',
+    mode: 'user_issue',
+    variant: 'ko-real-user-total-too-low',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-shopper-quantity-total',
+    mode: 'user_issue',
+    variant: 'en-shopper-quantity-total',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -123,6 +135,18 @@ const defaultCorpus = [
     id: 'auto-en-scan-one-regression-pr-candidate',
     mode: 'auto_discovery',
     variant: 'en-scan-one-regression-pr-candidate',
+    language: 'en'
+  },
+  {
+    id: 'auto-ko-user-like-review-one-fix',
+    mode: 'auto_discovery',
+    variant: 'ko-user-like-review-one-fix',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-product-ux-one-bug',
+    mode: 'auto_discovery',
+    variant: 'en-product-ux-one-bug',
     language: 'en'
   }
 ];

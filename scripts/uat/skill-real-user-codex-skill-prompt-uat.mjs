@@ -212,6 +212,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Checkout totals only use the unit price when a line has quantity 3. Fix the cart total regression and add a test.'
+    },
+    {
+      id: 'ko-real-user-total-too-low',
+      language: 'ko',
+      prompt:
+        '사용자 입장에서 장바구니 합계가 실제보다 낮게 보여. 수량이 있는 항목 합계를 고치고 검증까지 해줘'
+    },
+    {
+      id: 'en-shopper-quantity-total',
+      language: 'en',
+      prompt:
+        'A shopper adding multiple units gets charged as if there is only one. Fix the cart quantity total and verify the regression.'
     }
   ],
   auto_discovery: [
@@ -259,6 +271,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Scan the project, find one regression, fix it, verify it, and prepare a PR candidate.'
+    },
+    {
+      id: 'ko-user-like-review-one-fix',
+      language: 'ko',
+      prompt:
+        '실제 사용자가 맡긴 프로젝트라고 보고, 프로젝트 스캔해서 재현 가능한 문제 하나 찾아 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'en-product-ux-one-bug',
+      language: 'en',
+      prompt:
+        'Find one failing behavior in this user product repo, resolve it, verify it, and leave a PR-ready result.'
     }
   ]
 };
