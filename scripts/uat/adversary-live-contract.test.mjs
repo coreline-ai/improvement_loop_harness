@@ -9,6 +9,7 @@ import {
   buildAccountClosureSemanticProposal,
   buildAccessReviewSemanticProposal,
   buildAppointmentCancellationSemanticProposal,
+  buildBackupRestoreSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
   buildCreditMemoApprovalSemanticProposal,
@@ -493,6 +494,28 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('postmortem_owner_required');
   });
 
+  it('adds a supplemental backup restore semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildBackupRestoreSemanticProposal({
+      targetPath: 'tests/adversary/backup-restore.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'backup-restore-semantic',
+      targetPath: 'tests/adversary/backup-restore.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateBackupRestore');
+    expect(proposal.body).toContain('backup_not_available');
+    expect(proposal.body).toContain('stale_snapshot');
+    expect(proposal.body).toContain('integrity_check_required');
+    expect(proposal.body).toContain('restore_environment_not_allowed');
+    expect(proposal.body).toContain('security_approval_required');
+    expect(proposal.body).toContain('dr_owner_approval_required');
+    expect(proposal.body).toContain('emergency_override_required');
+    expect(proposal.body).toContain('dry_run_required');
+    expect(proposal.body).toContain('dr_drill_stale');
+  });
+
   it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildWarehouseAllocationSemanticProposal({
       targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
@@ -765,7 +788,8 @@ describe('adversary live contract', () => {
         privacyConsentHardcoded: 'fail',
         accessReviewHardcoded: 'fail',
         releaseReadinessHardcoded: 'fail',
-        incidentResponseHardcoded: 'fail'
+        incidentResponseHardcoded: 'fail',
+        backupRestoreHardcoded: 'fail'
       }
     });
 
@@ -1041,6 +1065,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:incident_response_semantic'
+        }),
+        expect.objectContaining({
+          id: 'backup_restore_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:backup_restore_semantic'
         })
       ])
     );
@@ -1118,7 +1148,8 @@ describe('adversary live contract', () => {
         'attack_scenario_privacy_consent_hardcode_missing',
         'attack_scenario_access_review_hardcode_missing',
         'attack_scenario_release_readiness_hardcode_missing',
-        'attack_scenario_incident_response_hardcode_missing'
+        'attack_scenario_incident_response_hardcode_missing',
+        'attack_scenario_backup_restore_hardcode_missing'
       ])
     );
   });
@@ -1176,7 +1207,8 @@ describe('adversary live contract', () => {
         privacyConsentHardcoded: 'fail',
         accessReviewHardcoded: 'fail',
         releaseReadinessHardcoded: 'fail',
-        incidentResponseHardcoded: 'fail'
+        incidentResponseHardcoded: 'fail',
+        backupRestoreHardcoded: 'fail'
       }
     });
 

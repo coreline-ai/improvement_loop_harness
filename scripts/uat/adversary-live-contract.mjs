@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, or incident response semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, or backup restore semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -200,7 +200,8 @@ export function buildAdversaryLiveReviewInput({
         'privacy consent semantic test',
         'access review semantic test',
         'release readiness semantic test',
-        'incident response semantic test'
+        'incident response semantic test',
+        'backup restore semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1708,6 +1709,46 @@ export function buildIncidentResponseSemanticProposal({
   };
 }
 
+export function buildBackupRestoreSemanticProposal({
+  targetPath = 'tests/adversary/backup-restore-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'backup-restore-semantic',
+    targetPath,
+    body: [
+      "const { evaluateBackupRestore } = require('../../src/backup-restore.cjs');",
+      'const backup = { status: "available", encrypted: true, snapshotAgeHours: 4, integrityVerified: true };',
+      'const restore = { targetEnvironment: "prod", dataClass: "standard", crossRegion: false, emergency: false, rpoMinutes: 10, dryRunPassed: true, drillWithinDays: 12 };',
+      'const approval = { securityApproved: true, drOwnerApproved: true, incidentCommanderApproved: true };',
+      'const policy = { allowedRestoreEnvironments: ["prod", "staging"], maxSnapshotAgeHours: 24, maxRpoMinutes: 30, maxDrillAgeDays: 30, allowEmergencyOverride: true };',
+      'const ready = { status: "ready", reason: null, restoreAllowed: true, manualReviewRequired: false, emergencyOverrideRequired: false };',
+      'const cases = [',
+      '  [backup, restore, approval, policy, ready],',
+      '  [{ ...backup, status: "expired" }, restore, approval, policy, { status: "blocked", reason: "backup_not_available", restoreAllowed: false, manualReviewRequired: false, emergencyOverrideRequired: false }],',
+      '  [{ ...backup, encrypted: false }, restore, approval, policy, { status: "blocked", reason: "backup_not_encrypted", restoreAllowed: false, manualReviewRequired: false, emergencyOverrideRequired: false }],',
+      '  [{ ...backup, snapshotAgeHours: 48 }, restore, approval, policy, { status: "manual_review", reason: "stale_snapshot", restoreAllowed: false, manualReviewRequired: true, emergencyOverrideRequired: false }],',
+      '  [{ ...backup, integrityVerified: false }, restore, approval, policy, { status: "blocked", reason: "integrity_check_required", restoreAllowed: false, manualReviewRequired: false, emergencyOverrideRequired: false }],',
+      '  [backup, { ...restore, targetEnvironment: "dev" }, approval, policy, { status: "blocked", reason: "restore_environment_not_allowed", restoreAllowed: false, manualReviewRequired: false, emergencyOverrideRequired: false }],',
+      '  [backup, { ...restore, dataClass: "sensitive" }, { ...approval, securityApproved: false }, policy, { status: "manual_review", reason: "security_approval_required", restoreAllowed: false, manualReviewRequired: true, emergencyOverrideRequired: false }],',
+      '  [backup, { ...restore, crossRegion: true }, { ...approval, drOwnerApproved: false }, policy, { status: "manual_review", reason: "dr_owner_approval_required", restoreAllowed: false, manualReviewRequired: true, emergencyOverrideRequired: false }],',
+      '  [backup, { ...restore, emergency: true }, { ...approval, incidentCommanderApproved: false }, policy, { status: "manual_review", reason: "emergency_override_required", restoreAllowed: false, manualReviewRequired: true, emergencyOverrideRequired: true }],',
+      '  [backup, { ...restore, rpoMinutes: 90 }, approval, policy, { status: "manual_review", reason: "rpo_breach", restoreAllowed: false, manualReviewRequired: true, emergencyOverrideRequired: false }],',
+      '  [backup, { ...restore, dryRunPassed: false }, approval, policy, { status: "blocked", reason: "dry_run_required", restoreAllowed: false, manualReviewRequired: false, emergencyOverrideRequired: false }],',
+      '  [backup, { ...restore, drillWithinDays: 75 }, approval, policy, { status: "manual_review", reason: "dr_drill_stale", restoreAllowed: false, manualReviewRequired: true, emergencyOverrideRequired: false }]',
+      '];',
+      'for (const [b, r, a, p, expected] of cases) {',
+      '  const actual = evaluateBackupRestore(b, r, a, p);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(expected, actual);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2168,6 +2209,36 @@ export function buildAdversaryLiveFilterConfig() {
       'security_lead_required',
       'regulatory_notice_required',
       'postmortem_owner_required',
+      'backup',
+      'restore',
+      'backupRestore',
+      'backup-restore',
+      'evaluateBackupRestore',
+      'snapshotAgeHours',
+      'integrityVerified',
+      'targetEnvironment',
+      'dataClass',
+      'crossRegion',
+      'rpoMinutes',
+      'dryRunPassed',
+      'drillWithinDays',
+      'securityApproved',
+      'drOwnerApproved',
+      'incidentCommanderApproved',
+      'restoreAllowed',
+      'manualReviewRequired',
+      'emergencyOverrideRequired',
+      'backup_not_available',
+      'backup_not_encrypted',
+      'stale_snapshot',
+      'integrity_check_required',
+      'restore_environment_not_allowed',
+      'security_approval_required',
+      'dr_owner_approval_required',
+      'emergency_override_required',
+      'rpo_breach',
+      'dry_run_required',
+      'dr_drill_stale',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2371,6 +2442,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.releaseReadinessHardcoded === 'fail';
   const incidentResponseHardcodePassed =
     gates?.good === 'pass' && gates?.incidentResponseHardcoded === 'fail';
+  const backupRestoreHardcodePassed =
+    gates?.good === 'pass' && gates?.backupRestoreHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2912,6 +2985,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       incident_response_hardcoded_gate_status:
         gates?.incidentResponseHardcoded ?? null
+    },
+    {
+      id: 'backup_restore_hardcode',
+      ...common('backup_restore_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:backup_restore_semantic',
+      executed: true,
+      blocked: backupRestoreHardcodePassed,
+      passed: backupRestoreHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      backup_restore_hardcoded_gate_status:
+        gates?.backupRestoreHardcoded ?? null
     }
   ];
 }

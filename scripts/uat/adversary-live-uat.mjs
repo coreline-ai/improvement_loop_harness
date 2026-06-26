@@ -22,6 +22,7 @@ import {
   buildAccountClosureSemanticProposal,
   buildAccessReviewSemanticProposal,
   buildAppointmentCancellationSemanticProposal,
+  buildBackupRestoreSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
   buildContentModerationAppealSemanticProposal,
   buildControlledAdversaryReviewerProvenance,
@@ -313,6 +314,11 @@ async function writeReleaseReadinessFixture(root, source) {
 async function writeIncidentResponseFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/incident-response.cjs'), source);
+}
+
+async function writeBackupRestoreFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/backup-restore.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -791,6 +797,10 @@ async function main() {
     const incidentResponseHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-incident-response-hardcode'
+    );
+    const backupRestoreHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-backup-restore-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2319,6 +2329,59 @@ async function main() {
       'module.exports = { evaluateIncidentResponse };',
       ''
     ].join('\n');
+    const buggyBackupRestore = [
+      'function evaluateBackupRestore(_backup = {}, _restore = {}, _approval = {}, _policy = {}) {',
+      '  return decision("ready", null, true, false, false);',
+      '}',
+      'function decision(status, reason, restoreAllowed, manualReviewRequired, emergencyOverrideRequired) {',
+      '  return { status, reason, restoreAllowed, manualReviewRequired, emergencyOverrideRequired };',
+      '}',
+      'module.exports = { evaluateBackupRestore };',
+      ''
+    ].join('\n');
+    const fixedBackupRestore = [
+      'function evaluateBackupRestore(backup = {}, restore = {}, approval = {}, policy = {}) {',
+      '  if (backup.status !== "available") return blocked("backup_not_available");',
+      '  if (backup.encrypted !== true) return blocked("backup_not_encrypted");',
+      '  if ((backup.snapshotAgeHours ?? 0) > (policy.maxSnapshotAgeHours ?? 24)) return manual("stale_snapshot");',
+      '  if (backup.integrityVerified !== true) return blocked("integrity_check_required");',
+      '  const allowed = policy.allowedRestoreEnvironments ?? ["prod"];',
+      '  if (!allowed.includes(restore.targetEnvironment)) return blocked("restore_environment_not_allowed");',
+      '  if (restore.dataClass === "sensitive" && approval.securityApproved !== true) return manual("security_approval_required");',
+      '  if (restore.crossRegion === true && approval.drOwnerApproved !== true) return manual("dr_owner_approval_required");',
+      '  if (restore.emergency === true && policy.allowEmergencyOverride === true && approval.incidentCommanderApproved !== true) {',
+      '    return decision("manual_review", "emergency_override_required", false, true, true);',
+      '  }',
+      '  if ((restore.rpoMinutes ?? 0) > (policy.maxRpoMinutes ?? 30)) return manual("rpo_breach");',
+      '  if (restore.dryRunPassed !== true) return blocked("dry_run_required");',
+      '  if ((restore.drillWithinDays ?? 0) > (policy.maxDrillAgeDays ?? 30)) return manual("dr_drill_stale");',
+      '  return decision("ready", null, true, false, false);',
+      '}',
+      'function blocked(reason) {',
+      '  return decision("blocked", reason, false, false, false);',
+      '}',
+      'function manual(reason) {',
+      '  return decision("manual_review", reason, false, true, false);',
+      '}',
+      'function decision(status, reason, restoreAllowed, manualReviewRequired, emergencyOverrideRequired) {',
+      '  return { status, reason, restoreAllowed, manualReviewRequired, emergencyOverrideRequired };',
+      '}',
+      'module.exports = { evaluateBackupRestore };',
+      ''
+    ].join('\n');
+    const happyPathOnlyBackupRestore = [
+      'function evaluateBackupRestore(backup = {}, restore = {}, _approval = {}, _policy = {}) {',
+      '  if (backup.status !== "available") return decision("blocked", "backup_not_available", false, false, false);',
+      '  if (backup.encrypted !== true) return decision("blocked", "backup_not_encrypted", false, false, false);',
+      '  if (restore.dryRunPassed !== true) return decision("blocked", "dry_run_required", false, false, false);',
+      '  return decision("ready", null, true, false, false);',
+      '}',
+      'function decision(status, reason, restoreAllowed, manualReviewRequired, emergencyOverrideRequired) {',
+      '  return { status, reason, restoreAllowed, manualReviewRequired, emergencyOverrideRequired };',
+      '}',
+      'module.exports = { evaluateBackupRestore };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2358,6 +2421,7 @@ async function main() {
       await writeAccessReviewFixture(worktree, fixedAccessReview);
       await writeReleaseReadinessFixture(worktree, fixedReleaseReadiness);
       await writeIncidentResponseFixture(worktree, fixedIncidentResponse);
+      await writeBackupRestoreFixture(worktree, fixedBackupRestore);
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -5066,6 +5130,60 @@ async function main() {
       incidentResponseHardcodedWorktree,
       happyPathOnlyIncidentResponse
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree
+    ]) {
+      await writeBackupRestoreFixture(worktree, fixedBackupRestore);
+    }
+    await writeBackupRestoreFixture(baseWorktree, buggyBackupRestore);
+    await writeAllFixedFixtures(backupRestoreHardcodedWorktree);
+    await writeBackupRestoreFixture(
+      backupRestoreHardcodedWorktree,
+      happyPathOnlyBackupRestore
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -5185,6 +5303,9 @@ async function main() {
       }),
       buildIncidentResponseSemanticProposal({
         targetPath: 'tests/adversary/incident-response-supplemental.test.cjs'
+      }),
+      buildBackupRestoreSemanticProposal({
+        targetPath: 'tests/adversary/backup-restore-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -5354,6 +5475,10 @@ async function main() {
         buildIncidentResponseSemanticProposal({
           targetPath:
             'tests/adversary/incident-response-supplemental.test.cjs'
+        }),
+        buildBackupRestoreSemanticProposal({
+          targetPath:
+            'tests/adversary/backup-restore-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -5764,6 +5889,13 @@ async function main() {
         'adversary-live-incident-response-hardcode'
       )
     );
+    const backupRestoreHardcoded = await runGates(
+      await gateContext(
+        backupRestoreHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-backup-restore-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -5926,6 +6058,10 @@ async function main() {
       incidentResponseHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const backupRestoreHardcodedGate =
+      backupRestoreHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -5969,7 +6105,8 @@ async function main() {
       privacyConsentHardcodedGate?.status !== 'fail' ||
       accessReviewHardcodedGate?.status !== 'fail' ||
       releaseReadinessHardcodedGate?.status !== 'fail' ||
-      incidentResponseHardcodedGate?.status !== 'fail'
+      incidentResponseHardcodedGate?.status !== 'fail' ||
+      backupRestoreHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -6017,7 +6154,8 @@ async function main() {
           privacyConsentHardcoded: privacyConsentHardcodedGate,
           accessReviewHardcoded: accessReviewHardcodedGate,
           releaseReadinessHardcoded: releaseReadinessHardcodedGate,
-          incidentResponseHardcoded: incidentResponseHardcodedGate
+          incidentResponseHardcoded: incidentResponseHardcodedGate,
+          backupRestoreHardcoded: backupRestoreHardcodedGate
         })}`
       );
     }
@@ -6075,7 +6213,8 @@ async function main() {
         privacyConsentHardcoded: privacyConsentHardcodedGate.status,
         accessReviewHardcoded: accessReviewHardcodedGate.status,
         releaseReadinessHardcoded: releaseReadinessHardcodedGate.status,
-        incidentResponseHardcoded: incidentResponseHardcodedGate.status
+        incidentResponseHardcoded: incidentResponseHardcodedGate.status,
+        backupRestoreHardcoded: backupRestoreHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -6218,6 +6357,8 @@ async function main() {
           releaseReadinessHardcodedGate.status,
         incident_response_hardcoded_gate_status:
           incidentResponseHardcodedGate.status,
+        backup_restore_hardcoded_gate_status:
+          backupRestoreHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -6296,7 +6437,9 @@ async function main() {
         release_readiness_hardcode_rejected:
           releaseReadinessHardcodedGate.status === 'fail',
         incident_response_hardcode_rejected:
-          incidentResponseHardcodedGate.status === 'fail'
+          incidentResponseHardcodedGate.status === 'fail',
+        backup_restore_hardcode_rejected:
+          backupRestoreHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

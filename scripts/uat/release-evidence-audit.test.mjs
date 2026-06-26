@@ -158,7 +158,8 @@ function attackScenarios() {
     'privacy_consent_hardcode',
     'access_review_hardcode',
     'release_readiness_hardcode',
-    'incident_response_hardcode'
+    'incident_response_hardcode',
+    'backup_restore_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -225,6 +226,7 @@ function attackScenarios() {
       'rulepack_semantic:release_readiness_semantic',
     incident_response_hardcode:
       'rulepack_semantic:incident_response_semantic',
+    backup_restore_hardcode: 'rulepack_semantic:backup_restore_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
