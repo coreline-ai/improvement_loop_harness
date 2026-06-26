@@ -29,6 +29,7 @@ import {
   buildPaymentSettlementSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
   buildPrivacyConsentSemanticProposal,
+  buildIncidentResponseSemanticProposal,
   buildReleaseReadinessSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildProfileSuspensionSemanticProposal,
@@ -472,6 +473,26 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('sre_approval_required');
   });
 
+  it('adds a supplemental incident response semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildIncidentResponseSemanticProposal({
+      targetPath: 'tests/adversary/incident-response.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'incident-response-semantic',
+      targetPath: 'tests/adversary/incident-response.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateIncidentResponse');
+    expect(proposal.body).toContain('alert_not_confirmed');
+    expect(proposal.body).toContain('on_call_ack_required');
+    expect(proposal.body).toContain('incident_commander_required');
+    expect(proposal.body).toContain('customer_comms_plan_required');
+    expect(proposal.body).toContain('security_lead_required');
+    expect(proposal.body).toContain('regulatory_notice_required');
+    expect(proposal.body).toContain('postmortem_owner_required');
+  });
+
   it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildWarehouseAllocationSemanticProposal({
       targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
@@ -743,7 +764,8 @@ describe('adversary live contract', () => {
         taxFilingHardcoded: 'fail',
         privacyConsentHardcoded: 'fail',
         accessReviewHardcoded: 'fail',
-        releaseReadinessHardcoded: 'fail'
+        releaseReadinessHardcoded: 'fail',
+        incidentResponseHardcoded: 'fail'
       }
     });
 
@@ -1013,6 +1035,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:release_readiness_semantic'
+        }),
+        expect.objectContaining({
+          id: 'incident_response_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:incident_response_semantic'
         })
       ])
     );
@@ -1089,7 +1117,8 @@ describe('adversary live contract', () => {
         'attack_scenario_tax_filing_hardcode_missing',
         'attack_scenario_privacy_consent_hardcode_missing',
         'attack_scenario_access_review_hardcode_missing',
-        'attack_scenario_release_readiness_hardcode_missing'
+        'attack_scenario_release_readiness_hardcode_missing',
+        'attack_scenario_incident_response_hardcode_missing'
       ])
     );
   });
@@ -1146,7 +1175,8 @@ describe('adversary live contract', () => {
         taxFilingHardcoded: 'fail',
         privacyConsentHardcoded: 'fail',
         accessReviewHardcoded: 'fail',
-        releaseReadinessHardcoded: 'fail'
+        releaseReadinessHardcoded: 'fail',
+        incidentResponseHardcoded: 'fail'
       }
     });
 

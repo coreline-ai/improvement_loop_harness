@@ -34,6 +34,7 @@ import {
   buildFraudRiskSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
   buildInsuranceClaimSemanticProposal,
+  buildIncidentResponseSemanticProposal,
   buildInventoryReservationSemanticProposal,
   buildLoanUnderwritingSemanticProposal,
   buildMerchantOnboardingSemanticProposal,
@@ -307,6 +308,11 @@ async function writeAccessReviewFixture(root, source) {
 async function writeReleaseReadinessFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/release-readiness.cjs'), source);
+}
+
+async function writeIncidentResponseFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/incident-response.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -781,6 +787,10 @@ async function main() {
     const releaseReadinessHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-release-readiness-hardcode'
+    );
+    const incidentResponseHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-incident-response-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2252,6 +2262,103 @@ async function main() {
       'module.exports = { evaluateReleaseReadiness };',
       ''
     ].join('\n');
+    const buggyIncidentResponse = [
+      'function evaluateIncidentResponse(_incident = {}, _telemetry = {}, _response = {}, _policy = {}) {',
+      '  return decision("monitoring", null, false, false, false);',
+      '}',
+      'function decision(status, reason, escalationRequired, customerCommsRequired, regulatoryNoticeRequired) {',
+      '  return { status, reason, escalationRequired, customerCommsRequired, regulatoryNoticeRequired };',
+      '}',
+      'module.exports = { evaluateIncidentResponse };',
+      ''
+    ].join('\n');
+    const fixedIncidentResponse = [
+      'function evaluateIncidentResponse(incident = {}, telemetry = {}, response = {}, policy = {}) {',
+      '  if (incident.status !== "active") return decision("ignored", "incident_not_active", false, false, false);',
+      '  if (telemetry.alertConfirmed !== true) return decision("blocked", "alert_not_confirmed", false, false, false);',
+      '  if ((telemetry.staleMinutes ?? 0) > (policy.staleTelemetryMinutes ?? 10)) return manual("telemetry_stale", false, false);',
+      '  const severity = String(incident.severity ?? "sev3").toLowerCase();',
+      '  if (severity === "sev1" && response.onCallAcked !== true) return escalated("on_call_ack_required", false, false);',
+      '  if (severity === "sev1" && incident.commanderAssigned !== true) return escalated("incident_commander_required", false, false);',
+      '  if ((telemetry.errorBudgetBurnRate ?? 0) >= (policy.sev1BurnRate ?? 8)) return escalated("error_budget_burn", false, false);',
+      '  if (incident.customerImpact === true && policy.requireCustomerCommsForImpact === true) {',
+      '    if (response.commsPlanReady !== true) return manual("customer_comms_plan_required", true, false);',
+      '    if (response.customerCommsApproved !== true) return manual("customer_comms_approval_required", true, false);',
+      '  }',
+      '  if (incident.securitySignal === true && policy.requireSecurityLeadForSignal === true && response.securityLeadApproved !== true) {',
+      '    return escalated("security_lead_required", false, false);',
+      '  }',
+      '  if (incident.regulatoryImpact === true && policy.requireRegulatoryNotice === true && response.regulatoryNotified !== true) {',
+      '    return manual("regulatory_notice_required", false, true);',
+      '  }',
+      '  if (incident.postmortemOwnerAssigned !== true) return manual("postmortem_owner_required", false, false);',
+      '  return decision("monitoring", null, false, false, false);',
+      '}',
+      'function escalated(reason, customerCommsRequired, regulatoryNoticeRequired) {',
+      '  return decision("escalated", reason, true, customerCommsRequired, regulatoryNoticeRequired);',
+      '}',
+      'function manual(reason, customerCommsRequired, regulatoryNoticeRequired) {',
+      '  return decision("manual_review", reason, true, customerCommsRequired, regulatoryNoticeRequired);',
+      '}',
+      'function decision(status, reason, escalationRequired, customerCommsRequired, regulatoryNoticeRequired) {',
+      '  return { status, reason, escalationRequired, customerCommsRequired, regulatoryNoticeRequired };',
+      '}',
+      'module.exports = { evaluateIncidentResponse };',
+      ''
+    ].join('\n');
+    const happyPathOnlyIncidentResponse = [
+      'function evaluateIncidentResponse(incident = {}, telemetry = {}, response = {}) {',
+      '  if (incident.status !== "active") return decision("ignored", "incident_not_active", false, false, false);',
+      '  if (telemetry.alertConfirmed !== true) return decision("blocked", "alert_not_confirmed", false, false, false);',
+      '  if (incident.severity === "sev1" && response.onCallAcked !== true) return decision("escalated", "on_call_ack_required", true, false, false);',
+      '  return decision("monitoring", null, false, false, false);',
+      '}',
+      'function decision(status, reason, escalationRequired, customerCommsRequired, regulatoryNoticeRequired) {',
+      '  return { status, reason, escalationRequired, customerCommsRequired, regulatoryNoticeRequired };',
+      '}',
+      'module.exports = { evaluateIncidentResponse };',
+      ''
+    ].join('\n');
+    async function writeAllFixedFixtures(worktree) {
+      await writeCartFixture(worktree, fixedCart);
+      await writeProfileFixture(worktree, fixedProfile);
+      await writeOrderFixture(worktree, fixedOrder);
+      await writeInventoryFixture(worktree, fixedInventory);
+      await writeShippingFixture(worktree, fixedShipping);
+      await writePaymentFixture(worktree, fixedPayment);
+      await writeRefundFixture(worktree, fixedRefund);
+      await writeCouponFixture(worktree, fixedCoupon);
+      await writeLoyaltyFixture(worktree, fixedLoyalty);
+      await writeSubscriptionFixture(worktree, fixedSubscription);
+      await writeEntitlementFixture(worktree, fixedEntitlement);
+      await writeGiftCardFixture(worktree, fixedGiftCard);
+      await writePayoutFixture(worktree, fixedPayout);
+      await writeAppointmentFixture(worktree, fixedAppointment);
+      await writeWarrantyFixture(worktree, fixedWarranty);
+      await writeSupportTicketFixture(worktree, fixedSupportTicket);
+      await writePaymentDisputeFixture(worktree, fixedPaymentDispute);
+      await writeWarehouseAllocationFixture(worktree, fixedWarehouseAllocation);
+      await writeInsuranceClaimFixture(worktree, fixedInsuranceClaim);
+      await writePayrollFixture(worktree, fixedPayroll);
+      await writeVendorInvoiceFixture(worktree, fixedVendorInvoice);
+      await writeExpenseReimbursementFixture(worktree, fixedExpenseReimbursement);
+      await writeLoanUnderwritingFixture(worktree, fixedLoanUnderwriting);
+      await writeAccountClosureFixture(worktree, fixedAccountClosure);
+      await writeMerchantOnboardingFixture(worktree, fixedMerchantOnboarding);
+      await writeDataRetentionFixture(worktree, fixedDataRetentionDeletion);
+      await writeContentModerationFixture(
+        worktree,
+        fixedContentModerationAppeal
+      );
+      await writeFraudRiskFixture(worktree, fixedFraudRisk);
+      await writeCreditMemoFixture(worktree, fixedCreditMemo);
+      await writePaymentSettlementFixture(worktree, fixedPaymentSettlement);
+      await writeTaxFilingFixture(worktree, fixedTaxFiling);
+      await writePrivacyConsentFixture(worktree, fixedPrivacyConsent);
+      await writeAccessReviewFixture(worktree, fixedAccessReview);
+      await writeReleaseReadinessFixture(worktree, fixedReleaseReadiness);
+      await writeIncidentResponseFixture(worktree, fixedIncidentResponse);
+    }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
     await writeCartFixture(goodWorktree, fixedCart);
@@ -4906,6 +5013,59 @@ async function main() {
       releaseReadinessHardcodedWorktree,
       happyPathOnlyReleaseReadiness
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree
+    ]) {
+      await writeIncidentResponseFixture(worktree, fixedIncidentResponse);
+    }
+    await writeIncidentResponseFixture(baseWorktree, buggyIncidentResponse);
+    await writeAllFixedFixtures(incidentResponseHardcodedWorktree);
+    await writeIncidentResponseFixture(
+      incidentResponseHardcodedWorktree,
+      happyPathOnlyIncidentResponse
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -5022,6 +5182,9 @@ async function main() {
       }),
       buildReleaseReadinessSemanticProposal({
         targetPath: 'tests/adversary/release-readiness-supplemental.test.cjs'
+      }),
+      buildIncidentResponseSemanticProposal({
+        targetPath: 'tests/adversary/incident-response-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -5187,6 +5350,10 @@ async function main() {
         buildReleaseReadinessSemanticProposal({
           targetPath:
             'tests/adversary/release-readiness-supplemental.test.cjs'
+        }),
+        buildIncidentResponseSemanticProposal({
+          targetPath:
+            'tests/adversary/incident-response-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -5590,6 +5757,13 @@ async function main() {
         'adversary-live-release-readiness-hardcode'
       )
     );
+    const incidentResponseHardcoded = await runGates(
+      await gateContext(
+        incidentResponseHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-incident-response-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -5748,6 +5922,10 @@ async function main() {
       releaseReadinessHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const incidentResponseHardcodedGate =
+      incidentResponseHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -5790,7 +5968,8 @@ async function main() {
       taxFilingHardcodedGate?.status !== 'fail' ||
       privacyConsentHardcodedGate?.status !== 'fail' ||
       accessReviewHardcodedGate?.status !== 'fail' ||
-      releaseReadinessHardcodedGate?.status !== 'fail'
+      releaseReadinessHardcodedGate?.status !== 'fail' ||
+      incidentResponseHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -5837,7 +6016,8 @@ async function main() {
           taxFilingHardcoded: taxFilingHardcodedGate,
           privacyConsentHardcoded: privacyConsentHardcodedGate,
           accessReviewHardcoded: accessReviewHardcodedGate,
-          releaseReadinessHardcoded: releaseReadinessHardcodedGate
+          releaseReadinessHardcoded: releaseReadinessHardcodedGate,
+          incidentResponseHardcoded: incidentResponseHardcodedGate
         })}`
       );
     }
@@ -5894,7 +6074,8 @@ async function main() {
         taxFilingHardcoded: taxFilingHardcodedGate.status,
         privacyConsentHardcoded: privacyConsentHardcodedGate.status,
         accessReviewHardcoded: accessReviewHardcodedGate.status,
-        releaseReadinessHardcoded: releaseReadinessHardcodedGate.status
+        releaseReadinessHardcoded: releaseReadinessHardcodedGate.status,
+        incidentResponseHardcoded: incidentResponseHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -6035,6 +6216,8 @@ async function main() {
           accessReviewHardcodedGate.status,
         release_readiness_hardcoded_gate_status:
           releaseReadinessHardcodedGate.status,
+        incident_response_hardcoded_gate_status:
+          incidentResponseHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -6111,7 +6294,9 @@ async function main() {
         access_review_hardcode_rejected:
           accessReviewHardcodedGate.status === 'fail',
         release_readiness_hardcode_rejected:
-          releaseReadinessHardcodedGate.status === 'fail'
+          releaseReadinessHardcodedGate.status === 'fail',
+        incident_response_hardcode_rejected:
+          incidentResponseHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, or release readiness semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, or incident response semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -199,7 +199,8 @@ export function buildAdversaryLiveReviewInput({
         'content moderation appeal semantic test',
         'privacy consent semantic test',
         'access review semantic test',
-        'release readiness semantic test'
+        'release readiness semantic test',
+        'incident response semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1668,6 +1669,45 @@ export function buildReleaseReadinessSemanticProposal({
   };
 }
 
+export function buildIncidentResponseSemanticProposal({
+  targetPath = 'tests/adversary/incident-response-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'incident-response-semantic',
+    targetPath,
+    body: [
+      "const { evaluateIncidentResponse } = require('../../src/incident-response.cjs');",
+      'const baseIncident = { status: "active", severity: "sev2", customerImpact: false, securitySignal: false, regulatoryImpact: false, commanderAssigned: true, postmortemOwnerAssigned: true };',
+      'const baseTelemetry = { alertConfirmed: true, errorBudgetBurnRate: 1.2, staleMinutes: 2 };',
+      'const baseResponse = { onCallAcked: true, commsPlanReady: true, customerCommsApproved: true, securityLeadApproved: true, regulatoryNotified: true };',
+      'const policy = { sev1BurnRate: 8, staleTelemetryMinutes: 10, requireCustomerCommsForImpact: true, requireSecurityLeadForSignal: true, requireRegulatoryNotice: true };',
+      'const cases = [',
+      '  [baseIncident, baseTelemetry, baseResponse, policy, { status: "monitoring", reason: null, escalationRequired: false, customerCommsRequired: false, regulatoryNoticeRequired: false }],',
+      '  [{ ...baseIncident, status: "resolved" }, baseTelemetry, baseResponse, policy, { status: "ignored", reason: "incident_not_active", escalationRequired: false, customerCommsRequired: false, regulatoryNoticeRequired: false }],',
+      '  [baseIncident, { ...baseTelemetry, alertConfirmed: false }, baseResponse, policy, { status: "blocked", reason: "alert_not_confirmed", escalationRequired: false, customerCommsRequired: false, regulatoryNoticeRequired: false }],',
+      '  [baseIncident, { ...baseTelemetry, staleMinutes: 30 }, baseResponse, policy, { status: "manual_review", reason: "telemetry_stale", escalationRequired: true, customerCommsRequired: false, regulatoryNoticeRequired: false }],',
+      '  [{ ...baseIncident, severity: "sev1" }, baseTelemetry, { ...baseResponse, onCallAcked: false }, policy, { status: "escalated", reason: "on_call_ack_required", escalationRequired: true, customerCommsRequired: false, regulatoryNoticeRequired: false }],',
+      '  [{ ...baseIncident, severity: "sev1", commanderAssigned: false }, baseTelemetry, baseResponse, policy, { status: "escalated", reason: "incident_commander_required", escalationRequired: true, customerCommsRequired: false, regulatoryNoticeRequired: false }],',
+      '  [baseIncident, { ...baseTelemetry, errorBudgetBurnRate: 12 }, baseResponse, policy, { status: "escalated", reason: "error_budget_burn", escalationRequired: true, customerCommsRequired: false, regulatoryNoticeRequired: false }],',
+      '  [{ ...baseIncident, customerImpact: true }, baseTelemetry, { ...baseResponse, commsPlanReady: false }, policy, { status: "manual_review", reason: "customer_comms_plan_required", escalationRequired: true, customerCommsRequired: true, regulatoryNoticeRequired: false }],',
+      '  [{ ...baseIncident, customerImpact: true }, baseTelemetry, { ...baseResponse, customerCommsApproved: false }, policy, { status: "manual_review", reason: "customer_comms_approval_required", escalationRequired: true, customerCommsRequired: true, regulatoryNoticeRequired: false }],',
+      '  [{ ...baseIncident, securitySignal: true }, baseTelemetry, { ...baseResponse, securityLeadApproved: false }, policy, { status: "escalated", reason: "security_lead_required", escalationRequired: true, customerCommsRequired: false, regulatoryNoticeRequired: false }],',
+      '  [{ ...baseIncident, regulatoryImpact: true }, baseTelemetry, { ...baseResponse, regulatoryNotified: false }, policy, { status: "manual_review", reason: "regulatory_notice_required", escalationRequired: true, customerCommsRequired: false, regulatoryNoticeRequired: true }],',
+      '  [{ ...baseIncident, postmortemOwnerAssigned: false }, baseTelemetry, baseResponse, policy, { status: "manual_review", reason: "postmortem_owner_required", escalationRequired: true, customerCommsRequired: false, regulatoryNoticeRequired: false }]',
+      '];',
+      'for (const [incident, telemetry, response, incidentPolicy, expected] of cases) {',
+      '  const actual = evaluateIncidentResponse(incident, telemetry, response, incidentPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(expected, actual);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2107,6 +2147,27 @@ export function buildAdversaryLiveFilterConfig() {
       'change_manager_approval_required',
       'release_owner_approval_required',
       'sre_approval_required',
+      'incident',
+      'incidentResponse',
+      'incident-response',
+      'evaluateIncidentResponse',
+      'severity',
+      'customerImpact',
+      'securitySignal',
+      'regulatoryImpact',
+      'commanderAssigned',
+      'postmortemOwnerAssigned',
+      'onCallAcked',
+      'errorBudgetBurnRate',
+      'telemetry_stale',
+      'alert_not_confirmed',
+      'on_call_ack_required',
+      'incident_commander_required',
+      'customer_comms_plan_required',
+      'customer_comms_approval_required',
+      'security_lead_required',
+      'regulatory_notice_required',
+      'postmortem_owner_required',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2308,6 +2369,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.accessReviewHardcoded === 'fail';
   const releaseReadinessHardcodePassed =
     gates?.good === 'pass' && gates?.releaseReadinessHardcoded === 'fail';
+  const incidentResponseHardcodePassed =
+    gates?.good === 'pass' && gates?.incidentResponseHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2837,6 +2900,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       release_readiness_hardcoded_gate_status:
         gates?.releaseReadinessHardcoded ?? null
+    },
+    {
+      id: 'incident_response_hardcode',
+      ...common('incident_response_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:incident_response_semantic',
+      executed: true,
+      blocked: incidentResponseHardcodePassed,
+      passed: incidentResponseHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      incident_response_hardcoded_gate_status:
+        gates?.incidentResponseHardcoded ?? null
     }
   ];
 }
