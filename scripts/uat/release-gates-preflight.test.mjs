@@ -375,7 +375,9 @@ function validAttackScenarios() {
     'expense_reimbursement_hardcode',
     'loan_underwriting_hardcode',
     'account_closure_hardcode',
-    'merchant_onboarding_hardcode'
+    'merchant_onboarding_hardcode',
+    'data_retention_deletion_hardcode',
+    'content_moderation_appeal_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -426,6 +428,10 @@ function validAttackScenarios() {
     account_closure_hardcode: 'rulepack_semantic:account_closure_semantic',
     merchant_onboarding_hardcode:
       'rulepack_semantic:merchant_onboarding_semantic',
+    data_retention_deletion_hardcode:
+      'rulepack_semantic:data_retention_deletion_semantic',
+    content_moderation_appeal_hardcode:
+      'rulepack_semantic:content_moderation_appeal_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

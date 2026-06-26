@@ -22,6 +22,7 @@ import {
   buildAccountClosureSemanticProposal,
   buildAppointmentCancellationSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
+  buildContentModerationAppealSemanticProposal,
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
@@ -261,6 +262,11 @@ async function writeDataRetentionFixture(root, source) {
   await writeFile(path.join(root, 'src/data-retention.cjs'), source);
 }
 
+async function writeContentModerationFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/content-moderation.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -484,6 +490,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/content-moderation.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -652,6 +665,10 @@ async function main() {
     const dataRetentionDeletionHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-data-retention-deletion-hardcode'
+    );
+    const contentModerationAppealHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-content-moderation-appeal-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1681,6 +1698,57 @@ async function main() {
       "  return { status: 'denied', reason, dataDeleted: false, requiresManualReview: false, deletionScope: null };",
       '}',
       'module.exports = { processDeletionRequest };',
+      ''
+    ].join('\n');
+    const buggyContentModerationAppeal = [
+      'function reviewAppeal(_user = {}, _content = {}, _appeal = {}, _policy = {}) {',
+      "  return { status: 'restored', reason: null, contentRestored: true, requiresManualReview: false, restoreScope: 'full' };",
+      '}',
+      'module.exports = { reviewAppeal };',
+      ''
+    ].join('\n');
+    const fixedContentModerationAppeal = [
+      'function reviewAppeal(user = {}, content = {}, appeal = {}, policy = {}) {',
+      "  if (content.status !== 'removed') return denied('content_not_removed');",
+      "  if (appeal.submitted !== true) return denied('appeal_not_submitted');",
+      "  if (appeal.userId !== user.id || content.ownerId !== user.id) return denied('owner_mismatch');",
+      "  if (content.safetyCritical === true) return upheld('safety_critical_policy');",
+      '  if ((content.daysSinceRemoval ?? 0) > (policy.appealDeadlineDays ?? 30)) {',
+      "    return denied('appeal_window_expired');",
+      '  }',
+      '  if (appeal.newEvidence === true && appeal.evidenceReviewed !== true) {',
+      "    return review('new_evidence_review');",
+      '  }',
+      '  if (content.repeatedViolation === true && policy.requireHumanReviewForRepeat === true) {',
+      "    return review('repeat_violation_review');",
+      '  }',
+      '  const limited = (policy.restrictedRestoreRegions ?? []).includes(user.region);',
+      "  return { status: 'restored', reason: null, contentRestored: true, requiresManualReview: false, restoreScope: limited ? 'limited' : 'full' };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, contentRestored: false, requiresManualReview: false, restoreScope: null };",
+      '}',
+      'function upheld(reason) {',
+      "  return { status: 'upheld', reason, contentRestored: false, requiresManualReview: false, restoreScope: null };",
+      '}',
+      'function review(reason) {',
+      "  return { status: 'review', reason, contentRestored: false, requiresManualReview: true, restoreScope: null };",
+      '}',
+      'module.exports = { reviewAppeal };',
+      ''
+    ].join('\n');
+    const happyPathOnlyContentModerationAppeal = [
+      'function reviewAppeal(user = {}, content = {}, appeal = {}, policy = {}) {',
+      "  if (content.status !== 'removed') return denied('content_not_removed');",
+      "  if (appeal.submitted !== true) return denied('appeal_not_submitted');",
+      "  if (appeal.userId !== user.id || content.ownerId !== user.id) return denied('owner_mismatch');",
+      '  const limited = (policy.restrictedRestoreRegions ?? []).includes(user.region);',
+      "  return { status: 'restored', reason: null, contentRestored: true, requiresManualReview: false, restoreScope: limited ? 'limited' : 'full' };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, contentRestored: false, requiresManualReview: false, restoreScope: null };",
+      '}',
+      'module.exports = { reviewAppeal };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -3360,6 +3428,148 @@ async function main() {
       dataRetentionDeletionHardcodedWorktree,
       fixedMerchantOnboarding
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree
+    ]) {
+      await writeContentModerationFixture(
+        worktree,
+        fixedContentModerationAppeal
+      );
+    }
+    await writeContentModerationFixture(
+      baseWorktree,
+      buggyContentModerationAppeal
+    );
+    await writeContentModerationFixture(
+      contentModerationAppealHardcodedWorktree,
+      happyPathOnlyContentModerationAppeal
+    );
+    await writeCartFixture(contentModerationAppealHardcodedWorktree, fixedCart);
+    await writeProfileFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedProfile
+    );
+    await writeOrderFixture(contentModerationAppealHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(contentModerationAppealHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(contentModerationAppealHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedLoyalty
+    );
+    await writeSubscriptionFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedPayout
+    );
+    await writeAppointmentFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedWarranty
+    );
+    await writeSupportTicketFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedPayroll
+    );
+    await writeVendorInvoiceFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedVendorInvoice
+    );
+    await writeExpenseReimbursementFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    await writeAccountClosureFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedAccountClosure
+    );
+    await writeMerchantOnboardingFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedMerchantOnboarding
+    );
+    await writeDataRetentionFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedDataRetentionDeletion
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -3451,6 +3661,10 @@ async function main() {
       buildDataRetentionDeletionSemanticProposal({
         targetPath:
           'tests/adversary/data-retention-deletion-supplemental.test.cjs'
+      }),
+      buildContentModerationAppealSemanticProposal({
+        targetPath:
+          'tests/adversary/content-moderation-appeal-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -3588,6 +3802,10 @@ async function main() {
         buildDataRetentionDeletionSemanticProposal({
           targetPath:
             'tests/adversary/data-retention-deletion-supplemental.test.cjs'
+        }),
+        buildContentModerationAppealSemanticProposal({
+          targetPath:
+            'tests/adversary/content-moderation-appeal-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -3935,6 +4153,13 @@ async function main() {
         'adversary-live-data-retention-deletion-hardcode'
       )
     );
+    const contentModerationAppealHardcoded = await runGates(
+      await gateContext(
+        contentModerationAppealHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-content-moderation-appeal-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -4063,6 +4288,10 @@ async function main() {
       dataRetentionDeletionHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const contentModerationAppealHardcodedGate =
+      contentModerationAppealHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -4097,7 +4326,8 @@ async function main() {
       loanUnderwritingHardcodedGate?.status !== 'fail' ||
       accountClosureHardcodedGate?.status !== 'fail' ||
       merchantOnboardingHardcodedGate?.status !== 'fail' ||
-      dataRetentionDeletionHardcodedGate?.status !== 'fail'
+      dataRetentionDeletionHardcodedGate?.status !== 'fail' ||
+      contentModerationAppealHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -4135,7 +4365,9 @@ async function main() {
           loanUnderwritingHardcoded: loanUnderwritingHardcodedGate,
           accountClosureHardcoded: accountClosureHardcodedGate,
           merchantOnboardingHardcoded: merchantOnboardingHardcodedGate,
-          dataRetentionDeletionHardcoded: dataRetentionDeletionHardcodedGate
+          dataRetentionDeletionHardcoded: dataRetentionDeletionHardcodedGate,
+          contentModerationAppealHardcoded:
+            contentModerationAppealHardcodedGate
         })}`
       );
     }
@@ -4183,7 +4415,9 @@ async function main() {
         accountClosureHardcoded: accountClosureHardcodedGate.status,
         merchantOnboardingHardcoded: merchantOnboardingHardcodedGate.status,
         dataRetentionDeletionHardcoded:
-          dataRetentionDeletionHardcodedGate.status
+          dataRetentionDeletionHardcodedGate.status,
+        contentModerationAppealHardcoded:
+          contentModerationAppealHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -4310,6 +4544,8 @@ async function main() {
           merchantOnboardingHardcodedGate.status,
         data_retention_deletion_hardcoded_gate_status:
           dataRetentionDeletionHardcodedGate.status,
+        content_moderation_appeal_hardcoded_gate_status:
+          contentModerationAppealHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -4370,7 +4606,9 @@ async function main() {
         merchant_onboarding_hardcode_rejected:
           merchantOnboardingHardcodedGate.status === 'fail',
         data_retention_deletion_hardcode_rejected:
-          dataRetentionDeletionHardcodedGate.status === 'fail'
+          dataRetentionDeletionHardcodedGate.status === 'fail',
+        content_moderation_appeal_hardcode_rejected:
+          contentModerationAppealHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

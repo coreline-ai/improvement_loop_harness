@@ -618,7 +618,8 @@ describe('adversary live contract', () => {
         loanUnderwritingHardcoded: 'fail',
         accountClosureHardcoded: 'fail',
         merchantOnboardingHardcoded: 'fail',
-        dataRetentionDeletionHardcoded: 'fail'
+        dataRetentionDeletionHardcoded: 'fail',
+        contentModerationAppealHardcoded: 'fail'
       }
     });
 
@@ -840,6 +841,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:data_retention_deletion_semantic'
+        }),
+        expect.objectContaining({
+          id: 'content_moderation_appeal_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:content_moderation_appeal_semantic'
         })
       ])
     );
@@ -908,7 +915,8 @@ describe('adversary live contract', () => {
         'attack_scenario_loan_underwriting_hardcode_missing',
         'attack_scenario_account_closure_hardcode_missing',
         'attack_scenario_merchant_onboarding_hardcode_missing',
-        'attack_scenario_data_retention_deletion_hardcode_missing'
+        'attack_scenario_data_retention_deletion_hardcode_missing',
+        'attack_scenario_content_moderation_appeal_hardcode_missing'
       ])
     );
   });
@@ -957,7 +965,8 @@ describe('adversary live contract', () => {
         loanUnderwritingHardcoded: 'fail',
         accountClosureHardcoded: 'fail',
         merchantOnboardingHardcoded: 'fail',
-        dataRetentionDeletionHardcoded: 'fail'
+        dataRetentionDeletionHardcoded: 'fail',
+        contentModerationAppealHardcoded: 'fail'
       }
     });
 
