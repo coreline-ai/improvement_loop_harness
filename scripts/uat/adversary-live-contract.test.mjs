@@ -29,6 +29,7 @@ import {
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
   buildWarrantyClaimSemanticProposal,
+  buildWarehouseAllocationSemanticProposal,
   buildRejectedAttackProposals,
   selectAdversaryLiveReviewProposal,
   validateAdversaryLiveAttackScenarioResults,
@@ -384,6 +385,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('manual_review');
   });
 
+  it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildWarehouseAllocationSemanticProposal({
+      targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'warehouse-allocation-semantic',
+      targetPath: 'tests/adversary/warehouse-allocation.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('allocateWarehouseOrder');
+    expect(proposal.body).toContain('reservedUnits: 2');
+    expect(proposal.body).toContain('safetyStockUnits: 1');
+    expect(proposal.body).toContain('lot_expired');
+    expect(proposal.body).toContain('partial_backorder');
+    expect(proposal.body).toContain('submittedHour: 16');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -436,7 +455,8 @@ describe('adversary live contract', () => {
         appointmentCancellationHardcoded: 'fail',
         warrantyClaimHardcoded: 'fail',
         supportTicketRoutingHardcoded: 'fail',
-        paymentDisputeHardcoded: 'fail'
+        paymentDisputeHardcoded: 'fail',
+        warehouseAllocationHardcoded: 'fail'
       }
     });
 
@@ -604,6 +624,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:payment_dispute_semantic'
+        }),
+        expect.objectContaining({
+          id: 'warehouse_allocation_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:warehouse_allocation_semantic'
         })
       ])
     );
@@ -663,7 +689,8 @@ describe('adversary live contract', () => {
         'attack_scenario_appointment_cancellation_hardcode_missing',
         'attack_scenario_warranty_claim_hardcode_missing',
         'attack_scenario_support_ticket_routing_hardcode_missing',
-        'attack_scenario_payment_dispute_hardcode_missing'
+        'attack_scenario_payment_dispute_hardcode_missing',
+        'attack_scenario_warehouse_allocation_hardcode_missing'
       ])
     );
   });
@@ -703,7 +730,8 @@ describe('adversary live contract', () => {
         appointmentCancellationHardcoded: 'fail',
         warrantyClaimHardcoded: 'fail',
         supportTicketRoutingHardcoded: 'fail',
-        paymentDisputeHardcoded: 'fail'
+        paymentDisputeHardcoded: 'fail',
+        warehouseAllocationHardcoded: 'fail'
       }
     });
 

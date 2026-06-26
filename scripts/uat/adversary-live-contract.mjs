@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse allocation review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, or payment dispute representment semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, or warehouse allocation semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -187,7 +187,8 @@ export function buildAdversaryLiveReviewInput({
         'appointment cancellation semantic test',
         'warranty claim semantic test',
         'support ticket routing semantic test',
-        'payment dispute representment semantic test'
+        'payment dispute representment semantic test',
+        'warehouse allocation semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1031,6 +1032,40 @@ export function buildPaymentDisputeSemanticProposal({
   };
 }
 
+export function buildWarehouseAllocationSemanticProposal({
+  targetPath = 'tests/adversary/warehouse-allocation-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'warehouse-allocation-semantic',
+    targetPath,
+    body: [
+      "const { allocateWarehouseOrder } = require('../../src/warehouse-allocation.cjs');",
+      'const baseOrder = { status: "paid", quantity: 5, serviceLevel: "standard", submittedHour: 10, nowMs: 1000, allowBackorder: false };',
+      'const baseStock = { active: true, onHandUnits: 9, reservedUnits: 2, lotExpiresAtMs: 5000, incomingUnits: 0 };',
+      'const basePolicy = { safetyStockUnits: 1, expressBufferUnits: 2, cutoffHour: 15 };',
+      'const cases = [',
+      '  [baseOrder, baseStock, basePolicy, { status: "allocated", reason: null, allocatedUnits: 5, backorderedUnits: 0, expectedShipInDays: 3 }],',
+      '  [{ ...baseOrder, status: "pending" }, baseStock, basePolicy, { status: "blocked", reason: "order_not_paid", allocatedUnits: 0, backorderedUnits: 0, expectedShipInDays: null }],',
+      '  [baseOrder, { ...baseStock, active: false }, basePolicy, { status: "blocked", reason: "warehouse_inactive", allocatedUnits: 0, backorderedUnits: 0, expectedShipInDays: null }],',
+      '  [baseOrder, { ...baseStock, lotExpiresAtMs: 1000 }, basePolicy, { status: "blocked", reason: "lot_expired", allocatedUnits: 0, backorderedUnits: 0, expectedShipInDays: null }],',
+      '  [{ ...baseOrder, quantity: 7 }, baseStock, basePolicy, { status: "blocked", reason: "insufficient_available_inventory", allocatedUnits: 0, backorderedUnits: 0, expectedShipInDays: null }],',
+      '  [{ ...baseOrder, quantity: 7, allowBackorder: true }, { ...baseStock, incomingUnits: 1, incomingRestockDays: 4 }, basePolicy, { status: "partial_backorder", reason: null, allocatedUnits: 6, backorderedUnits: 1, expectedShipInDays: 4 }],',
+      '  [{ ...baseOrder, quantity: 4, serviceLevel: "express" }, baseStock, basePolicy, { status: "allocated", reason: null, allocatedUnits: 4, backorderedUnits: 0, expectedShipInDays: 1 }],',
+      '  [{ ...baseOrder, quantity: 4, submittedHour: 16 }, baseStock, basePolicy, { status: "allocated", reason: null, allocatedUnits: 4, backorderedUnits: 0, expectedShipInDays: 4 }]',
+      '];',
+      'for (const [order, stock, policy, expected] of cases) {',
+      '  const actual = allocateWarehouseOrder(order, stock, policy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1134,6 +1169,18 @@ export function buildAdversaryLiveFilterConfig() {
       'duplicate_charge',
       'manualReviewThresholdCents',
       'merchantDebitCents',
+      'allocation',
+      'allocateWarehouseOrder',
+      'warehouseAllocation',
+      'onHandUnits',
+      'reservedUnits',
+      'safetyStockUnits',
+      'expressBufferUnits',
+      'lotExpiresAtMs',
+      'incomingRestockDays',
+      'cutoffHour',
+      'allocatedUnits',
+      'backorderedUnits',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1298,6 +1345,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.supportTicketRoutingHardcoded === 'fail';
   const paymentDisputeHardcodePassed =
     gates?.good === 'pass' && gates?.paymentDisputeHardcoded === 'fail';
+  const warehouseAllocationHardcodePassed =
+    gates?.good === 'pass' && gates?.warehouseAllocationHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1626,6 +1675,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       payment_dispute_hardcoded_gate_status:
         gates?.paymentDisputeHardcoded ?? null
+    },
+    {
+      id: 'warehouse_allocation_hardcode',
+      ...common('warehouse_allocation_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:warehouse_allocation_semantic',
+      executed: true,
+      blocked: warehouseAllocationHardcodePassed,
+      passed: warehouseAllocationHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      warehouse_allocation_hardcoded_gate_status:
+        gates?.warehouseAllocationHardcoded ?? null
     }
   ];
 }

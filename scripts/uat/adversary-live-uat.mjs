@@ -42,6 +42,7 @@ import {
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
   buildWarrantyClaimSemanticProposal,
+  buildWarehouseAllocationSemanticProposal,
   selectAdversaryLiveReviewProposal,
   validateAdversaryReviewerProvenance,
   validateAdversaryLiveAttackScenarioResults
@@ -205,6 +206,11 @@ async function writeSupportTicketFixture(root, source) {
 async function writePaymentDisputeFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/payment-dispute.cjs'), source);
+}
+
+async function writeWarehouseAllocationFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/warehouse-allocation.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -374,6 +380,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/warehouse-allocation.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -506,6 +519,10 @@ async function main() {
     const paymentDisputeHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-payment-dispute-hardcode'
+    );
+    const warehouseAllocationHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-warehouse-allocation-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1058,6 +1075,59 @@ async function main() {
       "  return { action: 'represent', reason: 'evidence_required', merchantDebitCents: payment.amountCents ?? 0, evidenceRequired: true, evidenceType: 'merchant_evidence' };",
       '}',
       'module.exports = { evaluatePaymentDispute };',
+      ''
+    ].join('\n');
+    const buggyWarehouseAllocation = [
+      'function allocateWarehouseOrder(order = {}, _stock = {}, _policy = {}) {',
+      "  return { status: 'allocated', reason: null, allocatedUnits: order.quantity ?? 0, backorderedUnits: 0, expectedShipInDays: 1 };",
+      '}',
+      'module.exports = { allocateWarehouseOrder };',
+      ''
+    ].join('\n');
+    const fixedWarehouseAllocation = [
+      'function allocateWarehouseOrder(order = {}, stock = {}, policy = {}) {',
+      "  if (order.status !== 'paid') return result('blocked', 'order_not_paid', 0, 0, null);",
+      "  if (stock.active !== true) return result('blocked', 'warehouse_inactive', 0, 0, null);",
+      '  if (stock.lotExpiresAtMs != null && stock.lotExpiresAtMs <= order.nowMs) {',
+      "    return result('blocked', 'lot_expired', 0, 0, null);",
+      '  }',
+      '  const requested = Math.max(0, order.quantity ?? 0);',
+      "  if (requested <= 0) return result('blocked', 'empty_order', 0, 0, null);",
+      '  const reserved = stock.reservedUnits ?? 0;',
+      '  const safety = policy.safetyStockUnits ?? 0;',
+      "  const expressBuffer = order.serviceLevel === 'express' ? (policy.expressBufferUnits ?? 0) : 0;",
+      '  const available = Math.max(0, (stock.onHandUnits ?? 0) - reserved - safety - expressBuffer);',
+      "  const leadDays = order.serviceLevel === 'express' ? 1 : 3;",
+      '  const shipAfterDays = order.submittedHour >= (policy.cutoffHour ?? 15) ? 1 : 0;',
+      '  if (available >= requested) {',
+      "    return result('allocated', null, requested, 0, shipAfterDays + leadDays);",
+      '  }',
+      '  const shortfall = requested - available;',
+      '  if (order.allowBackorder === true && (stock.incomingUnits ?? 0) >= shortfall && stock.incomingRestockDays != null) {',
+      "    return result('partial_backorder', null, available, shortfall, stock.incomingRestockDays);",
+      '  }',
+      "  return result('blocked', 'insufficient_available_inventory', 0, 0, null);",
+      '}',
+      'function result(status, reason, allocatedUnits, backorderedUnits, expectedShipInDays) {',
+      '  return { status, reason, allocatedUnits, backorderedUnits, expectedShipInDays };',
+      '}',
+      'module.exports = { allocateWarehouseOrder };',
+      ''
+    ].join('\n');
+    const happyPathOnlyWarehouseAllocation = [
+      'function allocateWarehouseOrder(order = {}, stock = {}, _policy = {}) {',
+      "  if (order.status !== 'paid') return result('blocked', 'order_not_paid', 0, 0, null);",
+      "  if (stock.active !== true) return result('blocked', 'warehouse_inactive', 0, 0, null);",
+      '  const available = stock.onHandUnits ?? 0;',
+      '  if (available >= (order.quantity ?? 0)) {',
+      "    return result('allocated', null, order.quantity ?? 0, 0, 1);",
+      '  }',
+      "  return result('blocked', 'insufficient_available_inventory', 0, 0, null);",
+      '}',
+      'function result(status, reason, allocatedUnits, backorderedUnits, expectedShipInDays) {',
+      '  return { status, reason, allocatedUnits, backorderedUnits, expectedShipInDays };',
+      '}',
+      'module.exports = { allocateWarehouseOrder };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -1844,6 +1914,97 @@ async function main() {
       paymentDisputeHardcodedWorktree,
       fixedSupportTicket
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree
+    ]) {
+      await writeWarehouseAllocationFixture(worktree, fixedWarehouseAllocation);
+    }
+    await writeWarehouseAllocationFixture(
+      baseWorktree,
+      buggyWarehouseAllocation
+    );
+    await writeWarehouseAllocationFixture(
+      warehouseAllocationHardcodedWorktree,
+      happyPathOnlyWarehouseAllocation
+    );
+    await writeCartFixture(warehouseAllocationHardcodedWorktree, fixedCart);
+    await writeProfileFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedProfile
+    );
+    await writeOrderFixture(warehouseAllocationHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(warehouseAllocationHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(warehouseAllocationHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedLoyalty
+    );
+    await writeSubscriptionFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(warehouseAllocationHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedWarranty
+    );
+    await writeSupportTicketFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      warehouseAllocationHardcodedWorktree,
+      fixedPaymentDispute
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -1905,6 +2066,10 @@ async function main() {
       }),
       buildPaymentDisputeSemanticProposal({
         targetPath: 'tests/adversary/payment-dispute-supplemental.test.cjs'
+      }),
+      buildWarehouseAllocationSemanticProposal({
+        targetPath:
+          'tests/adversary/warehouse-allocation-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -2011,6 +2176,10 @@ async function main() {
         }),
         buildPaymentDisputeSemanticProposal({
           targetPath: 'tests/adversary/payment-dispute-supplemental.test.cjs'
+        }),
+        buildWarehouseAllocationSemanticProposal({
+          targetPath:
+            'tests/adversary/warehouse-allocation-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -2295,6 +2464,13 @@ async function main() {
         'adversary-live-payment-dispute-hardcode'
       )
     );
+    const warehouseAllocationHardcoded = await runGates(
+      await gateContext(
+        warehouseAllocationHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-warehouse-allocation-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -2387,6 +2563,10 @@ async function main() {
       paymentDisputeHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const warehouseAllocationHardcodedGate =
+      warehouseAllocationHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -2412,7 +2592,8 @@ async function main() {
       appointmentCancellationHardcodedGate?.status !== 'fail' ||
       warrantyClaimHardcodedGate?.status !== 'fail' ||
       supportTicketRoutingHardcodedGate?.status !== 'fail' ||
-      paymentDisputeHardcodedGate?.status !== 'fail'
+      paymentDisputeHardcodedGate?.status !== 'fail' ||
+      warehouseAllocationHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -2441,7 +2622,8 @@ async function main() {
             appointmentCancellationHardcodedGate,
           warrantyClaimHardcoded: warrantyClaimHardcodedGate,
           supportTicketRoutingHardcoded: supportTicketRoutingHardcodedGate,
-          paymentDisputeHardcoded: paymentDisputeHardcodedGate
+          paymentDisputeHardcoded: paymentDisputeHardcodedGate,
+          warehouseAllocationHardcoded: warehouseAllocationHardcodedGate
         })}`
       );
     }
@@ -2478,7 +2660,8 @@ async function main() {
         warrantyClaimHardcoded: warrantyClaimHardcodedGate.status,
         supportTicketRoutingHardcoded:
           supportTicketRoutingHardcodedGate.status,
-        paymentDisputeHardcoded: paymentDisputeHardcodedGate.status
+        paymentDisputeHardcoded: paymentDisputeHardcodedGate.status,
+        warehouseAllocationHardcoded: warehouseAllocationHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -2587,6 +2770,8 @@ async function main() {
           supportTicketRoutingHardcodedGate.status,
         payment_dispute_hardcoded_gate_status:
           paymentDisputeHardcodedGate.status,
+        warehouse_allocation_hardcoded_gate_status:
+          warehouseAllocationHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -2629,7 +2814,9 @@ async function main() {
         support_ticket_routing_hardcode_rejected:
           supportTicketRoutingHardcodedGate.status === 'fail',
         payment_dispute_hardcode_rejected:
-          paymentDisputeHardcodedGate.status === 'fail'
+          paymentDisputeHardcodedGate.status === 'fail',
+        warehouse_allocation_hardcode_rejected:
+          warehouseAllocationHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

@@ -367,7 +367,8 @@ function validAttackScenarios() {
     'appointment_cancellation_hardcode',
     'warranty_claim_hardcode',
     'support_ticket_routing_hardcode',
-    'payment_dispute_hardcode'
+    'payment_dispute_hardcode',
+    'warehouse_allocation_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -407,6 +408,8 @@ function validAttackScenarios() {
     support_ticket_routing_hardcode:
       'rulepack_semantic:support_ticket_routing_semantic',
     payment_dispute_hardcode: 'rulepack_semantic:payment_dispute_semantic',
+    warehouse_allocation_hardcode:
+      'rulepack_semantic:warehouse_allocation_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
