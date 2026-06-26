@@ -592,6 +592,7 @@ function skillPromptLiveLedger(overrides = {}) {
 function skillPromptCorpusLiveLedger(overrides = {}) {
   const userIssueCount = overrides.userIssueCount ?? 8;
   const autoDiscoveryCount = overrides.autoDiscoveryCount ?? 8;
+  const githubDraftPr = overrides.githubDraftPr === true;
   const variants = [
     ...Array.from({ length: userIssueCount }, (_, index) => ({
       id: `user-${index + 1}`,
@@ -608,16 +609,17 @@ function skillPromptCorpusLiveLedger(overrides = {}) {
   ].map((variant, index) => {
     const promptMode =
       variant.mode === 'user_issue' ? 'vibeloop_improve' : 'vibeloop_orchestrate';
+    const expectedStatus = githubDraftPr
+      ? variant.mode === 'user_issue'
+        ? 'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+        : 'SKILL_PROMPT_AUTO_DISCOVERY_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
+      : variant.mode === 'user_issue'
+        ? 'SKILL_PROMPT_LIVE_UAT_PASS'
+        : 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS';
     return {
       ...variant,
-      expected_status:
-        variant.mode === 'user_issue'
-          ? 'SKILL_PROMPT_LIVE_UAT_PASS'
-          : 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
-      status:
-        variant.mode === 'user_issue'
-          ? 'SKILL_PROMPT_LIVE_UAT_PASS'
-          : 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+      expected_status: expectedStatus,
+      status: expectedStatus,
       pass: true,
       failures: [],
       orchestrator: {
@@ -657,8 +659,8 @@ function skillPromptCorpusLiveLedger(overrides = {}) {
             : 'pr-candidate/skill-prompt-auto-uat',
         pushed: false
       },
-      github_draft_pr: false,
-      github_draft_pr_verified: false,
+      github_draft_pr: githubDraftPr,
+      github_draft_pr_verified: githubDraftPr,
       leak: 0,
       ...(overrides.variantPatches?.[variant.id] ?? {})
     };
@@ -670,7 +672,7 @@ function skillPromptCorpusLiveLedger(overrides = {}) {
     prompt_corpus: {
       proof_scope: 'natural_language_skill_prompt_live_corpus',
       builder_mode: 'codex',
-      github_draft_pr_requested: false,
+      github_draft_pr_requested: githubDraftPr,
       requested_variant_count: variants.length,
       executed_variant_count: variants.length,
       passed_variant_count: variants.length,
@@ -704,9 +706,9 @@ function skillPromptCorpusLiveLedger(overrides = {}) {
       model: 'gpt-5.5',
       ...(overrides.builder ?? {})
     },
-    github_draft_pr: false,
-    github_draft_pr_verified: false,
-    draft_pr: false,
+    github_draft_pr: githubDraftPr,
+    github_draft_pr_verified: githubDraftPr,
+    draft_pr: githubDraftPr,
     total_cases: variants.length,
     passed_cases: variants.length,
     failed_cases: 0,
@@ -1177,6 +1179,104 @@ describe('release evidence audit', () => {
           })
         })
       })
+    );
+  });
+
+  it('can require Skill prompt corpus GitHub draft PR evidence explicitly', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-github-run',
+      skillPromptCorpusLiveLedger({ githubDraftPr: true })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-github-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario],
+      requireSkillPromptCorpusGithubPr: true
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          github_draft_pr: true,
+          github_draft_pr_verified: true,
+          draft_pr: true,
+          prompt_corpus: expect.objectContaining({
+            github_draft_pr_requested: true,
+            requested_variant_count: 16,
+            passed_variant_count: 16
+          })
+        })
+      })
+    );
+  });
+
+  it('fails explicit Skill prompt corpus GitHub draft PR audit on local-only evidence', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-live-run',
+      skillPromptCorpusLiveLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-live-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario],
+      requireSkillPromptCorpusGithubPr: true
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        status: 'invalid_ledger',
+        ledger_failures: expect.arrayContaining([
+          'skill_prompt_corpus.github_draft_pr_requested',
+          'skill_prompt_corpus.github_draft_pr_verified'
+        ])
+      })
+    );
+  });
+
+  it('enforces explicit Skill prompt corpus GitHub PR audit for direct scenario callers', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-live-run',
+      skillPromptCorpusLiveLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-live-run');
+
+    const promptCorpusScenario =
+      SELECTABLE_RELEASE_EVIDENCE_AUDIT_SCENARIOS.find(
+        (item) => item.scenario === scenario
+      );
+    expect(promptCorpusScenario).toBeDefined();
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      evidenceScenarios: [promptCorpusScenario],
+      requireSkillPromptCorpusGithubPr: true
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0].ledger_failures).toEqual(
+      expect.arrayContaining([
+        'skill_prompt_corpus.github_draft_pr_requested',
+        'skill_prompt_corpus.github_draft_pr_verified'
+      ])
     );
   });
 

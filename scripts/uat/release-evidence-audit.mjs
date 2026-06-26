@@ -92,6 +92,33 @@ export function selectReleaseEvidenceAuditScenarios(options = {}) {
   });
 }
 
+function applyAuditRequirementOverrides(evidenceScenarios, options = {}) {
+  if (!options.requireSkillPromptCorpusGithubPr) return evidenceScenarios;
+
+  const hasPromptCorpus = evidenceScenarios.some(
+    (scenario) => scenario.scenario === 'skill-real-user-prompt-corpus-live-uat'
+  );
+  if (!hasPromptCorpus) {
+    throw new Error(
+      '--require-skill-prompt-corpus-github-pr requires --scenario skill-real-user-prompt-corpus-live-uat'
+    );
+  }
+
+  return evidenceScenarios.map((scenario) => {
+    if (scenario.scenario !== 'skill-real-user-prompt-corpus-live-uat') {
+      return scenario;
+    }
+    return {
+      ...scenario,
+      name: 'Skill natural-language prompt corpus GitHub draft PR evidence',
+      expected_ledger: {
+        ...(scenario.expected_ledger ?? {}),
+        required_skill_prompt_corpus_github_draft_pr: true
+      }
+    };
+  });
+}
+
 function defaultEvidenceRoot(env = process.env) {
   return (
     env.VIBELOOP_UAT_EVIDENCE_DIR ??
@@ -191,8 +218,12 @@ export async function buildReleaseEvidenceAuditReport(options = {}) {
   const requestedRoots = (options.evidenceRoots ?? [defaultEvidenceRoot()]).map(
     (root) => path.resolve(root)
   );
-  const evidenceScenarios =
+  const selectedEvidenceScenarios =
     options.evidenceScenarios ?? selectReleaseEvidenceAuditScenarios(options);
+  const evidenceScenarios = applyAuditRequirementOverrides(
+    selectedEvidenceScenarios,
+    options
+  );
   const evidenceRoots =
     options.discoverRoots === false
       ? requestedRoots
@@ -264,6 +295,7 @@ function parseArgs(argv) {
   const evidenceRoots = [];
   const scenarioNames = [];
   let allReleaseEvidence = false;
+  let requireSkillPromptCorpusGithubPr = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--') {
@@ -292,12 +324,17 @@ function parseArgs(argv) {
       allReleaseEvidence = true;
       continue;
     }
+    if (arg === '--require-skill-prompt-corpus-github-pr') {
+      requireSkillPromptCorpusGithubPr = true;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
   return {
     evidenceRoots: evidenceRoots.length > 0 ? evidenceRoots : undefined,
     scenarioNames: scenarioNames.length > 0 ? scenarioNames : undefined,
-    allReleaseEvidence
+    allReleaseEvidence,
+    requireSkillPromptCorpusGithubPr
   };
 }
 

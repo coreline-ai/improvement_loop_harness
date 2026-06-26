@@ -1995,6 +1995,18 @@ function requiredSkillPromptCorpusLiveFailures(
   ) {
     failures.push('skill_prompt_corpus.github_draft_pr_verified');
   }
+  if (expectedLedger.required_skill_prompt_corpus_github_draft_pr) {
+    if (corpus.github_draft_pr_requested !== true) {
+      failures.push('skill_prompt_corpus.github_draft_pr_requested');
+    }
+    if (
+      ledgerSummary.github_draft_pr !== true ||
+      ledgerSummary.github_draft_pr_verified !== true ||
+      ledgerSummary.draft_pr !== true
+    ) {
+      failures.push('skill_prompt_corpus.github_draft_pr_verified');
+    }
+  }
 
   if (corpus.variants.length !== corpus.executed_variant_count) {
     failures.push('skill_prompt_corpus.variants.count');
