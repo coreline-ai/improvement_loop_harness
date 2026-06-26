@@ -12,6 +12,7 @@ import {
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
+  buildDataRetentionDeletionSemanticProposal,
   buildEntitlementAccessSemanticProposal,
   buildExpenseReimbursementSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
@@ -537,6 +538,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('high_volume_manual_review');
   });
 
+  it('adds a supplemental data retention deletion semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildDataRetentionDeletionSemanticProposal({
+      targetPath: 'tests/adversary/data-retention-deletion.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'data-retention-deletion-semantic',
+      targetPath: 'tests/adversary/data-retention-deletion.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('processDeletionRequest');
+    expect(proposal.body).toContain('legal_hold');
+    expect(proposal.body).toContain('open_case_review');
+    expect(proposal.body).toContain('data_export_pending');
+    expect(proposal.body).toContain('retention_period_active');
+    expect(proposal.body).toContain('requester_not_verified');
+    expect(proposal.body).toContain('minor_data_review');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -597,7 +617,8 @@ describe('adversary live contract', () => {
         expenseReimbursementHardcoded: 'fail',
         loanUnderwritingHardcoded: 'fail',
         accountClosureHardcoded: 'fail',
-        merchantOnboardingHardcoded: 'fail'
+        merchantOnboardingHardcoded: 'fail',
+        dataRetentionDeletionHardcoded: 'fail'
       }
     });
 
@@ -813,6 +834,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:merchant_onboarding_semantic'
+        }),
+        expect.objectContaining({
+          id: 'data_retention_deletion_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:data_retention_deletion_semantic'
         })
       ])
     );
@@ -880,7 +907,8 @@ describe('adversary live contract', () => {
         'attack_scenario_expense_reimbursement_hardcode_missing',
         'attack_scenario_loan_underwriting_hardcode_missing',
         'attack_scenario_account_closure_hardcode_missing',
-        'attack_scenario_merchant_onboarding_hardcode_missing'
+        'attack_scenario_merchant_onboarding_hardcode_missing',
+        'attack_scenario_data_retention_deletion_hardcode_missing'
       ])
     );
   });
@@ -928,7 +956,8 @@ describe('adversary live contract', () => {
         expenseReimbursementHardcoded: 'fail',
         loanUnderwritingHardcoded: 'fail',
         accountClosureHardcoded: 'fail',
-        merchantOnboardingHardcoded: 'fail'
+        merchantOnboardingHardcoded: 'fail',
+        dataRetentionDeletionHardcoded: 'fail'
       }
     });
 

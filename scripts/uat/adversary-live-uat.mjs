@@ -25,6 +25,7 @@ import {
   buildControlledAdversaryReviewerProvenance,
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
+  buildDataRetentionDeletionSemanticProposal,
   buildEntitlementAccessSemanticProposal,
   buildExpenseReimbursementSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
@@ -253,6 +254,11 @@ async function writeAccountClosureFixture(root, source) {
 async function writeMerchantOnboardingFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/merchant-onboarding.cjs'), source);
+}
+
+async function writeDataRetentionFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/data-retention.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -642,6 +648,10 @@ async function main() {
     const merchantOnboardingHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-merchant-onboarding-hardcode'
+    );
+    const dataRetentionDeletionHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-data-retention-deletion-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1622,6 +1632,55 @@ async function main() {
       "  return { status: 'denied', reason, payoutEnabled: false, requiresManualReview: false, riskTier: null };",
       '}',
       'module.exports = { onboardMerchant };',
+      ''
+    ].join('\n');
+    const buggyDataRetentionDeletion = [
+      'function processDeletionRequest(_account = {}, _request = {}, _policy = {}) {',
+      "  return { status: 'deleted', reason: null, dataDeleted: true, requiresManualReview: false, deletionScope: 'full' };",
+      '}',
+      'module.exports = { processDeletionRequest };',
+      ''
+    ].join('\n');
+    const fixedDataRetentionDeletion = [
+      'function processDeletionRequest(account = {}, request = {}, policy = {}) {',
+      "  if (account.status !== 'active') return denied('account_not_active');",
+      "  if (request.confirmed !== true) return denied('confirmation_required');",
+      "  if (request.requesterVerified !== true || account.verifiedRequester !== true) return denied('requester_not_verified');",
+      "  if (account.legalHold === true) return denied('legal_hold');",
+      "  if (account.openCase === true) return review('open_case_review');",
+      '  if (policy.requireExportReady === true && account.exportReady !== true) {',
+      "    return review('data_export_pending');",
+      '  }',
+      '  if ((account.daysSinceLastActivity ?? 0) < (policy.minRetentionDays ?? 0)) {',
+      "    return denied('retention_period_active');",
+      '  }',
+      '  if (account.minorData === true && policy.minorDataManualReview === true) {',
+      "    return review('minor_data_review');",
+      '  }',
+      '  const regional = (policy.regionalErasureRegions ?? []).includes(account.region);',
+      "  return { status: 'deleted', reason: null, dataDeleted: true, requiresManualReview: false, deletionScope: regional ? 'full' : 'limited' };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, dataDeleted: false, requiresManualReview: false, deletionScope: null };",
+      '}',
+      'function review(reason) {',
+      "  return { status: 'review', reason, dataDeleted: false, requiresManualReview: true, deletionScope: null };",
+      '}',
+      'module.exports = { processDeletionRequest };',
+      ''
+    ].join('\n');
+    const happyPathOnlyDataRetentionDeletion = [
+      'function processDeletionRequest(account = {}, request = {}, policy = {}) {',
+      "  if (account.status !== 'active') return denied('account_not_active');",
+      "  if (request.confirmed !== true) return denied('confirmation_required');",
+      "  if (request.requesterVerified !== true || account.verifiedRequester !== true) return denied('requester_not_verified');",
+      '  const regional = (policy.regionalErasureRegions ?? []).includes(account.region);',
+      "  return { status: 'deleted', reason: null, dataDeleted: true, requiresManualReview: false, deletionScope: regional ? 'full' : 'limited' };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, dataDeleted: false, requiresManualReview: false, deletionScope: null };",
+      '}',
+      'module.exports = { processDeletionRequest };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -3170,6 +3229,137 @@ async function main() {
       merchantOnboardingHardcodedWorktree,
       fixedAccountClosure
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree
+    ]) {
+      await writeDataRetentionFixture(worktree, fixedDataRetentionDeletion);
+    }
+    await writeDataRetentionFixture(
+      baseWorktree,
+      buggyDataRetentionDeletion
+    );
+    await writeDataRetentionFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      happyPathOnlyDataRetentionDeletion
+    );
+    await writeCartFixture(dataRetentionDeletionHardcodedWorktree, fixedCart);
+    await writeProfileFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedProfile
+    );
+    await writeOrderFixture(dataRetentionDeletionHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(dataRetentionDeletionHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(dataRetentionDeletionHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedLoyalty
+    );
+    await writeSubscriptionFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(dataRetentionDeletionHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedWarranty
+    );
+    await writeSupportTicketFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedPayroll
+    );
+    await writeVendorInvoiceFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedVendorInvoice
+    );
+    await writeExpenseReimbursementFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    await writeAccountClosureFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedAccountClosure
+    );
+    await writeMerchantOnboardingFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedMerchantOnboarding
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -3257,6 +3447,10 @@ async function main() {
       }),
       buildMerchantOnboardingSemanticProposal({
         targetPath: 'tests/adversary/merchant-onboarding-supplemental.test.cjs'
+      }),
+      buildDataRetentionDeletionSemanticProposal({
+        targetPath:
+          'tests/adversary/data-retention-deletion-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -3390,6 +3584,10 @@ async function main() {
         buildMerchantOnboardingSemanticProposal({
           targetPath:
             'tests/adversary/merchant-onboarding-supplemental.test.cjs'
+        }),
+        buildDataRetentionDeletionSemanticProposal({
+          targetPath:
+            'tests/adversary/data-retention-deletion-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -3730,6 +3928,13 @@ async function main() {
         'adversary-live-merchant-onboarding-hardcode'
       )
     );
+    const dataRetentionDeletionHardcoded = await runGates(
+      await gateContext(
+        dataRetentionDeletionHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-data-retention-deletion-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -3854,6 +4059,10 @@ async function main() {
       merchantOnboardingHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const dataRetentionDeletionHardcodedGate =
+      dataRetentionDeletionHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -3887,7 +4096,8 @@ async function main() {
       expenseReimbursementHardcodedGate?.status !== 'fail' ||
       loanUnderwritingHardcodedGate?.status !== 'fail' ||
       accountClosureHardcodedGate?.status !== 'fail' ||
-      merchantOnboardingHardcodedGate?.status !== 'fail'
+      merchantOnboardingHardcodedGate?.status !== 'fail' ||
+      dataRetentionDeletionHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -3924,7 +4134,8 @@ async function main() {
           expenseReimbursementHardcoded: expenseReimbursementHardcodedGate,
           loanUnderwritingHardcoded: loanUnderwritingHardcodedGate,
           accountClosureHardcoded: accountClosureHardcodedGate,
-          merchantOnboardingHardcoded: merchantOnboardingHardcodedGate
+          merchantOnboardingHardcoded: merchantOnboardingHardcodedGate,
+          dataRetentionDeletionHardcoded: dataRetentionDeletionHardcodedGate
         })}`
       );
     }
@@ -3970,7 +4181,9 @@ async function main() {
           expenseReimbursementHardcodedGate.status,
         loanUnderwritingHardcoded: loanUnderwritingHardcodedGate.status,
         accountClosureHardcoded: accountClosureHardcodedGate.status,
-        merchantOnboardingHardcoded: merchantOnboardingHardcodedGate.status
+        merchantOnboardingHardcoded: merchantOnboardingHardcodedGate.status,
+        dataRetentionDeletionHardcoded:
+          dataRetentionDeletionHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -4095,6 +4308,8 @@ async function main() {
           accountClosureHardcodedGate.status,
         merchant_onboarding_hardcoded_gate_status:
           merchantOnboardingHardcodedGate.status,
+        data_retention_deletion_hardcoded_gate_status:
+          dataRetentionDeletionHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -4153,7 +4368,9 @@ async function main() {
         account_closure_hardcode_rejected:
           accountClosureHardcodedGate.status === 'fail',
         merchant_onboarding_hardcode_rejected:
-          merchantOnboardingHardcodedGate.status === 'fail'
+          merchantOnboardingHardcodedGate.status === 'fail',
+        data_retention_deletion_hardcode_rejected:
+          dataRetentionDeletionHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

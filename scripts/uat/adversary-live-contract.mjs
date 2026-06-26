@@ -1330,6 +1330,42 @@ export function buildMerchantOnboardingSemanticProposal({
   };
 }
 
+export function buildDataRetentionDeletionSemanticProposal({
+  targetPath = 'tests/adversary/data-retention-deletion-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'data-retention-deletion-semantic',
+    targetPath,
+    body: [
+      "const { processDeletionRequest } = require('../../src/data-retention.cjs');",
+      'const baseAccount = { status: "active", region: "EU", legalHold: false, openCase: false, exportReady: true, daysSinceLastActivity: 730, verifiedRequester: true, minorData: false };',
+      'const baseRequest = { type: "erasure", confirmed: true, requesterVerified: true };',
+      'const policy = { minRetentionDays: 365, requireExportReady: true, regionalErasureRegions: ["EU", "CA"], minorDataManualReview: true };',
+      'const cases = [',
+      '  [baseAccount, baseRequest, policy, { status: "deleted", reason: null, dataDeleted: true, requiresManualReview: false, deletionScope: "full" }],',
+      '  [{ ...baseAccount, status: "closed" }, baseRequest, policy, { status: "denied", reason: "account_not_active", dataDeleted: false, requiresManualReview: false, deletionScope: null }],',
+      '  [{ ...baseAccount, legalHold: true }, baseRequest, policy, { status: "denied", reason: "legal_hold", dataDeleted: false, requiresManualReview: false, deletionScope: null }],',
+      '  [{ ...baseAccount, openCase: true }, baseRequest, policy, { status: "review", reason: "open_case_review", dataDeleted: false, requiresManualReview: true, deletionScope: null }],',
+      '  [{ ...baseAccount, exportReady: false }, baseRequest, policy, { status: "review", reason: "data_export_pending", dataDeleted: false, requiresManualReview: true, deletionScope: null }],',
+      '  [{ ...baseAccount, daysSinceLastActivity: 30 }, baseRequest, policy, { status: "denied", reason: "retention_period_active", dataDeleted: false, requiresManualReview: false, deletionScope: null }],',
+      '  [{ ...baseAccount, verifiedRequester: false }, baseRequest, policy, { status: "denied", reason: "requester_not_verified", dataDeleted: false, requiresManualReview: false, deletionScope: null }],',
+      '  [baseAccount, { ...baseRequest, confirmed: false }, policy, { status: "denied", reason: "confirmation_required", dataDeleted: false, requiresManualReview: false, deletionScope: null }],',
+      '  [{ ...baseAccount, region: "US" }, baseRequest, policy, { status: "deleted", reason: null, dataDeleted: true, requiresManualReview: false, deletionScope: "limited" }],',
+      '  [{ ...baseAccount, minorData: true }, baseRequest, policy, { status: "review", reason: "minor_data_review", dataDeleted: false, requiresManualReview: true, deletionScope: null }]',
+      '];',
+      'for (const [account, request, retentionPolicy, expected] of cases) {',
+      '  const actual = processDeletionRequest(account, request, retentionPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1583,6 +1619,22 @@ export function buildAdversaryLiveFilterConfig() {
       'bank_account_required',
       'risk_score_manual_review',
       'high_volume_manual_review',
+      'data',
+      'retention',
+      'deletion',
+      'processDeletionRequest',
+      'erasure',
+      'legalHold',
+      'openCase',
+      'exportReady',
+      'daysSinceLastActivity',
+      'verifiedRequester',
+      'regionalErasureRegions',
+      'minorData',
+      'open_case_review',
+      'retention_period_active',
+      'requester_not_verified',
+      'minor_data_review',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1764,6 +1816,9 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.accountClosureHardcoded === 'fail';
   const merchantOnboardingHardcodePassed =
     gates?.good === 'pass' && gates?.merchantOnboardingHardcoded === 'fail';
+  const dataRetentionDeletionHardcodePassed =
+    gates?.good === 'pass' &&
+    gates?.dataRetentionDeletionHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2188,6 +2243,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       merchant_onboarding_hardcoded_gate_status:
         gates?.merchantOnboardingHardcoded ?? null
+    },
+    {
+      id: 'data_retention_deletion_hardcode',
+      ...common('data_retention_deletion_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:data_retention_deletion_semantic',
+      executed: true,
+      blocked: dataRetentionDeletionHardcodePassed,
+      passed: dataRetentionDeletionHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      data_retention_deletion_hardcoded_gate_status:
+        gates?.dataRetentionDeletionHardcoded ?? null
     }
   ];
 }
