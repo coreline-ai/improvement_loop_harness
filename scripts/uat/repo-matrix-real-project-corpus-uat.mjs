@@ -1107,6 +1107,26 @@ function buildInsuranceClaimAdjudicationVerifier(cases) {
   ].join('\n');
 }
 
+function buildWarehouseInventoryAllocationVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { allocateWarehouseInventory } = require(process.cwd() + '/examples/business-source/warehouse-inventory-allocation.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = allocateWarehouseInventory(item.order, item.inventory, item.rules, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -2645,6 +2665,239 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             status: 'pending',
             reason: 'coordination_required',
             planPaysCents: 0
+          }
+        }
+      ])
+  },
+  {
+    id: 'warehouse-inventory-reserved-stock',
+    semantic_domain: 'warehouse_inventory_reserved_stock_allocation',
+    business_source_repair: true,
+    business_domain: 'warehouse_inventory_allocation',
+    relativePath: 'examples/business-source/warehouse-inventory-allocation.cjs',
+    language: 'javascript',
+    originalNeedle: [
+      '  const availableUnits = Math.max(',
+      '    0,',
+      '    onHandUnits - reservedUnits - safetyStockUnits - expressBufferUnits',
+      '  );'
+    ].join('\n'),
+    regressionText: [
+      '  const availableUnits = Math.max(',
+      '    0,',
+      '    onHandUnits - safetyStockUnits - expressBufferUnits',
+      '  );'
+    ].join('\n'),
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildWarehouseInventoryAllocationVerifier([
+        {
+          name: 'reserved units are unavailable and create a backorder',
+          order: {
+            status: 'paid',
+            sku: 'sku-bike',
+            quantity: 7,
+            serviceLevel: 'standard',
+            allowBackorder: true
+          },
+          inventory: {
+            sku: 'sku-bike',
+            warehouseId: 'dfw-1',
+            onHandUnits: 10,
+            reservedUnits: 4,
+            incomingUnits: 3,
+            incomingRestockAt: '2026-06-28T09:00:00.000Z'
+          },
+          rules: {
+            safetyStockUnits: 1,
+            cutoffHourLocal: 16
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'partial_backorder',
+            reason: null,
+            allocatedUnits: 5,
+            backorderedUnits: 2,
+            warehouseId: 'dfw-1',
+            expectedShipAt: '2026-06-28T09:00:00.000Z'
+          }
+        },
+        {
+          name: 'available units after reservations can fully allocate',
+          order: {
+            status: 'paid',
+            sku: 'sku-bike',
+            quantity: 4,
+            serviceLevel: 'standard',
+            allowBackorder: false
+          },
+          inventory: {
+            sku: 'sku-bike',
+            warehouseId: 'dfw-1',
+            onHandUnits: 10,
+            reservedUnits: 4,
+            incomingUnits: 0
+          },
+          rules: {
+            safetyStockUnits: 1,
+            cutoffHourLocal: 16
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'allocated',
+            reason: null,
+            allocatedUnits: 4,
+            backorderedUnits: 0,
+            warehouseId: 'dfw-1',
+            expectedShipAt: '2026-06-28T10:00:00.000Z'
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildWarehouseInventoryAllocationVerifier([
+        {
+          name: 'hidden reserved stock blocks allocation without backorder',
+          order: {
+            status: 'paid',
+            sku: 'sku-camera',
+            quantity: 6,
+            serviceLevel: 'standard',
+            allowBackorder: false
+          },
+          inventory: {
+            sku: 'sku-camera',
+            warehouseId: 'iad-2',
+            onHandUnits: 9,
+            reservedUnits: 5,
+            incomingUnits: 10,
+            incomingRestockAt: '2026-06-29T09:00:00.000Z'
+          },
+          rules: {
+            safetyStockUnits: 1,
+            cutoffHourLocal: 16
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'insufficient_available_inventory',
+            allocatedUnits: 0,
+            backorderedUnits: 0,
+            availableUnits: 3
+          }
+        },
+        {
+          name: 'express allocation preserves reserved stock and express buffer',
+          order: {
+            status: 'paid',
+            sku: 'sku-drone',
+            quantity: 3,
+            serviceLevel: 'express',
+            allowBackorder: false
+          },
+          inventory: {
+            sku: 'sku-drone',
+            warehouseId: 'lax-3',
+            onHandUnits: 8,
+            reservedUnits: 2,
+            incomingUnits: 0
+          },
+          rules: {
+            safetyStockUnits: 1,
+            expressBufferUnits: 2,
+            cutoffHourLocal: 16
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'allocated',
+            reason: null,
+            allocatedUnits: 3,
+            backorderedUnits: 0,
+            warehouseId: 'lax-3',
+            expectedShipAt: '2026-06-26T10:00:00.000Z'
+          }
+        },
+        {
+          name: 'expired lot is blocked before availability math',
+          order: {
+            status: 'paid',
+            sku: 'sku-food',
+            quantity: 2,
+            serviceLevel: 'standard',
+            allowBackorder: true
+          },
+          inventory: {
+            sku: 'sku-food',
+            warehouseId: 'ord-1',
+            onHandUnits: 30,
+            reservedUnits: 0,
+            lotExpiresAt: '2026-06-24T00:00:00.000Z',
+            incomingUnits: 10,
+            incomingRestockAt: '2026-06-28T00:00:00.000Z'
+          },
+          rules: { safetyStockUnits: 0 },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'inventory_expired',
+            allocatedUnits: 0,
+            backorderedUnits: 0
+          }
+        },
+        {
+          name: 'unpaid order is blocked before reservation handling',
+          order: {
+            status: 'pending',
+            sku: 'sku-book',
+            quantity: 1,
+            serviceLevel: 'standard',
+            allowBackorder: false
+          },
+          inventory: {
+            sku: 'sku-book',
+            warehouseId: 'sfo-1',
+            onHandUnits: 5,
+            reservedUnits: 0
+          },
+          rules: { safetyStockUnits: 0 },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'order_not_paid',
+            allocatedUnits: 0,
+            backorderedUnits: 0
+          }
+        },
+        {
+          name: 'incoming quantity must cover the full shortfall',
+          order: {
+            status: 'paid',
+            sku: 'sku-monitor',
+            quantity: 8,
+            serviceLevel: 'standard',
+            allowBackorder: true
+          },
+          inventory: {
+            sku: 'sku-monitor',
+            warehouseId: 'ewr-2',
+            onHandUnits: 9,
+            reservedUnits: 4,
+            incomingUnits: 2,
+            incomingRestockAt: '2026-06-28T09:00:00.000Z'
+          },
+          rules: {
+            safetyStockUnits: 1,
+            cutoffHourLocal: 16
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'insufficient_available_inventory',
+            allocatedUnits: 0,
+            backorderedUnits: 0,
+            availableUnits: 4
           }
         }
       ])
