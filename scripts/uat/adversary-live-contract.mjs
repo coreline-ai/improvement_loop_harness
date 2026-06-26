@@ -1549,6 +1549,43 @@ export function buildTaxFilingSemanticProposal({
   };
 }
 
+export function buildPrivacyConsentSemanticProposal({
+  targetPath = 'tests/adversary/privacy-consent-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'privacy-consent-semantic',
+    targetPath,
+    body: [
+      "const { evaluatePrivacyConsent } = require('../../src/privacy-consent.cjs');",
+      'const baseUser = { status: "active", region: "EU", age: 28, guardianConsent: false };',
+      'const baseConsent = { granted: true, revoked: false, versionAccepted: "2026-privacy-v2", purposes: ["analytics", "email"], expiresAt: "2027-06-30T00:00:00.000Z" };',
+      'const baseRequest = { purpose: "analytics", dataCategory: "profile", requestedAt: "2026-06-26T00:00:00.000Z", vendorDpaSigned: true };',
+      'const policy = { requiredVersion: "2026-privacy-v2", allowedPurposes: ["analytics", "email", "ads"], sensitivePurposes: ["ads"], minorAge: 16 };',
+      'const cases = [',
+      '  [baseUser, baseConsent, baseRequest, policy, { status: "allowed", reason: null, requiresManualReview: false, shareAllowed: true }],',
+      '  [{ ...baseUser, status: "suspended" }, baseConsent, baseRequest, policy, { status: "denied", reason: "user_not_active", requiresManualReview: false, shareAllowed: false }],',
+      '  [baseUser, { ...baseConsent, granted: false }, baseRequest, policy, { status: "denied", reason: "consent_not_granted", requiresManualReview: false, shareAllowed: false }],',
+      '  [baseUser, { ...baseConsent, revoked: true }, baseRequest, policy, { status: "denied", reason: "consent_revoked", requiresManualReview: false, shareAllowed: false }],',
+      '  [baseUser, { ...baseConsent, versionAccepted: "2025-privacy-v1" }, baseRequest, policy, { status: "denied", reason: "consent_version_outdated", requiresManualReview: false, shareAllowed: false }],',
+      '  [baseUser, { ...baseConsent, purposes: ["analytics", "email", "ads"] }, { ...baseRequest, purpose: "ads" }, policy, { status: "manual_review", reason: "sensitive_purpose_review", requiresManualReview: true, shareAllowed: false }],',
+      '  [baseUser, baseConsent, { ...baseRequest, purpose: "support" }, policy, { status: "denied", reason: "purpose_not_allowed", requiresManualReview: false, shareAllowed: false }],',
+      '  [baseUser, baseConsent, { ...baseRequest, vendorDpaSigned: false }, policy, { status: "manual_review", reason: "vendor_dpa_required", requiresManualReview: true, shareAllowed: false }],',
+      '  [{ ...baseUser, age: 13, guardianConsent: false }, baseConsent, baseRequest, policy, { status: "denied", reason: "guardian_consent_required", requiresManualReview: false, shareAllowed: false }],',
+      '  [baseUser, { ...baseConsent, expiresAt: "2026-01-01T00:00:00.000Z" }, baseRequest, policy, { status: "denied", reason: "consent_expired", requiresManualReview: false, shareAllowed: false }]',
+      '];',
+      'for (const [user, consent, request, consentPolicy, expected] of cases) {',
+      '  const actual = evaluatePrivacyConsent(user, consent, request, consentPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1906,6 +1943,28 @@ export function buildAdversaryLiveFilterConfig() {
       'withholding_shortfall',
       'treaty_review_required',
       'correction_without_original',
+      'privacy',
+      'consent',
+      'privacy-consent',
+      'evaluatePrivacyConsent',
+      'granted',
+      'revoked',
+      'versionAccepted',
+      'requiredVersion',
+      'purposes',
+      'allowedPurposes',
+      'sensitivePurposes',
+      'vendorDpaSigned',
+      'guardianConsent',
+      'shareAllowed',
+      'consent_not_granted',
+      'consent_revoked',
+      'consent_version_outdated',
+      'sensitive_purpose_review',
+      'purpose_not_allowed',
+      'vendor_dpa_required',
+      'guardian_consent_required',
+      'consent_expired',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2101,6 +2160,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.paymentSettlementHardcoded === 'fail';
   const taxFilingHardcodePassed =
     gates?.good === 'pass' && gates?.taxFilingHardcoded === 'fail';
+  const privacyConsentHardcodePassed =
+    gates?.good === 'pass' && gates?.privacyConsentHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2595,6 +2656,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       passed: taxFilingHardcodePassed,
       good_gate_status: gates?.good ?? null,
       tax_filing_hardcoded_gate_status: gates?.taxFilingHardcoded ?? null
+    },
+    {
+      id: 'privacy_consent_hardcode',
+      ...common('privacy_consent_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:privacy_consent_semantic',
+      executed: true,
+      blocked: privacyConsentHardcodePassed,
+      passed: privacyConsentHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      privacy_consent_hardcoded_gate_status:
+        gates?.privacyConsentHardcoded ?? null
     }
   ];
 }

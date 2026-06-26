@@ -27,6 +27,7 @@ import {
   buildPaymentDisputeSemanticProposal,
   buildPaymentSettlementSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
+  buildPrivacyConsentSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
@@ -414,6 +415,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('treaty_review_required');
   });
 
+  it('adds a supplemental privacy consent semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildPrivacyConsentSemanticProposal({
+      targetPath: 'tests/adversary/privacy-consent.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'privacy-consent-semantic',
+      targetPath: 'tests/adversary/privacy-consent.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluatePrivacyConsent');
+    expect(proposal.body).toContain('consent_revoked');
+    expect(proposal.body).toContain('consent_version_outdated');
+    expect(proposal.body).toContain('sensitive_purpose_review');
+    expect(proposal.body).toContain('vendor_dpa_required');
+    expect(proposal.body).toContain('guardian_consent_required');
+  });
+
   it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildWarehouseAllocationSemanticProposal({
       targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
@@ -682,7 +701,8 @@ describe('adversary live contract', () => {
         fraudRiskHardcoded: 'fail',
         creditMemoApprovalHardcoded: 'fail',
         paymentSettlementHardcoded: 'fail',
-        taxFilingHardcoded: 'fail'
+        taxFilingHardcoded: 'fail',
+        privacyConsentHardcoded: 'fail'
       }
     });
 
@@ -934,6 +954,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:tax_filing_semantic'
+        }),
+        expect.objectContaining({
+          id: 'privacy_consent_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:privacy_consent_semantic'
         })
       ])
     );
@@ -1007,7 +1033,8 @@ describe('adversary live contract', () => {
         'attack_scenario_fraud_risk_hardcode_missing',
         'attack_scenario_credit_memo_approval_hardcode_missing',
         'attack_scenario_payment_settlement_hardcode_missing',
-        'attack_scenario_tax_filing_hardcode_missing'
+        'attack_scenario_tax_filing_hardcode_missing',
+        'attack_scenario_privacy_consent_hardcode_missing'
       ])
     );
   });
@@ -1061,7 +1088,8 @@ describe('adversary live contract', () => {
         fraudRiskHardcoded: 'fail',
         creditMemoApprovalHardcoded: 'fail',
         paymentSettlementHardcoded: 'fail',
-        taxFilingHardcoded: 'fail'
+        taxFilingHardcoded: 'fail',
+        privacyConsentHardcoded: 'fail'
       }
     });
 

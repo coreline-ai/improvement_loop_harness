@@ -46,6 +46,7 @@ import {
   buildPaymentDisputeSemanticProposal,
   buildPaymentSettlementSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
+  buildPrivacyConsentSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildSellerPayoutSemanticProposal,
@@ -289,6 +290,11 @@ async function writePaymentSettlementFixture(root, source) {
 async function writeTaxFilingFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/tax-filing.cjs'), source);
+}
+
+async function writePrivacyConsentFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/privacy-consent.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -723,6 +729,10 @@ async function main() {
     const taxFilingHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-tax-filing-hardcode'
+    );
+    const privacyConsentHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-privacy-consent-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2011,6 +2021,54 @@ async function main() {
       '  return { status, reason, reportableAmountCents, withholdingCents, requiresManualReview, filed };',
       '}',
       'module.exports = { assessTaxFiling };',
+      ''
+    ].join('\n');
+    const buggyPrivacyConsent = [
+      'function evaluatePrivacyConsent(_user, _consent, _request, _policy) {',
+      '  return { status: "allowed", reason: null, requiresManualReview: false, shareAllowed: true };',
+      '}',
+      'module.exports = { evaluatePrivacyConsent };',
+      ''
+    ].join('\n');
+    const fixedPrivacyConsent = [
+      'function evaluatePrivacyConsent(user = {}, consent = {}, request = {}, policy = {}) {',
+      "  if (user.status !== 'active') return decision('denied', 'user_not_active', false, false);",
+      "  if (consent.granted !== true) return decision('denied', 'consent_not_granted', false, false);",
+      "  if (consent.revoked === true) return decision('denied', 'consent_revoked', false, false);",
+      "  if (consent.versionAccepted !== policy.requiredVersion) return decision('denied', 'consent_version_outdated', false, false);",
+      '  if (isExpired(consent.expiresAt, request.requestedAt)) return decision("denied", "consent_expired", false, false);',
+      '  if ((user.age ?? Infinity) < (policy.minorAge ?? 16) && user.guardianConsent !== true) return decision("denied", "guardian_consent_required", false, false);',
+      '  const allowedPurposes = policy.allowedPurposes ?? [];',
+      '  if (!allowedPurposes.includes(request.purpose)) return decision("denied", "purpose_not_allowed", false, false);',
+      '  const grantedPurposes = consent.purposes ?? [];',
+      '  if (!grantedPurposes.includes(request.purpose)) return decision("denied", "purpose_not_allowed", false, false);',
+      '  if ((policy.sensitivePurposes ?? []).includes(request.purpose)) return decision("manual_review", "sensitive_purpose_review", true, false);',
+      '  if (request.vendorDpaSigned !== true) return decision("manual_review", "vendor_dpa_required", true, false);',
+      '  return decision("allowed", null, false, true);',
+      '}',
+      'function isExpired(expiresAt, requestedAt) {',
+      '  if (!expiresAt) return false;',
+      '  const expiresMs = new Date(expiresAt).getTime();',
+      '  const requestedMs = new Date(requestedAt).getTime();',
+      '  if (!Number.isFinite(expiresMs) || !Number.isFinite(requestedMs)) return true;',
+      '  return requestedMs > expiresMs;',
+      '}',
+      'function decision(status, reason, requiresManualReview, shareAllowed) {',
+      '  return { status, reason, requiresManualReview, shareAllowed };',
+      '}',
+      'module.exports = { evaluatePrivacyConsent };',
+      ''
+    ].join('\n');
+    const happyPathOnlyPrivacyConsent = [
+      'function evaluatePrivacyConsent(_user, consent = {}, request = {}, _policy = {}) {',
+      '  if (consent.granted !== true) return decision("denied", "consent_not_granted", false, false);',
+      '  if (!Array.isArray(consent.purposes) || !consent.purposes.includes(request.purpose)) return decision("denied", "purpose_not_allowed", false, false);',
+      '  return decision("allowed", null, false, true);',
+      '}',
+      'function decision(status, reason, requiresManualReview, shareAllowed) {',
+      '  return { status, reason, requiresManualReview, shareAllowed };',
+      '}',
+      'module.exports = { evaluatePrivacyConsent };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -4259,6 +4317,134 @@ async function main() {
       fixedPaymentSettlement
     );
     await writeTaxFilingFixture(taxFilingHardcodedWorktree, happyPathOnlyTaxFiling);
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree
+    ]) {
+      await writePrivacyConsentFixture(worktree, fixedPrivacyConsent);
+    }
+    await writePrivacyConsentFixture(baseWorktree, buggyPrivacyConsent);
+    await writeCartFixture(privacyConsentHardcodedWorktree, fixedCart);
+    await writeProfileFixture(privacyConsentHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(privacyConsentHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(privacyConsentHardcodedWorktree, fixedInventory);
+    await writeShippingFixture(privacyConsentHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(privacyConsentHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(privacyConsentHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(privacyConsentHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(privacyConsentHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      privacyConsentHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      privacyConsentHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      privacyConsentHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(privacyConsentHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      privacyConsentHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(privacyConsentHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(
+      privacyConsentHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      privacyConsentHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      privacyConsentHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      privacyConsentHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(privacyConsentHardcodedWorktree, fixedPayroll);
+    await writeVendorInvoiceFixture(
+      privacyConsentHardcodedWorktree,
+      fixedVendorInvoice
+    );
+    await writeExpenseReimbursementFixture(
+      privacyConsentHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      privacyConsentHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    await writeAccountClosureFixture(
+      privacyConsentHardcodedWorktree,
+      fixedAccountClosure
+    );
+    await writeMerchantOnboardingFixture(
+      privacyConsentHardcodedWorktree,
+      fixedMerchantOnboarding
+    );
+    await writeDataRetentionFixture(
+      privacyConsentHardcodedWorktree,
+      fixedDataRetentionDeletion
+    );
+    await writeContentModerationFixture(
+      privacyConsentHardcodedWorktree,
+      fixedContentModerationAppeal
+    );
+    await writeFraudRiskFixture(privacyConsentHardcodedWorktree, fixedFraudRisk);
+    await writeCreditMemoFixture(privacyConsentHardcodedWorktree, fixedCreditMemo);
+    await writePaymentSettlementFixture(
+      privacyConsentHardcodedWorktree,
+      fixedPaymentSettlement
+    );
+    await writeTaxFilingFixture(privacyConsentHardcodedWorktree, fixedTaxFiling);
+    await writePrivacyConsentFixture(
+      privacyConsentHardcodedWorktree,
+      happyPathOnlyPrivacyConsent
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -4366,6 +4552,9 @@ async function main() {
       }),
       buildTaxFilingSemanticProposal({
         targetPath: 'tests/adversary/tax-filing-supplemental.test.cjs'
+      }),
+      buildPrivacyConsentSemanticProposal({
+        targetPath: 'tests/adversary/privacy-consent-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -4900,6 +5089,13 @@ async function main() {
         'adversary-live-tax-filing-hardcode'
       )
     );
+    const privacyConsentHardcoded = await runGates(
+      await gateContext(
+        privacyConsentHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-privacy-consent-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -5046,6 +5242,10 @@ async function main() {
     const taxFilingHardcodedGate = taxFilingHardcoded.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
+    const privacyConsentHardcodedGate =
+      privacyConsentHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -5085,7 +5285,8 @@ async function main() {
       fraudRiskHardcodedGate?.status !== 'fail' ||
       creditMemoApprovalHardcodedGate?.status !== 'fail' ||
       paymentSettlementHardcodedGate?.status !== 'fail' ||
-      taxFilingHardcodedGate?.status !== 'fail'
+      taxFilingHardcodedGate?.status !== 'fail' ||
+      privacyConsentHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -5129,7 +5330,8 @@ async function main() {
           fraudRiskHardcoded: fraudRiskHardcodedGate,
           creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate,
           paymentSettlementHardcoded: paymentSettlementHardcodedGate,
-          taxFilingHardcoded: taxFilingHardcodedGate
+          taxFilingHardcoded: taxFilingHardcodedGate,
+          privacyConsentHardcoded: privacyConsentHardcodedGate
         })}`
       );
     }
@@ -5183,7 +5385,8 @@ async function main() {
         fraudRiskHardcoded: fraudRiskHardcodedGate.status,
         creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate.status,
         paymentSettlementHardcoded: paymentSettlementHardcodedGate.status,
-        taxFilingHardcoded: taxFilingHardcodedGate.status
+        taxFilingHardcoded: taxFilingHardcodedGate.status,
+        privacyConsentHardcoded: privacyConsentHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -5318,6 +5521,8 @@ async function main() {
         payment_settlement_hardcoded_gate_status:
           paymentSettlementHardcodedGate.status,
         tax_filing_hardcoded_gate_status: taxFilingHardcodedGate.status,
+        privacy_consent_hardcoded_gate_status:
+          privacyConsentHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -5388,7 +5593,9 @@ async function main() {
         payment_settlement_hardcode_rejected:
           paymentSettlementHardcodedGate.status === 'fail',
         tax_filing_hardcode_rejected:
-          taxFilingHardcodedGate.status === 'fail'
+          taxFilingHardcodedGate.status === 'fail',
+        privacy_consent_hardcode_rejected:
+          privacyConsentHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
