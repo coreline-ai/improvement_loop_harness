@@ -102,6 +102,18 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-bulk-cart-quantity-total',
+    mode: 'user_issue',
+    variant: 'ko-bulk-cart-quantity-total',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-bulk-cart-quantity-total',
+    mode: 'user_issue',
+    variant: 'en-bulk-cart-quantity-total',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -171,6 +183,18 @@ const defaultCorpus = [
     id: 'auto-en-audit-one-reproducible-fix',
     mode: 'auto_discovery',
     variant: 'en-audit-one-reproducible-fix',
+    language: 'en'
+  },
+  {
+    id: 'auto-ko-scan-one-reproducible-path',
+    mode: 'auto_discovery',
+    variant: 'ko-scan-one-reproducible-path',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-user-style-project-review-one-regression',
+    mode: 'auto_discovery',
+    variant: 'en-user-style-project-review-one-regression',
     language: 'en'
   }
 ];

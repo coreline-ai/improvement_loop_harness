@@ -236,6 +236,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'A multi-unit cart line is totaled as one unit. Fix the line total behavior, add regression coverage, and leave the result PR-ready.'
+    },
+    {
+      id: 'ko-bulk-cart-quantity-total',
+      language: 'ko',
+      prompt:
+        '대량 주문 장바구니에서 같은 상품을 여러 개 담으면 총액이 단가 한 번만 나와. 수량 계산 버그를 고치고 회귀 테스트를 남겨줘'
+    },
+    {
+      id: 'en-bulk-cart-quantity-total',
+      language: 'en',
+      prompt:
+        'Bulk cart orders with quantity 5 are charged as one unit. Fix quantity-aware totals and add regression coverage.'
     }
   ],
   auto_discovery: [
@@ -307,6 +319,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Find one failing behavior in this repo through an audit pass, fix it, verify it, and prepare a PR-ready result.'
+    },
+    {
+      id: 'ko-scan-one-reproducible-path',
+      language: 'ko',
+      prompt:
+        '프로젝트를 전체 스캔해서 테스트로 재현 가능한 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'en-user-style-project-review-one-regression',
+      language: 'en',
+      prompt:
+        'Perform a user-style project review, discover one concrete regression, fix it, verify it, and prepare a PR candidate.'
     }
   ]
 };
