@@ -2508,9 +2508,9 @@ describe('release evidence audit', () => {
         scenario,
         expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 9,
-          min_pass_count: 9,
-          min_distinct_semantic_target_count: 9,
+          min_cell_count: 10,
+          min_pass_count: 10,
+          min_distinct_semantic_target_count: 10,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_business_source_repair: true,
@@ -2557,8 +2557,8 @@ describe('release evidence audit', () => {
         provider: 'codex',
         model: 'gpt-5.5'
       },
-      cell_count: 9,
-      pass_count: 9,
+      cell_count: 10,
+      pass_count: 10,
       fail_count: 0,
       cells: [
         {
@@ -2756,6 +2756,29 @@ describe('release evidence audit', () => {
             existing_source: true,
             repair_source:
               'examples/business-source/warehouse-inventory-allocation.cjs',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'merchant-onboarding-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_source_repair: true,
+            business_bug_repair: true,
+            business_domain: 'merchant_onboarding_review',
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'merchant_onboarding_bank_account_payout_gate',
+            semantic_target_id: 'merchant-onboarding-bank-account',
+            existing_source: true,
+            repair_source:
+              'examples/business-source/merchant-onboarding-review.cjs',
             visible_acceptance: { status: 'pass' },
             hidden_acceptance: { status: 'pass' },
             diff_scope: { status: 'pass' },

@@ -1127,6 +1127,26 @@ function buildWarehouseInventoryAllocationVerifier(cases) {
   ].join('\n');
 }
 
+function buildMerchantOnboardingReviewVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { reviewMerchantOnboarding } = require(process.cwd() + '/examples/business-source/merchant-onboarding-review.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = reviewMerchantOnboarding(item.merchant, item.request, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -2898,6 +2918,224 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             allocatedUnits: 0,
             backorderedUnits: 0,
             availableUnits: 4
+          }
+        }
+      ])
+  },
+  {
+    id: 'merchant-onboarding-bank-account',
+    semantic_domain: 'merchant_onboarding_bank_account_payout_gate',
+    business_source_repair: true,
+    business_domain: 'merchant_onboarding_review',
+    relativePath: 'examples/business-source/merchant-onboarding-review.cjs',
+    language: 'javascript',
+    originalNeedle:
+      '  if (merchant.bankAccountVerified !== true) {',
+    regressionText:
+      '  if (merchant.bankAccountVerified === true) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildMerchantOnboardingReviewVerifier([
+        {
+          name: 'verified low-risk merchant is approved for payouts',
+          merchant: {
+            id: 'mrc_visible_approved',
+            status: 'pending_review',
+            currency: 'USD',
+            businessVerified: true,
+            taxFormSubmitted: true,
+            bankAccountVerified: true,
+            riskScore: 12
+          },
+          request: {
+            termsAccepted: true,
+            requestedMonthlyVolumeCents: 2500000
+          },
+          policy: {
+            maxAutoApproveRiskScore: 40,
+            highVolumeReviewCents: 5000000,
+            lowRiskThreshold: 20,
+            defaultSettlementDelayDays: 2
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            payoutEnabled: true,
+            riskTier: 'low',
+            settlementDelayDays: 2,
+            approvedAt: '2026-06-25T10:00:00.000Z'
+          }
+        },
+        {
+          name: 'missing bank verification requires manual review',
+          merchant: {
+            id: 'mrc_visible_bank_missing',
+            status: 'pending_review',
+            currency: 'USD',
+            businessVerified: true,
+            taxFormSubmitted: true,
+            bankAccountVerified: false,
+            riskScore: 10
+          },
+          request: {
+            termsAccepted: true,
+            requestedMonthlyVolumeCents: 1000000
+          },
+          policy: {
+            maxAutoApproveRiskScore: 40,
+            highVolumeReviewCents: 5000000
+          },
+          now: '2026-06-25T10:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'bank_account_required',
+            payoutEnabled: false,
+            approvedAt: null
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildMerchantOnboardingReviewVerifier([
+        {
+          name: 'hidden standard-risk merchant still needs verified bank account',
+          merchant: {
+            id: 'mrc_hidden_standard',
+            status: 'pending_review',
+            currency: 'USD',
+            businessVerified: true,
+            taxFormSubmitted: true,
+            bankAccountVerified: true,
+            riskScore: 30
+          },
+          request: {
+            termsAccepted: true,
+            requestedMonthlyVolumeCents: 3000000
+          },
+          policy: {
+            maxAutoApproveRiskScore: 45,
+            highVolumeReviewCents: 6000000,
+            lowRiskThreshold: 20,
+            defaultSettlementDelayDays: 3
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            payoutEnabled: true,
+            riskTier: 'standard',
+            settlementDelayDays: 3,
+            approvedAt: '2026-06-25T11:00:00.000Z'
+          }
+        },
+        {
+          name: 'hidden unverified bank never gets payout approval',
+          merchant: {
+            id: 'mrc_hidden_bank_missing',
+            status: 'pending_review',
+            currency: 'USD',
+            businessVerified: true,
+            taxFormSubmitted: true,
+            bankAccountVerified: false,
+            riskScore: 5
+          },
+          request: {
+            termsAccepted: true,
+            requestedMonthlyVolumeCents: 500000
+          },
+          policy: {
+            maxAutoApproveRiskScore: 45,
+            highVolumeReviewCents: 6000000
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'bank_account_required',
+            payoutEnabled: false,
+            riskTier: null
+          }
+        },
+        {
+          name: 'sanctions match rejects before manual review',
+          merchant: {
+            id: 'mrc_hidden_sanctions',
+            status: 'pending_review',
+            currency: 'USD',
+            businessVerified: true,
+            taxFormSubmitted: true,
+            bankAccountVerified: false,
+            sanctionsHit: true,
+            riskScore: 5
+          },
+          request: {
+            termsAccepted: true,
+            requestedMonthlyVolumeCents: 500000
+          },
+          policy: {
+            maxAutoApproveRiskScore: 45,
+            highVolumeReviewCents: 6000000
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'rejected',
+            reason: 'sanctions_match',
+            payoutEnabled: false,
+            approvedAt: null
+          }
+        },
+        {
+          name: 'high volume verified merchant is routed to manual review',
+          merchant: {
+            id: 'mrc_hidden_high_volume',
+            status: 'pending_review',
+            currency: 'USD',
+            businessVerified: true,
+            taxFormSubmitted: true,
+            bankAccountVerified: true,
+            riskScore: 10
+          },
+          request: {
+            termsAccepted: true,
+            requestedMonthlyVolumeCents: 9000000
+          },
+          policy: {
+            maxAutoApproveRiskScore: 45,
+            highVolumeReviewCents: 6000000
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'high_volume_manual_review',
+            payoutEnabled: false
+          }
+        },
+        {
+          name: 'terms must be accepted before onboarding can proceed',
+          merchant: {
+            id: 'mrc_hidden_terms',
+            status: 'pending_review',
+            currency: 'USD',
+            businessVerified: true,
+            taxFormSubmitted: true,
+            bankAccountVerified: true,
+            riskScore: 10
+          },
+          request: {
+            termsAccepted: false,
+            requestedMonthlyVolumeCents: 1000000
+          },
+          policy: {
+            maxAutoApproveRiskScore: 45,
+            highVolumeReviewCents: 6000000
+          },
+          now: '2026-06-25T11:00:00.000Z',
+          expected: {
+            status: 'rejected',
+            reason: 'terms_not_accepted',
+            payoutEnabled: false
           }
         }
       ])
