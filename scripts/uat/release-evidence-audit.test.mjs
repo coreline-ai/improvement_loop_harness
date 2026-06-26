@@ -155,7 +155,8 @@ function attackScenarios() {
     'credit_memo_approval_hardcode',
     'payment_settlement_hardcode',
     'tax_filing_hardcode',
-    'privacy_consent_hardcode'
+    'privacy_consent_hardcode',
+    'access_review_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -217,6 +218,7 @@ function attackScenarios() {
       'rulepack_semantic:payment_settlement_semantic',
     tax_filing_hardcode: 'rulepack_semantic:tax_filing_semantic',
     privacy_consent_hardcode: 'rulepack_semantic:privacy_consent_semantic',
+    access_review_hardcode: 'rulepack_semantic:access_review_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

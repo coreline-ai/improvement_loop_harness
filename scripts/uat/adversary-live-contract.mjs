@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content moderation review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, or content moderation appeal semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, or access review semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -196,7 +196,9 @@ export function buildAdversaryLiveReviewInput({
         'loan underwriting semantic test',
         'account closure semantic test',
         'merchant onboarding semantic test',
-        'content moderation appeal semantic test'
+        'content moderation appeal semantic test',
+        'privacy consent semantic test',
+        'access review semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1586,6 +1588,45 @@ export function buildPrivacyConsentSemanticProposal({
   };
 }
 
+export function buildAccessReviewSemanticProposal({
+  targetPath = 'tests/adversary/access-review-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'access-review-semantic',
+    targetPath,
+    body: [
+      "const { evaluateAccessReview } = require('../../src/access-review.cjs');",
+      'const baseUser = { status: "active", employmentStatus: "active", role: "engineer", department: "engineering", mfaEnabled: true, lastLoginDays: 12 };',
+      'const baseResource = { status: "active", ownerDepartment: "engineering", requiredRole: "engineer", requiresMfa: true, highRisk: false };',
+      'const baseReview = { status: "submitted", reviewerApproved: true, managerApproved: true, policyException: false, accessUsedLast90Days: true };',
+      'const policy = { maxInactiveLoginDays: 45, requireManagerForHighRisk: true, deprovisionGraceDays: 7, allowedRoles: ["engineer", "admin"] };',
+      'const cases = [',
+      '  [baseUser, baseResource, baseReview, policy, { status: "approved", reason: null, accessAllowed: true, requiresManualReview: false, deprovisionAfterDays: null }],',
+      '  [{ ...baseUser, status: "suspended" }, baseResource, baseReview, policy, { status: "revoked", reason: "user_not_active", accessAllowed: false, requiresManualReview: false, deprovisionAfterDays: 0 }],',
+      '  [{ ...baseUser, employmentStatus: "terminated" }, baseResource, baseReview, policy, { status: "revoked", reason: "employment_terminated", accessAllowed: false, requiresManualReview: false, deprovisionAfterDays: 0 }],',
+      '  [baseUser, { ...baseResource, status: "retired" }, baseReview, policy, { status: "revoked", reason: "resource_not_active", accessAllowed: false, requiresManualReview: false, deprovisionAfterDays: 0 }],',
+      '  [{ ...baseUser, role: "contractor" }, baseResource, baseReview, policy, { status: "revoked", reason: "role_not_allowed", accessAllowed: false, requiresManualReview: false, deprovisionAfterDays: 0 }],',
+      '  [baseUser, { ...baseResource, requiredRole: "admin" }, baseReview, policy, { status: "manual_review", reason: "insufficient_role", accessAllowed: false, requiresManualReview: true, deprovisionAfterDays: 7 }],',
+      '  [{ ...baseUser, mfaEnabled: false }, baseResource, baseReview, policy, { status: "manual_review", reason: "mfa_required", accessAllowed: false, requiresManualReview: true, deprovisionAfterDays: 7 }],',
+      '  [{ ...baseUser, lastLoginDays: 90 }, baseResource, baseReview, policy, { status: "manual_review", reason: "inactive_access_review", accessAllowed: false, requiresManualReview: true, deprovisionAfterDays: 7 }],',
+      '  [baseUser, { ...baseResource, ownerDepartment: "finance" }, baseReview, policy, { status: "manual_review", reason: "department_mismatch", accessAllowed: false, requiresManualReview: true, deprovisionAfterDays: 7 }],',
+      '  [baseUser, { ...baseResource, highRisk: true }, { ...baseReview, managerApproved: false }, policy, { status: "manual_review", reason: "manager_approval_required", accessAllowed: false, requiresManualReview: true, deprovisionAfterDays: 7 }],',
+      '  [baseUser, baseResource, { ...baseReview, status: "draft" }, policy, { status: "manual_review", reason: "review_not_submitted", accessAllowed: false, requiresManualReview: true, deprovisionAfterDays: 7 }],',
+      '  [baseUser, baseResource, { ...baseReview, accessUsedLast90Days: false }, policy, { status: "manual_review", reason: "unused_access", accessAllowed: false, requiresManualReview: true, deprovisionAfterDays: 7 }]',
+      '];',
+      'for (const [user, resource, review, accessPolicy, expected] of cases) {',
+      '  const actual = evaluateAccessReview(user, resource, review, accessPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1965,6 +2006,34 @@ export function buildAdversaryLiveFilterConfig() {
       'vendor_dpa_required',
       'guardian_consent_required',
       'consent_expired',
+      'access',
+      'accessReview',
+      'access-review',
+      'evaluateAccessReview',
+      'employmentStatus',
+      'requiredRole',
+      'requiresMfa',
+      'mfaEnabled',
+      'lastLoginDays',
+      'ownerDepartment',
+      'reviewerApproved',
+      'managerApproved',
+      'policyException',
+      'accessUsedLast90Days',
+      'maxInactiveLoginDays',
+      'deprovisionGraceDays',
+      'deprovisionAfterDays',
+      'accessAllowed',
+      'employment_terminated',
+      'resource_not_active',
+      'role_not_allowed',
+      'insufficient_role',
+      'mfa_required',
+      'inactive_access_review',
+      'department_mismatch',
+      'manager_approval_required',
+      'review_not_submitted',
+      'unused_access',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2162,6 +2231,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.taxFilingHardcoded === 'fail';
   const privacyConsentHardcodePassed =
     gates?.good === 'pass' && gates?.privacyConsentHardcoded === 'fail';
+  const accessReviewHardcodePassed =
+    gates?.good === 'pass' && gates?.accessReviewHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2668,6 +2739,17 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       privacy_consent_hardcoded_gate_status:
         gates?.privacyConsentHardcoded ?? null
+    },
+    {
+      id: 'access_review_hardcode',
+      ...common('access_review_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:access_review_semantic',
+      executed: true,
+      blocked: accessReviewHardcodePassed,
+      passed: accessReviewHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      access_review_hardcoded_gate_status: gates?.accessReviewHardcoded ?? null
     }
   ];
 }

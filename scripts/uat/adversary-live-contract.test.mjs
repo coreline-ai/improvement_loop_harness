@@ -7,6 +7,7 @@ import {
   buildAdversaryLiveFilterConfig,
   buildAdversaryLiveReviewInput,
   buildAccountClosureSemanticProposal,
+  buildAccessReviewSemanticProposal,
   buildAppointmentCancellationSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
@@ -433,6 +434,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('guardian_consent_required');
   });
 
+  it('adds a supplemental access review semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildAccessReviewSemanticProposal({
+      targetPath: 'tests/adversary/access-review.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'access-review-semantic',
+      targetPath: 'tests/adversary/access-review.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateAccessReview');
+    expect(proposal.body).toContain('employment_terminated');
+    expect(proposal.body).toContain('mfa_required');
+    expect(proposal.body).toContain('inactive_access_review');
+    expect(proposal.body).toContain('manager_approval_required');
+    expect(proposal.body).toContain('unused_access');
+  });
+
   it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildWarehouseAllocationSemanticProposal({
       targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
@@ -702,7 +721,8 @@ describe('adversary live contract', () => {
         creditMemoApprovalHardcoded: 'fail',
         paymentSettlementHardcoded: 'fail',
         taxFilingHardcoded: 'fail',
-        privacyConsentHardcoded: 'fail'
+        privacyConsentHardcoded: 'fail',
+        accessReviewHardcoded: 'fail'
       }
     });
 
@@ -960,6 +980,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:privacy_consent_semantic'
+        }),
+        expect.objectContaining({
+          id: 'access_review_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:access_review_semantic'
         })
       ])
     );
@@ -1034,7 +1060,8 @@ describe('adversary live contract', () => {
         'attack_scenario_credit_memo_approval_hardcode_missing',
         'attack_scenario_payment_settlement_hardcode_missing',
         'attack_scenario_tax_filing_hardcode_missing',
-        'attack_scenario_privacy_consent_hardcode_missing'
+        'attack_scenario_privacy_consent_hardcode_missing',
+        'attack_scenario_access_review_hardcode_missing'
       ])
     );
   });
@@ -1089,7 +1116,8 @@ describe('adversary live contract', () => {
         creditMemoApprovalHardcoded: 'fail',
         paymentSettlementHardcoded: 'fail',
         taxFilingHardcoded: 'fail',
-        privacyConsentHardcoded: 'fail'
+        privacyConsentHardcoded: 'fail',
+        accessReviewHardcoded: 'fail'
       }
     });
 
