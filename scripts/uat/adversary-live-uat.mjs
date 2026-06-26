@@ -19,6 +19,7 @@ import {
   buildAdversaryLiveAttackScenarioResults,
   buildAdversaryLiveFilterConfig,
   buildAdversaryLiveReviewInput,
+  buildAccountClosureSemanticProposal,
   buildAppointmentCancellationSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
@@ -243,6 +244,11 @@ async function writeLoanUnderwritingFixture(root, source) {
   await writeFile(path.join(root, 'src/loan-underwriting.cjs'), source);
 }
 
+async function writeAccountClosureFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/account-closure.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -431,6 +437,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/account-closure.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -587,6 +600,10 @@ async function main() {
     const loanUnderwritingHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-loan-underwriting-hardcode'
+    );
+    const accountClosureHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-account-closure-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1475,6 +1492,52 @@ async function main() {
       "  return { decision: 'denied', reason, approvedAmountCents: 0, aprBps: null, requiresManualReview: false };",
       '}',
       'module.exports = { underwriteLoan };',
+      ''
+    ].join('\n');
+    const buggyAccountClosure = [
+      'function closeAccount(_account = {}, _request = {}, _policy = {}) {',
+      "  return { status: 'closed', reason: null, refundCents: 0, requiresManualReview: false, dataDeleted: true };",
+      '}',
+      'module.exports = { closeAccount };',
+      ''
+    ].join('\n');
+    const fixedAccountClosure = [
+      'function closeAccount(account = {}, request = {}, policy = {}) {',
+      "  if (account.active !== true) return denied('account_not_active');",
+      "  if (request.confirmPhrase !== 'CLOSE') return denied('confirmation_required');",
+      "  if (account.legalHold === true) return denied('legal_hold');",
+      "  if (account.subscriptionActive === true) return denied('active_subscription');",
+      "  if (account.status === 'suspended') return review('suspended_account_review', 0);",
+      "  if (account.pendingDisputes === true) return review('pending_dispute', 0);",
+      "  if (account.dataExportReady !== true) return review('data_export_pending', 0);",
+      '  const refundCents = account.balanceCents ?? 0;',
+      '  if (refundCents > 0 && request.refundMethodOnFile !== true) {',
+      "    return review('refund_method_required', refundCents);",
+      '  }',
+      '  if (account.identityVerified !== true && (account.lastLoginDays ?? 0) > (policy.maxDormantDaysWithoutIdentity ?? Number.POSITIVE_INFINITY)) {',
+      "    return review('identity_verification_required', 0);",
+      '  }',
+      '  return { status: "closed", reason: null, refundCents, requiresManualReview: false, dataDeleted: true };',
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, refundCents: 0, requiresManualReview: false, dataDeleted: false };",
+      '}',
+      'function review(reason, refundCents) {',
+      "  return { status: 'review', reason, refundCents, requiresManualReview: true, dataDeleted: false };",
+      '}',
+      'module.exports = { closeAccount };',
+      ''
+    ].join('\n');
+    const happyPathOnlyAccountClosure = [
+      'function closeAccount(account = {}, request = {}) {',
+      "  if (account.active !== true) return denied('account_not_active');",
+      "  if (request.confirmPhrase !== 'CLOSE') return denied('confirmation_required');",
+      "  return { status: 'closed', reason: null, refundCents: account.balanceCents ?? 0, requiresManualReview: false, dataDeleted: true };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, refundCents: 0, requiresManualReview: false, dataDeleted: false };",
+      '}',
+      'module.exports = { closeAccount };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -2800,6 +2863,103 @@ async function main() {
       loanUnderwritingHardcodedWorktree,
       fixedExpenseReimbursement
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree
+    ]) {
+      await writeAccountClosureFixture(worktree, fixedAccountClosure);
+    }
+    await writeAccountClosureFixture(baseWorktree, buggyAccountClosure);
+    await writeAccountClosureFixture(
+      accountClosureHardcodedWorktree,
+      happyPathOnlyAccountClosure
+    );
+    await writeCartFixture(accountClosureHardcodedWorktree, fixedCart);
+    await writeProfileFixture(accountClosureHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(accountClosureHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      accountClosureHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(accountClosureHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(accountClosureHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(accountClosureHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(accountClosureHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(accountClosureHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      accountClosureHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      accountClosureHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(accountClosureHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(accountClosureHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      accountClosureHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(accountClosureHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(
+      accountClosureHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      accountClosureHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      accountClosureHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      accountClosureHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(accountClosureHardcodedWorktree, fixedPayroll);
+    await writeVendorInvoiceFixture(
+      accountClosureHardcodedWorktree,
+      fixedVendorInvoice
+    );
+    await writeExpenseReimbursementFixture(
+      accountClosureHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      accountClosureHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -2881,6 +3041,9 @@ async function main() {
       }),
       buildLoanUnderwritingSemanticProposal({
         targetPath: 'tests/adversary/loan-underwriting-supplemental.test.cjs'
+      }),
+      buildAccountClosureSemanticProposal({
+        targetPath: 'tests/adversary/account-closure-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -2997,6 +3160,19 @@ async function main() {
         }),
         buildPayrollOvertimeSemanticProposal({
           targetPath: 'tests/adversary/payroll-overtime-supplemental.test.cjs'
+        }),
+        buildVendorInvoiceSemanticProposal({
+          targetPath: 'tests/adversary/vendor-invoice-supplemental.test.cjs'
+        }),
+        buildExpenseReimbursementSemanticProposal({
+          targetPath:
+            'tests/adversary/expense-reimbursement-supplemental.test.cjs'
+        }),
+        buildLoanUnderwritingSemanticProposal({
+          targetPath: 'tests/adversary/loan-underwriting-supplemental.test.cjs'
+        }),
+        buildAccountClosureSemanticProposal({
+          targetPath: 'tests/adversary/account-closure-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -3323,6 +3499,13 @@ async function main() {
         'adversary-live-loan-underwriting-hardcode'
       )
     );
+    const accountClosureHardcoded = await runGates(
+      await gateContext(
+        accountClosureHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-account-closure-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -3439,6 +3622,10 @@ async function main() {
       loanUnderwritingHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const accountClosureHardcodedGate =
+      accountClosureHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -3470,7 +3657,8 @@ async function main() {
       payrollOvertimeHardcodedGate?.status !== 'fail' ||
       vendorInvoiceHardcodedGate?.status !== 'fail' ||
       expenseReimbursementHardcodedGate?.status !== 'fail' ||
-      loanUnderwritingHardcodedGate?.status !== 'fail'
+      loanUnderwritingHardcodedGate?.status !== 'fail' ||
+      accountClosureHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -3505,7 +3693,8 @@ async function main() {
           payrollOvertimeHardcoded: payrollOvertimeHardcodedGate,
           vendorInvoiceHardcoded: vendorInvoiceHardcodedGate,
           expenseReimbursementHardcoded: expenseReimbursementHardcodedGate,
-          loanUnderwritingHardcoded: loanUnderwritingHardcodedGate
+          loanUnderwritingHardcoded: loanUnderwritingHardcodedGate,
+          accountClosureHardcoded: accountClosureHardcodedGate
         })}`
       );
     }
@@ -3549,7 +3738,8 @@ async function main() {
         vendorInvoiceHardcoded: vendorInvoiceHardcodedGate.status,
         expenseReimbursementHardcoded:
           expenseReimbursementHardcodedGate.status,
-        loanUnderwritingHardcoded: loanUnderwritingHardcodedGate.status
+        loanUnderwritingHardcoded: loanUnderwritingHardcodedGate.status,
+        accountClosureHardcoded: accountClosureHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -3670,6 +3860,8 @@ async function main() {
           expenseReimbursementHardcodedGate.status,
         loan_underwriting_hardcoded_gate_status:
           loanUnderwritingHardcodedGate.status,
+        account_closure_hardcoded_gate_status:
+          accountClosureHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -3724,7 +3916,9 @@ async function main() {
         expense_reimbursement_hardcode_rejected:
           expenseReimbursementHardcodedGate.status === 'fail',
         loan_underwriting_hardcode_rejected:
-          loanUnderwritingHardcodedGate.status === 'fail'
+          loanUnderwritingHardcodedGate.status === 'fail',
+        account_closure_hardcode_rejected:
+          accountClosureHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

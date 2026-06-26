@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, or loan underwriting semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, or account closure semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -193,7 +193,8 @@ export function buildAdversaryLiveReviewInput({
         'payroll overtime semantic test',
         'vendor invoice approval semantic test',
         'expense reimbursement semantic test',
-        'loan underwriting semantic test'
+        'loan underwriting semantic test',
+        'account closure semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1254,6 +1255,43 @@ export function buildLoanUnderwritingSemanticProposal({
   };
 }
 
+export function buildAccountClosureSemanticProposal({
+  targetPath = 'tests/adversary/account-closure-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'account-closure-semantic',
+    targetPath,
+    body: [
+      "const { closeAccount } = require('../../src/account-closure.cjs');",
+      'const baseAccount = { active: true, status: "active", balanceCents: 0, pendingDisputes: false, legalHold: false, dataExportReady: true, lastLoginDays: 10, identityVerified: true, subscriptionActive: false };',
+      'const baseRequest = { type: "user_requested", confirmPhrase: "CLOSE", refundMethodOnFile: true };',
+      'const policy = { maxDormantDaysWithoutIdentity: 365 };',
+      'const cases = [',
+      '  [baseAccount, baseRequest, policy, { status: "closed", reason: null, refundCents: 0, requiresManualReview: false, dataDeleted: true }],',
+      '  [{ ...baseAccount, active: false }, baseRequest, policy, { status: "denied", reason: "account_not_active", refundCents: 0, requiresManualReview: false, dataDeleted: false }],',
+      '  [{ ...baseAccount, status: "suspended" }, baseRequest, policy, { status: "review", reason: "suspended_account_review", refundCents: 0, requiresManualReview: true, dataDeleted: false }],',
+      '  [{ ...baseAccount, legalHold: true }, baseRequest, policy, { status: "denied", reason: "legal_hold", refundCents: 0, requiresManualReview: false, dataDeleted: false }],',
+      '  [{ ...baseAccount, pendingDisputes: true }, baseRequest, policy, { status: "review", reason: "pending_dispute", refundCents: 0, requiresManualReview: true, dataDeleted: false }],',
+      '  [{ ...baseAccount, dataExportReady: false }, baseRequest, policy, { status: "review", reason: "data_export_pending", refundCents: 0, requiresManualReview: true, dataDeleted: false }],',
+      '  [{ ...baseAccount, subscriptionActive: true }, baseRequest, policy, { status: "denied", reason: "active_subscription", refundCents: 0, requiresManualReview: false, dataDeleted: false }],',
+      '  [{ ...baseAccount, balanceCents: 1200 }, { ...baseRequest, refundMethodOnFile: false }, policy, { status: "review", reason: "refund_method_required", refundCents: 1200, requiresManualReview: true, dataDeleted: false }],',
+      '  [{ ...baseAccount, balanceCents: 1200 }, baseRequest, policy, { status: "closed", reason: null, refundCents: 1200, requiresManualReview: false, dataDeleted: true }],',
+      '  [{ ...baseAccount, identityVerified: false, lastLoginDays: 400 }, baseRequest, policy, { status: "review", reason: "identity_verification_required", refundCents: 0, requiresManualReview: true, dataDeleted: false }],',
+      '  [baseAccount, { ...baseRequest, confirmPhrase: "DELETE" }, policy, { status: "denied", reason: "confirmation_required", refundCents: 0, requiresManualReview: false, dataDeleted: false }]',
+      '];',
+      'for (const [account, request, closurePolicy, expected] of cases) {',
+      '  const actual = closeAccount(account, request, closurePolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1465,6 +1503,26 @@ export function buildAdversaryLiveFilterConfig() {
       'debt_to_income_exceeded',
       'unsecured_amount_exceeded',
       'large_loan_manual_review',
+      'account',
+      'closure',
+      'closeAccount',
+      'legalHold',
+      'pendingDisputes',
+      'dataExportReady',
+      'lastLoginDays',
+      'identityVerified',
+      'subscriptionActive',
+      'refundMethodOnFile',
+      'dataDeleted',
+      'account_not_active',
+      'suspended_account_review',
+      'legal_hold',
+      'pending_dispute',
+      'data_export_pending',
+      'active_subscription',
+      'refund_method_required',
+      'identity_verification_required',
+      'confirmation_required',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1642,6 +1700,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.expenseReimbursementHardcoded === 'fail';
   const loanUnderwritingHardcodePassed =
     gates?.good === 'pass' && gates?.loanUnderwritingHardcoded === 'fail';
+  const accountClosureHardcodePassed =
+    gates?.good === 'pass' && gates?.accountClosureHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2042,6 +2102,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       loan_underwriting_hardcoded_gate_status:
         gates?.loanUnderwritingHardcoded ?? null
+    },
+    {
+      id: 'account_closure_hardcode',
+      ...common('account_closure_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:account_closure_semantic',
+      executed: true,
+      blocked: accountClosureHardcodePassed,
+      passed: accountClosureHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      account_closure_hardcoded_gate_status:
+        gates?.accountClosureHardcoded ?? null
     }
   ];
 }

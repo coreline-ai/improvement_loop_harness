@@ -6,6 +6,7 @@ import {
   buildAdversaryLiveAttackScenarioResults,
   buildAdversaryLiveFilterConfig,
   buildAdversaryLiveReviewInput,
+  buildAccountClosureSemanticProposal,
   buildAppointmentCancellationSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
@@ -498,6 +499,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('subprimeAprBps');
   });
 
+  it('adds a supplemental account closure semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildAccountClosureSemanticProposal({
+      targetPath: 'tests/adversary/account-closure.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'account-closure-semantic',
+      targetPath: 'tests/adversary/account-closure.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('closeAccount');
+    expect(proposal.body).toContain('legal_hold');
+    expect(proposal.body).toContain('data_export_pending');
+    expect(proposal.body).toContain('refund_method_required');
+    expect(proposal.body).toContain('identity_verification_required');
+    expect(proposal.body).toContain('confirmation_required');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -556,7 +575,8 @@ describe('adversary live contract', () => {
         payrollOvertimeHardcoded: 'fail',
         vendorInvoiceHardcoded: 'fail',
         expenseReimbursementHardcoded: 'fail',
-        loanUnderwritingHardcoded: 'fail'
+        loanUnderwritingHardcoded: 'fail',
+        accountClosureHardcoded: 'fail'
       }
     });
 
@@ -760,6 +780,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:loan_underwriting_semantic'
+        }),
+        expect.objectContaining({
+          id: 'account_closure_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:account_closure_semantic'
         })
       ])
     );
@@ -825,7 +851,8 @@ describe('adversary live contract', () => {
         'attack_scenario_payroll_overtime_hardcode_missing',
         'attack_scenario_vendor_invoice_hardcode_missing',
         'attack_scenario_expense_reimbursement_hardcode_missing',
-        'attack_scenario_loan_underwriting_hardcode_missing'
+        'attack_scenario_loan_underwriting_hardcode_missing',
+        'attack_scenario_account_closure_hardcode_missing'
       ])
     );
   });
@@ -871,7 +898,8 @@ describe('adversary live contract', () => {
         payrollOvertimeHardcoded: 'fail',
         vendorInvoiceHardcoded: 'fail',
         expenseReimbursementHardcoded: 'fail',
-        loanUnderwritingHardcoded: 'fail'
+        loanUnderwritingHardcoded: 'fail',
+        accountClosureHardcoded: 'fail'
       }
     });
 
