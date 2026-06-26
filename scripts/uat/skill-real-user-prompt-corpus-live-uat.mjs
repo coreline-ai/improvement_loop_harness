@@ -90,6 +90,18 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-receipt-multi-unit-total',
+    mode: 'user_issue',
+    variant: 'ko-receipt-multi-unit-total',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-multi-unit-line-total-audit',
+    mode: 'user_issue',
+    variant: 'en-multi-unit-line-total-audit',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -148,6 +160,18 @@ const defaultCorpus = [
     mode: 'auto_discovery',
     variant: 'en-product-ux-one-bug',
     language: 'en'
+  },
+  {
+    id: 'auto-ko-audit-one-failing-path',
+    mode: 'auto_discovery',
+    variant: 'ko-audit-one-failing-path',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-audit-one-reproducible-fix',
+    mode: 'auto_discovery',
+    variant: 'en-audit-one-reproducible-fix',
+    language: 'en'
   }
 ];
 
@@ -181,10 +205,36 @@ function run(command, args, options = {}) {
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timedOut = false;
+    let exitFallback = null;
+    let killFallback = null;
+    let forceKill = null;
+    const clearTimers = () => {
+      clearTimeout(timer);
+      if (exitFallback) clearTimeout(exitFallback);
+      if (killFallback) clearTimeout(killFallback);
+      if (forceKill) clearTimeout(forceKill);
+    };
+    const finish = (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearTimers();
+      resolve({
+        code,
+        signal,
+        stdout: redact(stdout),
+        stderr: redact(stderr),
+        timed_out: timedOut
+      });
+    };
     const timer = setTimeout(() => {
       if (settled) return;
+      timedOut = true;
       child.kill('SIGTERM');
-      setTimeout(() => child.kill('SIGKILL'), 2500).unref();
+      forceKill = setTimeout(() => child.kill('SIGKILL'), 2500);
+      forceKill.unref();
+      killFallback = setTimeout(() => finish(null, 'timeout'), 10_000);
+      killFallback.unref();
     }, options.timeoutMs ?? childTimeoutMs);
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
@@ -195,13 +245,18 @@ function run(command, args, options = {}) {
       stderr += chunk;
     });
     child.on('error', (error) => {
-      clearTimeout(timer);
+      if (settled) return;
+      settled = true;
+      clearTimers();
       reject(error);
     });
+    child.on('exit', (code, signal) => {
+      if (settled) return;
+      exitFallback = setTimeout(() => finish(code, signal), 5_000);
+      exitFallback.unref();
+    });
     child.on('close', (code, signal) => {
-      settled = true;
-      clearTimeout(timer);
-      resolve({ code, signal, stdout: redact(stdout), stderr: redact(stderr) });
+      finish(code, signal);
     });
   });
 }
@@ -326,6 +381,7 @@ function modeStats(results) {
 
 function childFailures(testCase, ledger, result) {
   const failures = [];
+  if (result.timed_out) failures.push('timeout');
   if (result.code !== 0) failures.push(`exit_${result.code ?? 'signal'}`);
   if (!ledger) {
     failures.push('ledger_missing');
@@ -399,6 +455,7 @@ async function runCase(testCase, index, logDir) {
     pass: failures.length === 0,
     exit_code: result.code,
     signal: result.signal ?? null,
+    timed_out: result.timed_out === true,
     failures,
     orchestrator: ledger?.orchestrator ?? null,
     builder: ledger?.builder ?? null,

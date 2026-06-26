@@ -224,6 +224,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'A shopper adding multiple units gets charged as if there is only one. Fix the cart quantity total and verify the regression.'
+    },
+    {
+      id: 'ko-receipt-multi-unit-total',
+      language: 'ko',
+      prompt:
+        '영수증 합계가 같은 상품을 여러 개 담아도 단가 한 번만 계산돼. 수량 반영 버그를 고치고 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'en-multi-unit-line-total-audit',
+      language: 'en',
+      prompt:
+        'A multi-unit cart line is totaled as one unit. Fix the line total behavior, add regression coverage, and leave the result PR-ready.'
     }
   ],
   auto_discovery: [
@@ -283,6 +295,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Find one failing behavior in this user product repo, resolve it, verify it, and leave a PR-ready result.'
+    },
+    {
+      id: 'ko-audit-one-failing-path',
+      language: 'ko',
+      prompt:
+        '사용자 프로젝트를 감사하듯 프로젝트 스캔해서 문제 하나 찾아서 고치고 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'en-audit-one-reproducible-fix',
+      language: 'en',
+      prompt:
+        'Find one failing behavior in this repo through an audit pass, fix it, verify it, and prepare a PR-ready result.'
     }
   ]
 };
