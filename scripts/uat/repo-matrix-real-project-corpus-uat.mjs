@@ -1287,6 +1287,26 @@ function buildVendorInvoiceApprovalVerifier(cases) {
   ].join('\n');
 }
 
+function buildReleaseReadinessVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateReleaseReadiness } = require(process.cwd() + '/examples/business-source/release-readiness.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateReleaseReadiness(item.release, item.checks, item.approval, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -5081,6 +5101,386 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             reason: 'tax_id_unverified',
             requiresManualReview: true,
             approved: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'release-readiness-sev1-hold',
+    semantic_domain: 'release_readiness_incident_freeze_approval_gate',
+    business_source_repair: true,
+    business_domain: 'release_readiness',
+    relativePath: 'examples/business-source/release-readiness.cjs',
+    language: 'javascript',
+    originalNeedle: '  if ((checks.openSev1Incidents ?? 0) > 0) {',
+    regressionText: '  if ((checks.openSev1Incidents ?? 0) < 0) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildReleaseReadinessVerifier([
+        {
+          name: 'approved production release passes readiness gates',
+          release: {
+            id: 'release_visible_approved',
+            deploymentId: 'deploy-visible-a',
+            status: 'ready',
+            environment: 'production',
+            riskLevel: 'medium',
+            hasRollbackPlan: true,
+            deploymentWindowApproved: true,
+            freezeWindow: false
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: true,
+            securityScanPassed: true,
+            openSev1Incidents: 0
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: true,
+            changeManagerApproved: true
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            releaseAllowed: true,
+            requiresManualReview: false,
+            rollbackRequired: false
+          }
+        },
+        {
+          name: 'active sev1 incident blocks release',
+          release: {
+            id: 'release_visible_incident',
+            deploymentId: 'deploy-visible-b',
+            status: 'ready',
+            environment: 'production',
+            riskLevel: 'medium',
+            hasRollbackPlan: true,
+            deploymentWindowApproved: true,
+            freezeWindow: false
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: true,
+            securityScanPassed: true,
+            openSev1Incidents: 1
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: true,
+            changeManagerApproved: true
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'active_sev1_incident',
+            releaseAllowed: false,
+            requiresManualReview: false,
+            rollbackRequired: false
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildReleaseReadinessVerifier([
+        {
+          name: 'hidden active sev1 incident blocks release',
+          release: {
+            id: 'release_hidden_incident',
+            deploymentId: 'deploy-hidden-incident',
+            status: 'ready',
+            environment: 'production',
+            riskLevel: 'medium',
+            hasRollbackPlan: true,
+            deploymentWindowApproved: true,
+            freezeWindow: false
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: true,
+            securityScanPassed: true,
+            openSev1Incidents: 2
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: true,
+            changeManagerApproved: true
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'active_sev1_incident',
+            releaseAllowed: false,
+            requiresManualReview: false,
+            rollbackRequired: false
+          }
+        },
+        {
+          name: 'failed smoke requires rollback',
+          release: {
+            id: 'release_hidden_smoke',
+            deploymentId: 'deploy-hidden-a',
+            status: 'ready',
+            environment: 'production',
+            riskLevel: 'medium',
+            hasRollbackPlan: true,
+            deploymentWindowApproved: true,
+            freezeWindow: false
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: false,
+            securityScanPassed: true,
+            openSev1Incidents: 0
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: true,
+            changeManagerApproved: true
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'smoke_failed',
+            releaseAllowed: false,
+            requiresManualReview: false,
+            rollbackRequired: true
+          }
+        },
+        {
+          name: 'security scan failure blocks release',
+          release: {
+            id: 'release_hidden_security',
+            deploymentId: 'deploy-hidden-b',
+            status: 'ready',
+            environment: 'production',
+            riskLevel: 'medium',
+            hasRollbackPlan: true,
+            deploymentWindowApproved: true,
+            freezeWindow: false
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: true,
+            securityScanPassed: false,
+            openSev1Incidents: 0
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: true,
+            changeManagerApproved: true
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'security_scan_failed',
+            releaseAllowed: false,
+            requiresManualReview: false,
+            rollbackRequired: false
+          }
+        },
+        {
+          name: 'missing rollback plan requires manual review',
+          release: {
+            id: 'release_hidden_rollback',
+            deploymentId: 'deploy-hidden-c',
+            status: 'ready',
+            environment: 'production',
+            riskLevel: 'medium',
+            hasRollbackPlan: false,
+            deploymentWindowApproved: true,
+            freezeWindow: false
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: true,
+            securityScanPassed: true,
+            openSev1Incidents: 0
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: true,
+            changeManagerApproved: true
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'rollback_plan_required',
+            releaseAllowed: false,
+            requiresManualReview: true,
+            rollbackRequired: false
+          }
+        },
+        {
+          name: 'freeze window requires manual review',
+          release: {
+            id: 'release_hidden_freeze',
+            deploymentId: 'deploy-hidden-d',
+            status: 'ready',
+            environment: 'production',
+            riskLevel: 'medium',
+            hasRollbackPlan: true,
+            deploymentWindowApproved: true,
+            freezeWindow: true
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: true,
+            securityScanPassed: true,
+            openSev1Incidents: 0
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: true,
+            changeManagerApproved: true
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'freeze_window',
+            releaseAllowed: false,
+            requiresManualReview: true,
+            rollbackRequired: false
+          }
+        },
+        {
+          name: 'high risk release requires change manager approval',
+          release: {
+            id: 'release_hidden_high_risk',
+            deploymentId: 'deploy-hidden-e',
+            status: 'ready',
+            environment: 'production',
+            riskLevel: 'high',
+            hasRollbackPlan: true,
+            deploymentWindowApproved: true,
+            freezeWindow: false
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: true,
+            securityScanPassed: true,
+            openSev1Incidents: 0
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: true,
+            changeManagerApproved: false
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'change_manager_approval_required',
+            releaseAllowed: false,
+            requiresManualReview: true,
+            rollbackRequired: false
+          }
+        },
+        {
+          name: 'SRE approval is required by policy',
+          release: {
+            id: 'release_hidden_sre',
+            deploymentId: 'deploy-hidden-f',
+            status: 'ready',
+            environment: 'production',
+            riskLevel: 'medium',
+            hasRollbackPlan: true,
+            deploymentWindowApproved: true,
+            freezeWindow: false
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: true,
+            securityScanPassed: true,
+            openSev1Incidents: 0
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: false,
+            changeManagerApproved: true
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'sre_approval_required',
+            releaseAllowed: false,
+            requiresManualReview: true,
+            rollbackRequired: false
+          }
+        },
+        {
+          name: 'unapproved environment is blocked',
+          release: {
+            id: 'release_hidden_env',
+            deploymentId: 'deploy-hidden-g',
+            status: 'ready',
+            environment: 'sandbox',
+            riskLevel: 'medium',
+            hasRollbackPlan: true,
+            deploymentWindowApproved: true,
+            freezeWindow: false
+          },
+          checks: {
+            buildPassed: true,
+            smokePassed: true,
+            securityScanPassed: true,
+            openSev1Incidents: 0
+          },
+          approval: {
+            releaseOwnerApproved: true,
+            sreApproved: true,
+            changeManagerApproved: true
+          },
+          policy: {
+            allowedEnvironments: ['staging', 'production'],
+            requireSreApproval: true
+          },
+          now: '2026-06-27T11:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'environment_not_allowed',
+            releaseAllowed: false,
+            requiresManualReview: false,
+            rollbackRequired: false
           }
         }
       ])
