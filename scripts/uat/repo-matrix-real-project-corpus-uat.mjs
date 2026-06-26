@@ -1067,6 +1067,26 @@ function buildSupportTicketRoutingVerifier(cases) {
   ].join('\n');
 }
 
+function buildPaymentDisputeVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluatePaymentDispute } = require(process.cwd() + '/examples/business-source/payment-dispute.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluatePaymentDispute(item.payment, item.dispute, item.merchant, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -2152,6 +2172,199 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             dueAt: '2026-06-25T15:15:00.000Z',
             escalated: true,
             reason: 'trust_escalation'
+          }
+        }
+      ])
+  },
+  {
+    id: 'payment-dispute-liability-shift',
+    semantic_domain: 'payment_dispute_liability_shift_representment',
+    business_source_repair: true,
+    business_domain: 'payment_dispute',
+    relativePath: 'examples/business-source/payment-dispute.cjs',
+    language: 'javascript',
+    originalNeedle:
+      "  if (dispute.reason === 'fraud' && payment.liabilityShifted === true) {",
+    regressionText:
+      "  if (dispute.reason === 'fraud' && payment.liabilityShifted !== true) {",
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildPaymentDisputeVerifier([
+        {
+          name: 'fraud dispute with liability shift is represented without merchant debit',
+          payment: {
+            status: 'captured',
+            currency: 'USD',
+            amountCents: 12900,
+            capturedAt: '2026-06-20T00:00:00.000Z',
+            liabilityShifted: true
+          },
+          dispute: { reason: 'fraud' },
+          merchant: { riskTier: 'standard' },
+          policy: {
+            disputeWindowDays: 120,
+            evidenceDueHours: 48,
+            manualReviewThresholdCents: 50000
+          },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            eligible: true,
+            action: 'represent',
+            reason: 'issuer_liability_shift',
+            merchantDebitCents: 0,
+            evidenceDueAt: '2026-06-27T09:00:00.000Z',
+            evidenceType: 'network_evidence'
+          }
+        },
+        {
+          name: 'fraud dispute without liability shift requires merchant evidence',
+          payment: {
+            status: 'captured',
+            currency: 'USD',
+            amountCents: 12900,
+            capturedAt: '2026-06-20T00:00:00.000Z',
+            liabilityShifted: false
+          },
+          dispute: { reason: 'fraud' },
+          merchant: { riskTier: 'standard' },
+          policy: {
+            disputeWindowDays: 120,
+            evidenceDueHours: 48,
+            manualReviewThresholdCents: 50000
+          },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            eligible: true,
+            action: 'represent',
+            reason: 'evidence_required',
+            merchantDebitCents: 12900,
+            evidenceDueAt: '2026-06-27T09:00:00.000Z',
+            evidenceType: 'merchant_evidence'
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildPaymentDisputeVerifier([
+        {
+          name: 'settled liability-shifted fraud dispute uses configured due date',
+          payment: {
+            status: 'settled',
+            currency: 'EUR',
+            amountCents: 8400,
+            capturedAt: '2026-06-10T00:00:00.000Z',
+            liabilityShifted: true
+          },
+          dispute: { reason: 'fraud' },
+          merchant: { riskTier: 'high' },
+          policy: {
+            disputeWindowDays: 120,
+            evidenceDueHours: 24,
+            manualReviewThresholdCents: 1000
+          },
+          now: '2026-06-25T14:30:00.000Z',
+          expected: {
+            eligible: true,
+            action: 'represent',
+            reason: 'issuer_liability_shift',
+            currency: 'EUR',
+            merchantDebitCents: 0,
+            evidenceDueAt: '2026-06-26T14:30:00.000Z',
+            evidenceType: 'network_evidence'
+          }
+        },
+        {
+          name: 'duplicate payment dispute is accepted and debited',
+          payment: {
+            status: 'captured',
+            currency: 'USD',
+            amountCents: 4200,
+            capturedAt: '2026-06-22T00:00:00.000Z',
+            duplicateOfPaymentId: 'pay_123'
+          },
+          dispute: { reason: 'duplicate' },
+          merchant: { riskTier: 'standard' },
+          policy: { disputeWindowDays: 120, evidenceDueHours: 72 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            eligible: true,
+            action: 'accept',
+            reason: 'duplicate_charge',
+            merchantDebitCents: 4200,
+            evidenceDueAt: null,
+            evidenceType: null
+          }
+        },
+        {
+          name: 'large non-fraud dispute goes to manual review',
+          payment: {
+            status: 'captured',
+            currency: 'USD',
+            amountCents: 99000,
+            capturedAt: '2026-06-22T00:00:00.000Z',
+            liabilityShifted: false
+          },
+          dispute: { reason: 'product_not_received' },
+          merchant: { riskTier: 'standard' },
+          policy: {
+            disputeWindowDays: 120,
+            evidenceDueHours: 12,
+            manualReviewThresholdCents: 50000
+          },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            eligible: true,
+            action: 'manual_review',
+            reason: 'manual_review_required',
+            merchantDebitCents: 99000,
+            evidenceDueAt: '2026-06-25T21:00:00.000Z',
+            evidenceType: 'merchant_evidence'
+          }
+        },
+        {
+          name: 'expired dispute window is closed',
+          payment: {
+            status: 'captured',
+            currency: 'USD',
+            amountCents: 2200,
+            capturedAt: '2026-01-01T00:00:00.000Z',
+            liabilityShifted: true
+          },
+          dispute: { reason: 'fraud' },
+          merchant: { riskTier: 'standard' },
+          policy: { disputeWindowDays: 60, evidenceDueHours: 72 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            eligible: false,
+            action: 'closed',
+            reason: 'dispute_window_expired',
+            merchantDebitCents: 0,
+            evidenceDueAt: null,
+            evidenceType: null
+          }
+        },
+        {
+          name: 'uncaptured payment dispute is closed before evidence handling',
+          payment: {
+            status: 'authorized',
+            currency: 'USD',
+            amountCents: 2200,
+            capturedAt: '2026-06-24T00:00:00.000Z',
+            liabilityShifted: true
+          },
+          dispute: { reason: 'fraud' },
+          merchant: { riskTier: 'standard' },
+          policy: { disputeWindowDays: 120, evidenceDueHours: 72 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            eligible: false,
+            action: 'closed',
+            reason: 'payment_not_settled',
+            merchantDebitCents: 0,
+            evidenceDueAt: null,
+            evidenceType: null
           }
         }
       ])
