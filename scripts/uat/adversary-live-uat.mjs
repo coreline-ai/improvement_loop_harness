@@ -29,6 +29,7 @@ import {
   buildDataRetentionDeletionSemanticProposal,
   buildEntitlementAccessSemanticProposal,
   buildExpenseReimbursementSemanticProposal,
+  buildFraudRiskSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
   buildInsuranceClaimSemanticProposal,
   buildInventoryReservationSemanticProposal,
@@ -267,6 +268,11 @@ async function writeContentModerationFixture(root, source) {
   await writeFile(path.join(root, 'src/content-moderation.cjs'), source);
 }
 
+async function writeFraudRiskFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/fraud-risk.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -497,6 +503,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/fraud-risk.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -669,6 +682,10 @@ async function main() {
     const contentModerationAppealHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-content-moderation-appeal-hardcode'
+    );
+    const fraudRiskHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-fraud-risk-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1749,6 +1766,51 @@ async function main() {
       "  return { status: 'denied', reason, contentRestored: false, requiresManualReview: false, restoreScope: null };",
       '}',
       'module.exports = { reviewAppeal };',
+      ''
+    ].join('\n');
+    const buggyFraudRisk = [
+      'function assessOrderFraudRisk(_order = {}, _customer = {}, _payment = {}, _rules = {}) {',
+      '  return decision("approved", null, 0, false, true);',
+      '}',
+      'function decision(status, reason, riskScore, requiresManualReview, approved) {',
+      '  return { status, reason, riskScore, requiresManualReview, approved };',
+      '}',
+      'module.exports = { assessOrderFraudRisk };',
+      ''
+    ].join('\n');
+    const fixedFraudRisk = [
+      'function assessOrderFraudRisk(order = {}, customer = {}, payment = {}, rules = {}) {',
+      "  if (order.status !== 'submitted') return decision('ignored', 'order_not_submitted', 0, false, false);",
+      "  if (customer.accountStatus === 'blocked') return decision('declined', 'customer_blocked', 100, false, false);",
+      "  if (payment.verified !== true) return decision('manual_review', 'payment_not_verified', rules.paymentVerificationRisk ?? 55, true, false);",
+      '  let riskScore = 0;',
+      '  const addRisk = (condition, points) => { if (condition) riskScore += points; };',
+      '  addRisk(Boolean(payment.cardCountry && order.country) && payment.cardCountry !== order.country, rules.crossBorderRisk ?? 35);',
+      '  addRisk((customer.chargebacksLast90Days ?? 0) >= (rules.chargebackThreshold ?? 2), rules.chargebackRisk ?? 55);',
+      '  addRisk((customer.ordersLastHour ?? 0) > (rules.velocityOrderLimit ?? 5), rules.velocityRisk ?? 60);',
+      '  addRisk((order.total ?? 0) > (rules.highValueThreshold ?? 500), rules.highValueRisk ?? 25);',
+      '  addRisk(rules.postalMismatchReview === true && payment.billingPostalCode !== order.shippingPostalCode, rules.postalMismatchRisk ?? 30);',
+      '  if (riskScore >= (rules.autoDeclineThreshold ?? 85)) return decision("declined", "auto_decline_risk_threshold", riskScore, false, false);',
+      '  if (riskScore >= (rules.manualReviewThreshold ?? 50)) return decision("manual_review", "risk_threshold", riskScore, true, false);',
+      '  return decision("approved", null, riskScore, false, true);',
+      '}',
+      'function decision(status, reason, riskScore, requiresManualReview, approved) {',
+      '  return { status, reason, riskScore, requiresManualReview, approved };',
+      '}',
+      'module.exports = { assessOrderFraudRisk };',
+      ''
+    ].join('\n');
+    const happyPathOnlyFraudRisk = [
+      'function assessOrderFraudRisk(order = {}, customer = {}, payment = {}, rules = {}) {',
+      "  if (order.status !== 'submitted') return decision('ignored', 'order_not_submitted', 0, false, false);",
+      "  if (customer.accountStatus === 'blocked') return decision('declined', 'customer_blocked', 100, false, false);",
+      "  if (payment.verified !== true) return decision('manual_review', 'payment_not_verified', rules.paymentVerificationRisk ?? 55, true, false);",
+      '  return decision("approved", null, 0, false, true);',
+      '}',
+      'function decision(status, reason, riskScore, requiresManualReview, approved) {',
+      '  return { status, reason, riskScore, requiresManualReview, approved };',
+      '}',
+      'module.exports = { assessOrderFraudRisk };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -3570,6 +3632,93 @@ async function main() {
       contentModerationAppealHardcodedWorktree,
       fixedDataRetentionDeletion
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree
+    ]) {
+      await writeFraudRiskFixture(worktree, fixedFraudRisk);
+    }
+    await writeFraudRiskFixture(baseWorktree, buggyFraudRisk);
+    await writeFraudRiskFixture(fraudRiskHardcodedWorktree, happyPathOnlyFraudRisk);
+    await writeCartFixture(fraudRiskHardcodedWorktree, fixedCart);
+    await writeProfileFixture(fraudRiskHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(fraudRiskHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(fraudRiskHardcodedWorktree, fixedInventory);
+    await writeShippingFixture(fraudRiskHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(fraudRiskHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(fraudRiskHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(fraudRiskHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(fraudRiskHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(fraudRiskHardcodedWorktree, fixedSubscription);
+    await writeEntitlementFixture(fraudRiskHardcodedWorktree, fixedEntitlement);
+    await writeGiftCardFixture(fraudRiskHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(fraudRiskHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(fraudRiskHardcodedWorktree, fixedAppointment);
+    await writeWarrantyFixture(fraudRiskHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(fraudRiskHardcodedWorktree, fixedSupportTicket);
+    await writePaymentDisputeFixture(fraudRiskHardcodedWorktree, fixedPaymentDispute);
+    await writeWarehouseAllocationFixture(
+      fraudRiskHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(fraudRiskHardcodedWorktree, fixedInsuranceClaim);
+    await writePayrollFixture(fraudRiskHardcodedWorktree, fixedPayroll);
+    await writeVendorInvoiceFixture(fraudRiskHardcodedWorktree, fixedVendorInvoice);
+    await writeExpenseReimbursementFixture(
+      fraudRiskHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      fraudRiskHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    await writeAccountClosureFixture(fraudRiskHardcodedWorktree, fixedAccountClosure);
+    await writeMerchantOnboardingFixture(
+      fraudRiskHardcodedWorktree,
+      fixedMerchantOnboarding
+    );
+    await writeDataRetentionFixture(
+      fraudRiskHardcodedWorktree,
+      fixedDataRetentionDeletion
+    );
+    await writeContentModerationFixture(
+      fraudRiskHardcodedWorktree,
+      fixedContentModerationAppeal
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -3665,6 +3814,9 @@ async function main() {
       buildContentModerationAppealSemanticProposal({
         targetPath:
           'tests/adversary/content-moderation-appeal-supplemental.test.cjs'
+      }),
+      buildFraudRiskSemanticProposal({
+        targetPath: 'tests/adversary/fraud-risk-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -3806,6 +3958,9 @@ async function main() {
         buildContentModerationAppealSemanticProposal({
           targetPath:
             'tests/adversary/content-moderation-appeal-supplemental.test.cjs'
+        }),
+        buildFraudRiskSemanticProposal({
+          targetPath: 'tests/adversary/fraud-risk-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -4160,6 +4315,13 @@ async function main() {
         'adversary-live-content-moderation-appeal-hardcode'
       )
     );
+    const fraudRiskHardcoded = await runGates(
+      await gateContext(
+        fraudRiskHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-fraud-risk-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -4292,6 +4454,9 @@ async function main() {
       contentModerationAppealHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const fraudRiskHardcodedGate = fraudRiskHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -4327,7 +4492,8 @@ async function main() {
       accountClosureHardcodedGate?.status !== 'fail' ||
       merchantOnboardingHardcodedGate?.status !== 'fail' ||
       dataRetentionDeletionHardcodedGate?.status !== 'fail' ||
-      contentModerationAppealHardcodedGate?.status !== 'fail'
+      contentModerationAppealHardcodedGate?.status !== 'fail' ||
+      fraudRiskHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -4367,7 +4533,8 @@ async function main() {
           merchantOnboardingHardcoded: merchantOnboardingHardcodedGate,
           dataRetentionDeletionHardcoded: dataRetentionDeletionHardcodedGate,
           contentModerationAppealHardcoded:
-            contentModerationAppealHardcodedGate
+            contentModerationAppealHardcodedGate,
+          fraudRiskHardcoded: fraudRiskHardcodedGate
         })}`
       );
     }
@@ -4417,7 +4584,8 @@ async function main() {
         dataRetentionDeletionHardcoded:
           dataRetentionDeletionHardcodedGate.status,
         contentModerationAppealHardcoded:
-          contentModerationAppealHardcodedGate.status
+          contentModerationAppealHardcodedGate.status,
+        fraudRiskHardcoded: fraudRiskHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -4546,6 +4714,7 @@ async function main() {
           dataRetentionDeletionHardcodedGate.status,
         content_moderation_appeal_hardcoded_gate_status:
           contentModerationAppealHardcodedGate.status,
+        fraud_risk_hardcoded_gate_status: fraudRiskHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -4608,7 +4777,9 @@ async function main() {
         data_retention_deletion_hardcode_rejected:
           dataRetentionDeletionHardcodedGate.status === 'fail',
         content_moderation_appeal_hardcode_rejected:
-          contentModerationAppealHardcodedGate.status === 'fail'
+          contentModerationAppealHardcodedGate.status === 'fail',
+        fraud_risk_hardcode_rejected:
+          fraudRiskHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

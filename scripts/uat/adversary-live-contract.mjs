@@ -1403,6 +1403,40 @@ export function buildContentModerationAppealSemanticProposal({
   };
 }
 
+export function buildFraudRiskSemanticProposal({
+  targetPath = 'tests/adversary/fraud-risk-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'fraud-risk-semantic',
+    targetPath,
+    body: [
+      "const { assessOrderFraudRisk } = require('../../src/fraud-risk.cjs');",
+      'const baseOrder = { status: "submitted", total: 120, country: "US", region: "US", shippingPostalCode: "94105" };',
+      'const baseCustomer = { accountStatus: "active", chargebacksLast90Days: 0, ordersLastHour: 1 };',
+      'const basePayment = { verified: true, cardCountry: "US", billingPostalCode: "94105" };',
+      'const baseRules = { velocityOrderLimit: 5, velocityRisk: 60, crossBorderRisk: 35, chargebackThreshold: 2, chargebackRisk: 55, highValueThreshold: 500, highValueRisk: 25, postalMismatchReview: true, postalMismatchRisk: 30, paymentVerificationRisk: 55, manualReviewThreshold: 50, autoDeclineThreshold: 85 };',
+      'const cases = [',
+      '  [baseOrder, { ...baseCustomer, ordersLastHour: 8 }, basePayment, baseRules, { status: "manual_review", reason: "risk_threshold", riskScore: 60, requiresManualReview: true, approved: false }],',
+      '  [baseOrder, baseCustomer, basePayment, baseRules, { status: "approved", reason: null, riskScore: 0, requiresManualReview: false, approved: true }],',
+      '  [baseOrder, baseCustomer, { ...basePayment, verified: false }, baseRules, { status: "manual_review", reason: "payment_not_verified", riskScore: 55, requiresManualReview: true, approved: false }],',
+      '  [baseOrder, { ...baseCustomer, accountStatus: "blocked" }, basePayment, baseRules, { status: "declined", reason: "customer_blocked", riskScore: 100, requiresManualReview: false, approved: false }],',
+      '  [baseOrder, { ...baseCustomer, chargebacksLast90Days: 2 }, { ...basePayment, cardCountry: "GB" }, baseRules, { status: "declined", reason: "auto_decline_risk_threshold", riskScore: 90, requiresManualReview: false, approved: false }],',
+      '  [{ ...baseOrder, total: 1200, shippingPostalCode: "98101" }, baseCustomer, { ...basePayment, billingPostalCode: "10001" }, baseRules, { status: "manual_review", reason: "risk_threshold", riskScore: 55, requiresManualReview: true, approved: false }],',
+      '  [{ ...baseOrder, status: "draft" }, baseCustomer, basePayment, baseRules, { status: "ignored", reason: "order_not_submitted", riskScore: 0, requiresManualReview: false, approved: false }]',
+      '];',
+      'for (const [order, customer, payment, rules, expected] of cases) {',
+      '  const actual = assessOrderFraudRisk(order, customer, payment, rules);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1684,6 +1718,22 @@ export function buildAdversaryLiveFilterConfig() {
       'evidenceReviewed',
       'repeatedViolation',
       'restrictedRestoreRegions',
+      'fraud',
+      'risk',
+      'assessOrderFraudRisk',
+      'chargebacksLast90Days',
+      'ordersLastHour',
+      'velocityOrderLimit',
+      'velocityRisk',
+      'crossBorderRisk',
+      'paymentVerificationRisk',
+      'postalMismatchReview',
+      'manualReviewThreshold',
+      'autoDeclineThreshold',
+      'riskScore',
+      'payment_not_verified',
+      'customer_blocked',
+      'auto_decline_risk_threshold',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1871,6 +1921,8 @@ export function buildAdversaryLiveAttackScenarioResults({
   const contentModerationAppealHardcodePassed =
     gates?.good === 'pass' &&
     gates?.contentModerationAppealHardcoded === 'fail';
+  const fraudRiskHardcodePassed =
+    gates?.good === 'pass' && gates?.fraudRiskHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2319,6 +2371,17 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       content_moderation_appeal_hardcoded_gate_status:
         gates?.contentModerationAppealHardcoded ?? null
+    },
+    {
+      id: 'fraud_risk_hardcode',
+      ...common('fraud_risk_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:fraud_risk_semantic',
+      executed: true,
+      blocked: fraudRiskHardcodePassed,
+      passed: fraudRiskHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      fraud_risk_hardcoded_gate_status: gates?.fraudRiskHardcoded ?? null
     }
   ];
 }

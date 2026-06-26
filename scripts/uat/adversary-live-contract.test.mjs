@@ -619,7 +619,8 @@ describe('adversary live contract', () => {
         accountClosureHardcoded: 'fail',
         merchantOnboardingHardcoded: 'fail',
         dataRetentionDeletionHardcoded: 'fail',
-        contentModerationAppealHardcoded: 'fail'
+        contentModerationAppealHardcoded: 'fail',
+        fraudRiskHardcoded: 'fail'
       }
     });
 
@@ -847,6 +848,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:content_moderation_appeal_semantic'
+        }),
+        expect.objectContaining({
+          id: 'fraud_risk_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:fraud_risk_semantic'
         })
       ])
     );
@@ -916,7 +923,8 @@ describe('adversary live contract', () => {
         'attack_scenario_account_closure_hardcode_missing',
         'attack_scenario_merchant_onboarding_hardcode_missing',
         'attack_scenario_data_retention_deletion_hardcode_missing',
-        'attack_scenario_content_moderation_appeal_hardcode_missing'
+        'attack_scenario_content_moderation_appeal_hardcode_missing',
+        'attack_scenario_fraud_risk_hardcode_missing'
       ])
     );
   });
@@ -966,7 +974,8 @@ describe('adversary live contract', () => {
         accountClosureHardcoded: 'fail',
         merchantOnboardingHardcoded: 'fail',
         dataRetentionDeletionHardcoded: 'fail',
-        contentModerationAppealHardcoded: 'fail'
+        contentModerationAppealHardcoded: 'fail',
+        fraudRiskHardcoded: 'fail'
       }
     });
 
