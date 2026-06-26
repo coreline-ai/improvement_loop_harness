@@ -1087,6 +1087,26 @@ function buildPaymentDisputeVerifier(cases) {
   ].join('\n');
 }
 
+function buildInsuranceClaimAdjudicationVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { adjudicateInsuranceClaim } = require(process.cwd() + '/examples/business-source/insurance-claim-adjudication.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = adjudicateInsuranceClaim(item.policy, item.claim, item.provider, item.rules, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -2365,6 +2385,266 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             merchantDebitCents: 0,
             evidenceDueAt: null,
             evidenceType: null
+          }
+        }
+      ])
+  },
+  {
+    id: 'insurance-claim-prior-authorization',
+    semantic_domain: 'insurance_claim_prior_authorization_adjudication',
+    business_source_repair: true,
+    business_domain: 'insurance_claim_adjudication',
+    relativePath: 'examples/business-source/insurance-claim-adjudication.cjs',
+    language: 'javascript',
+    originalNeedle: [
+      '  if (',
+      '    claim.requiresPriorAuthorization === true &&',
+      '    !claim.priorAuthorizationId',
+      '  ) {'
+    ].join('\n'),
+    regressionText: [
+      '  if (',
+      '    claim.requiresPriorAuthorization === true &&',
+      '    claim.priorAuthorizationId',
+      '  ) {'
+    ].join('\n'),
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildInsuranceClaimAdjudicationVerifier([
+        {
+          name: 'authorized MRI claim adjudicates deductible and coinsurance',
+          policy: {
+            status: 'active',
+            currency: 'USD',
+            effectiveAt: '2026-01-01T00:00:00.000Z',
+            coveredBenefits: ['MRI', 'WELLNESS'],
+            deductibleRemainingCents: 10000,
+            coinsuranceBps: 2000,
+            annualMaxRemainingCents: 100000,
+            outOfNetworkAllowed: false
+          },
+          claim: {
+            serviceCode: 'MRI',
+            type: 'diagnostic',
+            billedCents: 20000,
+            requiresPriorAuthorization: true,
+            priorAuthorizationId: 'pa_123'
+          },
+          provider: {
+            networkStatus: 'in_network',
+            contractRateCents: 15000
+          },
+          rules: { waitingPeriodDays: 30 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            allowedCents: 15000,
+            deductibleAppliedCents: 10000,
+            coinsuranceCents: 1000,
+            planPaysCents: 4000,
+            patientResponsibilityCents: 11000
+          }
+        },
+        {
+          name: 'missing prior authorization pends the claim',
+          policy: {
+            status: 'active',
+            currency: 'USD',
+            effectiveAt: '2026-01-01T00:00:00.000Z',
+            coveredBenefits: ['MRI'],
+            deductibleRemainingCents: 10000,
+            coinsuranceBps: 2000,
+            annualMaxRemainingCents: 100000,
+            outOfNetworkAllowed: false
+          },
+          claim: {
+            serviceCode: 'MRI',
+            type: 'diagnostic',
+            billedCents: 20000,
+            requiresPriorAuthorization: true
+          },
+          provider: {
+            networkStatus: 'in_network',
+            contractRateCents: 15000
+          },
+          rules: { waitingPeriodDays: 30 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            status: 'pending',
+            reason: 'prior_authorization_required',
+            planPaysCents: 0,
+            patientResponsibilityCents: 0
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildInsuranceClaimAdjudicationVerifier([
+        {
+          name: 'authorized CT claim is approved in hidden verifier',
+          policy: {
+            status: 'active',
+            currency: 'USD',
+            effectiveAt: '2026-01-01T00:00:00.000Z',
+            coveredBenefits: ['CT'],
+            deductibleRemainingCents: 2000,
+            coinsuranceBps: 1000,
+            annualMaxRemainingCents: 100000,
+            outOfNetworkAllowed: false
+          },
+          claim: {
+            serviceCode: 'CT',
+            type: 'diagnostic',
+            billedCents: 18000,
+            requiresPriorAuthorization: true,
+            priorAuthorizationId: 'pa_hidden_456'
+          },
+          provider: {
+            networkStatus: 'in_network',
+            contractRateCents: 12000
+          },
+          rules: { waitingPeriodDays: 30 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            allowedCents: 12000,
+            deductibleAppliedCents: 2000,
+            coinsuranceCents: 1000,
+            planPaysCents: 9000,
+            patientResponsibilityCents: 3000
+          }
+        },
+        {
+          name: 'covered preventive claim bypasses waiting period and cost share',
+          policy: {
+            status: 'active',
+            currency: 'USD',
+            effectiveAt: '2026-06-20T00:00:00.000Z',
+            coveredBenefits: ['WELLNESS'],
+            deductibleRemainingCents: 8000,
+            coinsuranceBps: 2000,
+            annualMaxRemainingCents: 50000,
+            preventiveCovered: true,
+            outOfNetworkAllowed: false
+          },
+          claim: {
+            serviceCode: 'WELLNESS',
+            type: 'preventive',
+            billedCents: 3000,
+            requiresPriorAuthorization: false
+          },
+          provider: {
+            networkStatus: 'in_network',
+            contractRateCents: 2500
+          },
+          rules: { waitingPeriodDays: 30 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            allowedCents: 2500,
+            deductibleAppliedCents: 0,
+            coinsuranceCents: 0,
+            planPaysCents: 2500,
+            patientResponsibilityCents: 0
+          }
+        },
+        {
+          name: 'out of network provider is denied when the policy forbids it',
+          policy: {
+            status: 'active',
+            currency: 'USD',
+            effectiveAt: '2026-01-01T00:00:00.000Z',
+            coveredBenefits: ['XRAY'],
+            deductibleRemainingCents: 0,
+            coinsuranceBps: 1000,
+            annualMaxRemainingCents: 100000,
+            outOfNetworkAllowed: false
+          },
+          claim: {
+            serviceCode: 'XRAY',
+            type: 'diagnostic',
+            billedCents: 9000,
+            requiresPriorAuthorization: false
+          },
+          provider: {
+            networkStatus: 'out_of_network',
+            contractRateCents: 5000
+          },
+          rules: { waitingPeriodDays: 30 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'out_of_network',
+            planPaysCents: 0
+          }
+        },
+        {
+          name: 'benefit max exhausted denies otherwise covered claim',
+          policy: {
+            status: 'active',
+            currency: 'USD',
+            effectiveAt: '2026-01-01T00:00:00.000Z',
+            coveredBenefits: ['THERAPY'],
+            deductibleRemainingCents: 0,
+            coinsuranceBps: 1000,
+            annualMaxRemainingCents: 0,
+            outOfNetworkAllowed: true
+          },
+          claim: {
+            serviceCode: 'THERAPY',
+            type: 'diagnostic',
+            billedCents: 12000,
+            requiresPriorAuthorization: false
+          },
+          provider: {
+            networkStatus: 'out_of_network',
+            contractRateCents: 10000
+          },
+          rules: { waitingPeriodDays: 30 },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'benefit_max_exhausted',
+            planPaysCents: 0
+          }
+        },
+        {
+          name: 'accident claim waits for coordination of benefits',
+          policy: {
+            status: 'active',
+            currency: 'USD',
+            effectiveAt: '2026-01-01T00:00:00.000Z',
+            coveredBenefits: ['ER'],
+            deductibleRemainingCents: 0,
+            coinsuranceBps: 1000,
+            annualMaxRemainingCents: 100000,
+            outOfNetworkAllowed: true
+          },
+          claim: {
+            serviceCode: 'ER',
+            type: 'emergency',
+            billedCents: 50000,
+            accidentRelated: true,
+            requiresPriorAuthorization: false
+          },
+          provider: {
+            networkStatus: 'in_network',
+            contractRateCents: 40000
+          },
+          rules: {
+            waitingPeriodDays: 30,
+            requireCoordinationForAccident: true
+          },
+          now: '2026-06-25T09:00:00.000Z',
+          expected: {
+            status: 'pending',
+            reason: 'coordination_required',
+            planPaysCents: 0
           }
         }
       ])
