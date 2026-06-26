@@ -10,6 +10,7 @@ import {
   buildAppointmentCancellationSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
   buildControlledAdversaryReviewerProvenance,
+  buildCreditMemoApprovalSemanticProposal,
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
   buildDataRetentionDeletionSemanticProposal,
@@ -557,6 +558,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('minor_data_review');
   });
 
+  it('adds a supplemental credit memo approval semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildCreditMemoApprovalSemanticProposal({
+      targetPath: 'tests/adversary/credit-memo-approval.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'credit-memo-approval-semantic',
+      targetPath: 'tests/adversary/credit-memo-approval.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateCreditMemo');
+    expect(proposal.body).toContain('invoice_not_settled');
+    expect(proposal.body).toContain('missing_dispute_evidence');
+    expect(proposal.body).toContain('duplicate_credit_memo');
+    expect(proposal.body).toContain('credit_window_expired');
+    expect(proposal.body).toContain('approval_threshold');
+    expect(proposal.body).toContain('tax_adjustment_cap');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -620,7 +640,8 @@ describe('adversary live contract', () => {
         merchantOnboardingHardcoded: 'fail',
         dataRetentionDeletionHardcoded: 'fail',
         contentModerationAppealHardcoded: 'fail',
-        fraudRiskHardcoded: 'fail'
+        fraudRiskHardcoded: 'fail',
+        creditMemoApprovalHardcoded: 'fail'
       }
     });
 
@@ -975,7 +996,8 @@ describe('adversary live contract', () => {
         merchantOnboardingHardcoded: 'fail',
         dataRetentionDeletionHardcoded: 'fail',
         contentModerationAppealHardcoded: 'fail',
-        fraudRiskHardcoded: 'fail'
+        fraudRiskHardcoded: 'fail',
+        creditMemoApprovalHardcoded: 'fail'
       }
     });
 

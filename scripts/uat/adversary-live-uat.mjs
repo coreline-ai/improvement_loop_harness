@@ -24,6 +24,7 @@ import {
   buildCommandAdversaryReviewerProvenance,
   buildContentModerationAppealSemanticProposal,
   buildControlledAdversaryReviewerProvenance,
+  buildCreditMemoApprovalSemanticProposal,
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
   buildDataRetentionDeletionSemanticProposal,
@@ -273,6 +274,11 @@ async function writeFraudRiskFixture(root, source) {
   await writeFile(path.join(root, 'src/fraud-risk.cjs'), source);
 }
 
+async function writeCreditMemoFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/credit-memo.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -510,6 +516,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/credit-memo.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -686,6 +699,10 @@ async function main() {
     const fraudRiskHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-fraud-risk-hardcode'
+    );
+    const creditMemoApprovalHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-credit-memo-approval-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1811,6 +1828,54 @@ async function main() {
       '  return { status, reason, riskScore, requiresManualReview, approved };',
       '}',
       'module.exports = { assessOrderFraudRisk };',
+      ''
+    ].join('\n');
+    const buggyCreditMemo = [
+      'function evaluateCreditMemo(_invoice = {}, request = {}, _account = {}, _policy = {}) {',
+      '  return decision("approved", null, Math.max(0, request.amountCents ?? 0), false, true);',
+      '}',
+      'function decision(status, reason, amountCents, requiresApproval, approved) {',
+      '  return { status, reason, amountCents, requiresApproval, approved };',
+      '}',
+      'module.exports = { evaluateCreditMemo };',
+      ''
+    ].join('\n');
+    const fixedCreditMemo = [
+      'function evaluateCreditMemo(invoice = {}, request = {}, account = {}, policy = {}) {',
+      '  const amountCents = Math.max(0, request.amountCents ?? 0);',
+      "  if (!['paid', 'settled'].includes(invoice.status)) return decision('denied', 'invoice_not_settled', amountCents, false, false);",
+      "  if (account.status === 'suspended' && policy.allowSuspendedAccounts !== true) return decision('denied', 'account_suspended', amountCents, false, false);",
+      "  if (request.duplicateMemo === true || invoice.hasOpenCreditMemo === true) return decision('denied', 'duplicate_credit_memo', amountCents, false, false);",
+      "  if (request.type === 'service_credit' && !request.linkedDisputeId) return decision('manual_review', 'missing_dispute_evidence', amountCents, true, false);",
+      "  if ((invoice.daysSinceSettlement ?? 0) > (policy.creditWindowDays ?? 90)) return decision('denied', 'credit_window_expired', amountCents, false, false);",
+      "  if (amountCents <= 0) return decision('denied', 'invalid_credit_amount', amountCents, false, false);",
+      "  if (amountCents > (invoice.paidCents ?? 0)) return decision('denied', 'credit_exceeds_paid_amount', amountCents, false, false);",
+      "  if (request.reason === 'tax_adjustment') {",
+      '    const cap = policy.taxAdjustmentCapCents ?? Math.round((invoice.taxCents ?? 0) * (policy.taxAdjustmentCapRate ?? 1));',
+      "    if (amountCents > cap) return decision('manual_review', 'tax_adjustment_cap', amountCents, true, false);",
+      '  }',
+      "  if (amountCents > (policy.autoApproveLimitCents ?? Number.POSITIVE_INFINITY)) return decision('manual_review', 'approval_threshold', amountCents, true, false);",
+      '  return decision("approved", null, amountCents, false, true);',
+      '}',
+      'function decision(status, reason, amountCents, requiresApproval, approved) {',
+      '  return { status, reason, amountCents, requiresApproval, approved };',
+      '}',
+      'module.exports = { evaluateCreditMemo };',
+      ''
+    ].join('\n');
+    const happyPathOnlyCreditMemo = [
+      'function evaluateCreditMemo(invoice = {}, request = {}, account = {}) {',
+      '  const amountCents = Math.max(0, request.amountCents ?? 0);',
+      "  if (!['paid', 'settled'].includes(invoice.status)) return decision('denied', 'invoice_not_settled', amountCents, false, false);",
+      "  if (account.status === 'suspended') return decision('denied', 'account_suspended', amountCents, false, false);",
+      "  if (amountCents <= 0) return decision('denied', 'invalid_credit_amount', amountCents, false, false);",
+      "  if (amountCents > (invoice.paidCents ?? 0)) return decision('denied', 'credit_exceeds_paid_amount', amountCents, false, false);",
+      '  return decision("approved", null, amountCents, false, true);',
+      '}',
+      'function decision(status, reason, amountCents, requiresApproval, approved) {',
+      '  return { status, reason, amountCents, requiresApproval, approved };',
+      '}',
+      'module.exports = { evaluateCreditMemo };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -3668,7 +3733,8 @@ async function main() {
       accountClosureHardcodedWorktree,
       merchantOnboardingHardcodedWorktree,
       dataRetentionDeletionHardcodedWorktree,
-      contentModerationAppealHardcodedWorktree
+      contentModerationAppealHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree
     ]) {
       await writeFraudRiskFixture(worktree, fixedFraudRisk);
     }
@@ -3719,6 +3785,125 @@ async function main() {
       fraudRiskHardcodedWorktree,
       fixedContentModerationAppeal
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree
+    ]) {
+      await writeCreditMemoFixture(worktree, fixedCreditMemo);
+    }
+    await writeCreditMemoFixture(baseWorktree, buggyCreditMemo);
+    await writeCreditMemoFixture(
+      creditMemoApprovalHardcodedWorktree,
+      happyPathOnlyCreditMemo
+    );
+    await writeCartFixture(creditMemoApprovalHardcodedWorktree, fixedCart);
+    await writeProfileFixture(creditMemoApprovalHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(creditMemoApprovalHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(creditMemoApprovalHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(creditMemoApprovalHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(creditMemoApprovalHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(creditMemoApprovalHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(creditMemoApprovalHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(creditMemoApprovalHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(creditMemoApprovalHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(creditMemoApprovalHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(creditMemoApprovalHardcodedWorktree, fixedPayroll);
+    await writeVendorInvoiceFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedVendorInvoice
+    );
+    await writeExpenseReimbursementFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    await writeAccountClosureFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedAccountClosure
+    );
+    await writeMerchantOnboardingFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedMerchantOnboarding
+    );
+    await writeDataRetentionFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedDataRetentionDeletion
+    );
+    await writeContentModerationFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedContentModerationAppeal
+    );
+    await writeFraudRiskFixture(creditMemoApprovalHardcodedWorktree, fixedFraudRisk);
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -3817,6 +4002,9 @@ async function main() {
       }),
       buildFraudRiskSemanticProposal({
         targetPath: 'tests/adversary/fraud-risk-supplemental.test.cjs'
+      }),
+      buildCreditMemoApprovalSemanticProposal({
+        targetPath: 'tests/adversary/credit-memo-approval-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -3961,6 +4149,10 @@ async function main() {
         }),
         buildFraudRiskSemanticProposal({
           targetPath: 'tests/adversary/fraud-risk-supplemental.test.cjs'
+        }),
+        buildCreditMemoApprovalSemanticProposal({
+          targetPath:
+            'tests/adversary/credit-memo-approval-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -4322,6 +4514,13 @@ async function main() {
         'adversary-live-fraud-risk-hardcode'
       )
     );
+    const creditMemoApprovalHardcoded = await runGates(
+      await gateContext(
+        creditMemoApprovalHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-credit-memo-approval-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -4457,6 +4656,10 @@ async function main() {
     const fraudRiskHardcodedGate = fraudRiskHardcoded.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
+    const creditMemoApprovalHardcodedGate =
+      creditMemoApprovalHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -4493,7 +4696,8 @@ async function main() {
       merchantOnboardingHardcodedGate?.status !== 'fail' ||
       dataRetentionDeletionHardcodedGate?.status !== 'fail' ||
       contentModerationAppealHardcodedGate?.status !== 'fail' ||
-      fraudRiskHardcodedGate?.status !== 'fail'
+      fraudRiskHardcodedGate?.status !== 'fail' ||
+      creditMemoApprovalHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -4534,7 +4738,8 @@ async function main() {
           dataRetentionDeletionHardcoded: dataRetentionDeletionHardcodedGate,
           contentModerationAppealHardcoded:
             contentModerationAppealHardcodedGate,
-          fraudRiskHardcoded: fraudRiskHardcodedGate
+          fraudRiskHardcoded: fraudRiskHardcodedGate,
+          creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate
         })}`
       );
     }
@@ -4585,7 +4790,8 @@ async function main() {
           dataRetentionDeletionHardcodedGate.status,
         contentModerationAppealHardcoded:
           contentModerationAppealHardcodedGate.status,
-        fraudRiskHardcoded: fraudRiskHardcodedGate.status
+        fraudRiskHardcoded: fraudRiskHardcodedGate.status,
+        creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -4715,6 +4921,8 @@ async function main() {
         content_moderation_appeal_hardcoded_gate_status:
           contentModerationAppealHardcodedGate.status,
         fraud_risk_hardcoded_gate_status: fraudRiskHardcodedGate.status,
+        credit_memo_approval_hardcoded_gate_status:
+          creditMemoApprovalHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -4779,7 +4987,9 @@ async function main() {
         content_moderation_appeal_hardcode_rejected:
           contentModerationAppealHardcodedGate.status === 'fail',
         fraud_risk_hardcode_rejected:
-          fraudRiskHardcodedGate.status === 'fail'
+          fraudRiskHardcodedGate.status === 'fail',
+        credit_memo_approval_hardcode_rejected:
+          creditMemoApprovalHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

@@ -1437,6 +1437,42 @@ export function buildFraudRiskSemanticProposal({
   };
 }
 
+export function buildCreditMemoApprovalSemanticProposal({
+  targetPath = 'tests/adversary/credit-memo-approval-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'credit-memo-approval-semantic',
+    targetPath,
+    body: [
+      "const { evaluateCreditMemo } = require('../../src/credit-memo.cjs');",
+      'const baseInvoice = { status: "settled", paidCents: 100000, taxCents: 7000, daysSinceSettlement: 10 };',
+      'const baseRequest = { type: "billing_credit", reason: "billing_adjustment", amountCents: 5000, linkedDisputeId: "dispute-1" };',
+      'const baseAccount = { status: "active" };',
+      'const policy = { creditWindowDays: 90, autoApproveLimitCents: 10000, taxAdjustmentCapRate: 1 };',
+      'const cases = [',
+      '  [baseInvoice, baseRequest, baseAccount, policy, { status: "approved", reason: null, amountCents: 5000, requiresApproval: false, approved: true }],',
+      '  [{ ...baseInvoice, status: "draft" }, baseRequest, baseAccount, policy, { status: "denied", reason: "invoice_not_settled", amountCents: 5000, requiresApproval: false, approved: false }],',
+      '  [baseInvoice, { type: "service_credit", reason: "sla_breach", amountCents: 5000 }, baseAccount, policy, { status: "manual_review", reason: "missing_dispute_evidence", amountCents: 5000, requiresApproval: true, approved: false }],',
+      '  [{ ...baseInvoice, hasOpenCreditMemo: true }, baseRequest, baseAccount, policy, { status: "denied", reason: "duplicate_credit_memo", amountCents: 5000, requiresApproval: false, approved: false }],',
+      '  [{ ...baseInvoice, daysSinceSettlement: 120 }, baseRequest, baseAccount, policy, { status: "denied", reason: "credit_window_expired", amountCents: 5000, requiresApproval: false, approved: false }],',
+      '  [baseInvoice, { ...baseRequest, amountCents: 25000 }, baseAccount, policy, { status: "manual_review", reason: "approval_threshold", amountCents: 25000, requiresApproval: true, approved: false }],',
+      '  [baseInvoice, { type: "tax_credit", reason: "tax_adjustment", amountCents: 9000 }, baseAccount, policy, { status: "manual_review", reason: "tax_adjustment_cap", amountCents: 9000, requiresApproval: true, approved: false }],',
+      '  [baseInvoice, baseRequest, { status: "suspended" }, policy, { status: "denied", reason: "account_suspended", amountCents: 5000, requiresApproval: false, approved: false }],',
+      '  [baseInvoice, { ...baseRequest, amountCents: 150000 }, baseAccount, policy, { status: "denied", reason: "credit_exceeds_paid_amount", amountCents: 150000, requiresApproval: false, approved: false }]',
+      '];',
+      'for (const [invoice, request, account, creditPolicy, expected] of cases) {',
+      '  const actual = evaluateCreditMemo(invoice, request, account, creditPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1734,6 +1770,29 @@ export function buildAdversaryLiveFilterConfig() {
       'payment_not_verified',
       'customer_blocked',
       'auto_decline_risk_threshold',
+      'credit',
+      'memo',
+      'credit-memo',
+      'evaluateCreditMemo',
+      'invoice',
+      'paidCents',
+      'taxCents',
+      'daysSinceSettlement',
+      'linkedDisputeId',
+      'creditWindowDays',
+      'autoApproveLimitCents',
+      'taxAdjustmentCapRate',
+      'amountCents',
+      'requiresApproval',
+      'approved',
+      'invoice_not_settled',
+      'missing_dispute_evidence',
+      'duplicate_credit_memo',
+      'credit_window_expired',
+      'approval_threshold',
+      'tax_adjustment_cap',
+      'account_suspended',
+      'credit_exceeds_paid_amount',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1923,6 +1982,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.contentModerationAppealHardcoded === 'fail';
   const fraudRiskHardcodePassed =
     gates?.good === 'pass' && gates?.fraudRiskHardcoded === 'fail';
+  const creditMemoApprovalHardcodePassed =
+    gates?.good === 'pass' && gates?.creditMemoApprovalHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2382,6 +2443,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       passed: fraudRiskHardcodePassed,
       good_gate_status: gates?.good ?? null,
       fraud_risk_hardcoded_gate_status: gates?.fraudRiskHardcoded ?? null
+    },
+    {
+      id: 'credit_memo_approval_hardcode',
+      ...common('credit_memo_approval_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:credit_memo_approval_semantic',
+      executed: true,
+      blocked: creditMemoApprovalHardcodePassed,
+      passed: creditMemoApprovalHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      credit_memo_approval_hardcoded_gate_status:
+        gates?.creditMemoApprovalHardcoded ?? null
     }
   ];
 }

@@ -378,7 +378,8 @@ function validAttackScenarios() {
     'merchant_onboarding_hardcode',
     'data_retention_deletion_hardcode',
     'content_moderation_appeal_hardcode',
-    'fraud_risk_hardcode'
+    'fraud_risk_hardcode',
+    'credit_memo_approval_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -434,6 +435,8 @@ function validAttackScenarios() {
     content_moderation_appeal_hardcode:
       'rulepack_semantic:content_moderation_appeal_semantic',
     fraud_risk_hardcode: 'rulepack_semantic:fraud_risk_semantic',
+    credit_memo_approval_hardcode:
+      'rulepack_semantic:credit_memo_approval_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
