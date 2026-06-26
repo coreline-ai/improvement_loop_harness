@@ -1187,6 +1187,26 @@ function buildContentModerationAppealVerifier(cases) {
   ].join('\n');
 }
 
+function buildFraudRiskReviewVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { assessOrderFraudRisk } = require(process.cwd() + '/examples/business-source/fraud-risk-review.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = assessOrderFraudRisk(item.order, item.customer, item.payment, item.rules, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -3668,6 +3688,274 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             reason: 'owner_mismatch',
             contentRestored: false,
             requiresManualReview: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'fraud-risk-velocity-review',
+    semantic_domain: 'fraud_risk_velocity_review_gate',
+    business_source_repair: true,
+    business_domain: 'fraud_risk_review',
+    relativePath: 'examples/business-source/fraud-risk-review.cjs',
+    language: 'javascript',
+    originalNeedle:
+      '    (customer.ordersLastHour ?? 0) > (rules.velocityOrderLimit ?? 5),',
+    regressionText:
+      '    (customer.ordersLastHour ?? 0) < (rules.velocityOrderLimit ?? 5),',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildFraudRiskReviewVerifier([
+        {
+          name: 'velocity spike routes submitted order to manual review',
+          order: {
+            id: 'order_visible_velocity',
+            status: 'submitted',
+            total: 120,
+            country: 'US',
+            region: 'US',
+            shippingPostalCode: '94105'
+          },
+          customer: {
+            id: 'customer_visible_velocity',
+            accountStatus: 'active',
+            chargebacksLast90Days: 0,
+            ordersLastHour: 9
+          },
+          payment: {
+            verified: true,
+            cardCountry: 'US',
+            billingPostalCode: '94105'
+          },
+          rules: {
+            velocityOrderLimit: 5,
+            velocityRisk: 60,
+            manualReviewThreshold: 50,
+            autoDeclineThreshold: 90
+          },
+          now: '2026-06-26T10:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'risk_threshold',
+            riskScore: 60,
+            requiresManualReview: true,
+            approved: false
+          }
+        },
+        {
+          name: 'low risk submitted order remains approved',
+          order: {
+            id: 'order_visible_approved',
+            status: 'submitted',
+            total: 80,
+            country: 'US',
+            region: 'US',
+            shippingPostalCode: '10001'
+          },
+          customer: {
+            id: 'customer_visible_approved',
+            accountStatus: 'active',
+            chargebacksLast90Days: 0,
+            ordersLastHour: 1
+          },
+          payment: {
+            verified: true,
+            cardCountry: 'US',
+            billingPostalCode: '10001'
+          },
+          rules: {
+            velocityOrderLimit: 5,
+            velocityRisk: 60,
+            manualReviewThreshold: 50,
+            autoDeclineThreshold: 90
+          },
+          now: '2026-06-26T10:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            riskScore: 0,
+            requiresManualReview: false,
+            approved: true
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildFraudRiskReviewVerifier([
+        {
+          name: 'cross-border card plus chargebacks auto-declines',
+          order: {
+            id: 'order_hidden_auto_decline',
+            status: 'submitted',
+            total: 180,
+            country: 'US',
+            region: 'US',
+            shippingPostalCode: '60601'
+          },
+          customer: {
+            id: 'customer_hidden_auto_decline',
+            accountStatus: 'active',
+            chargebacksLast90Days: 2,
+            ordersLastHour: 2
+          },
+          payment: {
+            verified: true,
+            cardCountry: 'GB',
+            billingPostalCode: '60601'
+          },
+          rules: {
+            crossBorderRisk: 35,
+            chargebackThreshold: 2,
+            chargebackRisk: 55,
+            manualReviewThreshold: 50,
+            autoDeclineThreshold: 85
+          },
+          now: '2026-06-26T11:00:00.000Z',
+          expected: {
+            status: 'declined',
+            reason: 'auto_decline_risk_threshold',
+            riskScore: 90,
+            requiresManualReview: false,
+            approved: false
+          }
+        },
+        {
+          name: 'high value postal mismatch routes to manual review',
+          order: {
+            id: 'order_hidden_postal',
+            status: 'submitted',
+            total: 1200,
+            country: 'US',
+            region: 'US',
+            shippingPostalCode: '98101'
+          },
+          customer: {
+            id: 'customer_hidden_postal',
+            accountStatus: 'active',
+            chargebacksLast90Days: 0,
+            ordersLastHour: 1
+          },
+          payment: {
+            verified: true,
+            cardCountry: 'US',
+            billingPostalCode: '10001'
+          },
+          rules: {
+            highValueThreshold: 500,
+            highValueRisk: 25,
+            postalMismatchReview: true,
+            postalMismatchRisk: 30,
+            manualReviewThreshold: 50,
+            autoDeclineThreshold: 85
+          },
+          now: '2026-06-26T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'risk_threshold',
+            riskScore: 55,
+            requiresManualReview: true,
+            approved: false
+          }
+        },
+        {
+          name: 'unverified payment requires review before scoring',
+          order: {
+            id: 'order_hidden_unverified',
+            status: 'submitted',
+            total: 45,
+            country: 'US',
+            region: 'US',
+            shippingPostalCode: '73301'
+          },
+          customer: {
+            id: 'customer_hidden_unverified',
+            accountStatus: 'active',
+            chargebacksLast90Days: 0,
+            ordersLastHour: 0
+          },
+          payment: {
+            verified: false,
+            cardCountry: 'US',
+            billingPostalCode: '73301'
+          },
+          rules: {
+            paymentVerificationRisk: 55
+          },
+          now: '2026-06-26T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'payment_not_verified',
+            riskScore: 55,
+            requiresManualReview: true,
+            approved: false
+          }
+        },
+        {
+          name: 'blocked customer is declined',
+          order: {
+            id: 'order_hidden_blocked',
+            status: 'submitted',
+            total: 45,
+            country: 'US',
+            region: 'US',
+            shippingPostalCode: '73301'
+          },
+          customer: {
+            id: 'customer_hidden_blocked',
+            accountStatus: 'blocked',
+            chargebacksLast90Days: 0,
+            ordersLastHour: 0
+          },
+          payment: {
+            verified: true,
+            cardCountry: 'US',
+            billingPostalCode: '73301'
+          },
+          rules: {},
+          now: '2026-06-26T11:00:00.000Z',
+          expected: {
+            status: 'declined',
+            reason: 'customer_blocked',
+            riskScore: 100,
+            requiresManualReview: false,
+            approved: false
+          }
+        },
+        {
+          name: 'non-submitted order is ignored',
+          order: {
+            id: 'order_hidden_draft',
+            status: 'draft',
+            total: 1000,
+            country: 'US',
+            region: 'US',
+            shippingPostalCode: '73301'
+          },
+          customer: {
+            id: 'customer_hidden_draft',
+            accountStatus: 'active',
+            chargebacksLast90Days: 5,
+            ordersLastHour: 9
+          },
+          payment: {
+            verified: true,
+            cardCountry: 'GB',
+            billingPostalCode: '10001'
+          },
+          rules: {
+            crossBorderRisk: 35,
+            chargebackRisk: 55,
+            highValueRisk: 25
+          },
+          now: '2026-06-26T11:00:00.000Z',
+          expected: {
+            status: 'ignored',
+            reason: 'order_not_submitted',
+            riskScore: 0,
+            requiresManualReview: false,
+            approved: false
           }
         }
       ])
