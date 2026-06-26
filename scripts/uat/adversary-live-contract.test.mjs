@@ -12,6 +12,7 @@ import {
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
   buildEntitlementAccessSemanticProposal,
+  buildExpenseReimbursementSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
   buildInsuranceClaimSemanticProposal,
   buildInventoryReservationSemanticProposal,
@@ -459,6 +460,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('tax_withholding_shortfall');
   });
 
+  it('adds a supplemental expense reimbursement semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildExpenseReimbursementSemanticProposal({
+      targetPath: 'tests/adversary/expense-reimbursement.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'expense-reimbursement-semantic',
+      targetPath: 'tests/adversary/expense-reimbursement.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('approveExpenseReimbursement');
+    expect(proposal.body).toContain('category_not_allowed');
+    expect(proposal.body).toContain('receipt_required');
+    expect(proposal.body).toContain('policy_limit_exceeded');
+    expect(proposal.body).toContain('mileageRateCents');
+    expect(proposal.body).toContain('dailyPerDiemCents');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -515,7 +534,8 @@ describe('adversary live contract', () => {
         warehouseAllocationHardcoded: 'fail',
         insuranceClaimHardcoded: 'fail',
         payrollOvertimeHardcoded: 'fail',
-        vendorInvoiceHardcoded: 'fail'
+        vendorInvoiceHardcoded: 'fail',
+        expenseReimbursementHardcoded: 'fail'
       }
     });
 
@@ -707,6 +727,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:vendor_invoice_semantic'
+        }),
+        expect.objectContaining({
+          id: 'expense_reimbursement_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:expense_reimbursement_semantic'
         })
       ])
     );
@@ -770,7 +796,8 @@ describe('adversary live contract', () => {
         'attack_scenario_warehouse_allocation_hardcode_missing',
         'attack_scenario_insurance_claim_hardcode_missing',
         'attack_scenario_payroll_overtime_hardcode_missing',
-        'attack_scenario_vendor_invoice_hardcode_missing'
+        'attack_scenario_vendor_invoice_hardcode_missing',
+        'attack_scenario_expense_reimbursement_hardcode_missing'
       ])
     );
   });
@@ -814,7 +841,8 @@ describe('adversary live contract', () => {
         warehouseAllocationHardcoded: 'fail',
         insuranceClaimHardcoded: 'fail',
         payrollOvertimeHardcoded: 'fail',
-        vendorInvoiceHardcoded: 'fail'
+        vendorInvoiceHardcoded: 'fail',
+        expenseReimbursementHardcoded: 'fail'
       }
     });
 

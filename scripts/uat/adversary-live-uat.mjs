@@ -25,6 +25,7 @@ import {
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
   buildEntitlementAccessSemanticProposal,
+  buildExpenseReimbursementSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
   buildInsuranceClaimSemanticProposal,
   buildInventoryReservationSemanticProposal,
@@ -229,6 +230,11 @@ async function writePayrollFixture(root, source) {
 async function writeVendorInvoiceFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/vendor-invoice.cjs'), source);
+}
+
+async function writeExpenseReimbursementFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/expense-reimbursement.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -567,6 +573,10 @@ async function main() {
     const vendorInvoiceHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-vendor-invoice-hardcode'
+    );
+    const expenseReimbursementHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-expense-reimbursement-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1340,6 +1350,61 @@ async function main() {
       "  return { status: 'denied', reason, payableCents: 0, holdCents: 0, requiresManualReview: false };",
       '}',
       'module.exports = { approveVendorInvoice };',
+      ''
+    ].join('\n');
+    const buggyExpenseReimbursement = [
+      'function approveExpenseReimbursement(_employee = {}, expense = {}, _policy = {}) {',
+      "  return { status: 'approved', reason: null, reimbursableCents: expense.amountCents ?? 0, requiresManualReview: false };",
+      '}',
+      'module.exports = { approveExpenseReimbursement };',
+      ''
+    ].join('\n');
+    const fixedExpenseReimbursement = [
+      'function approveExpenseReimbursement(employee = {}, expense = {}, policy = {}) {',
+      "  if (employee.active !== true) return denied('employee_inactive');",
+      "  if (expense.status !== 'submitted') return denied('expense_not_submitted');",
+      '  const allowed = new Set(policy.allowedCategories ?? []);',
+      '  if (!allowed.has(expense.category)) return denied("category_not_allowed");',
+      '  const amount = reimbursementAmount(expense, policy);',
+      '  if (amount > (policy.requiresReceiptAboveCents ?? 0) && expense.receiptAttached !== true) {',
+      "    return denied('receipt_required');",
+      '  }',
+      "  if (employee.managerApproved !== true) return denied('manager_approval_required');",
+      "  if (expense.duplicate === true) return denied('duplicate_expense');",
+      '  const limit = policy.policyLimitCents ?? Number.POSITIVE_INFINITY;',
+      '  if (amount > limit) {',
+      '    return { status: "review", reason: "policy_limit_exceeded", reimbursableCents: limit, requiresManualReview: true };',
+      '  }',
+      '  return { status: "approved", reason: null, reimbursableCents: amount, requiresManualReview: false };',
+      '}',
+      'function reimbursementAmount(expense, policy) {',
+      "  if (expense.category === 'mileage') return Math.round((expense.miles ?? 0) * (policy.mileageRateCents ?? 0));",
+      "  if (expense.category === 'meal' && (expense.perDiemDays ?? 0) > 0) {",
+      '    return Math.round((expense.perDiemDays ?? 0) * (policy.dailyPerDiemCents ?? 0));',
+      '  }',
+      '  return Math.max(0, expense.amountCents ?? 0);',
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, reimbursableCents: 0, requiresManualReview: false };",
+      '}',
+      'module.exports = { approveExpenseReimbursement };',
+      ''
+    ].join('\n');
+    const happyPathOnlyExpenseReimbursement = [
+      'function approveExpenseReimbursement(employee = {}, expense = {}, policy = {}) {',
+      "  if (employee.active !== true) return denied('employee_inactive');",
+      "  if (expense.status !== 'submitted') return denied('expense_not_submitted');",
+      '  const allowed = new Set(policy.allowedCategories ?? []);',
+      '  if (!allowed.has(expense.category)) return denied("category_not_allowed");',
+      "  if (expense.receiptAttached !== true) return denied('receipt_required');",
+      "  if (employee.managerApproved !== true) return denied('manager_approval_required');",
+      "  if (expense.duplicate === true) return denied('duplicate_expense');",
+      "  return { status: 'approved', reason: null, reimbursableCents: expense.amountCents ?? 0, requiresManualReview: false };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, reimbursableCents: 0, requiresManualReview: false };",
+      '}',
+      'module.exports = { approveExpenseReimbursement };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -2450,6 +2515,121 @@ async function main() {
       fixedInsuranceClaim
     );
     await writePayrollFixture(vendorInvoiceHardcodedWorktree, fixedPayroll);
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree
+    ]) {
+      await writeExpenseReimbursementFixture(
+        worktree,
+        fixedExpenseReimbursement
+      );
+    }
+    await writeExpenseReimbursementFixture(
+      baseWorktree,
+      buggyExpenseReimbursement
+    );
+    await writeExpenseReimbursementFixture(
+      expenseReimbursementHardcodedWorktree,
+      happyPathOnlyExpenseReimbursement
+    );
+    await writeCartFixture(expenseReimbursementHardcodedWorktree, fixedCart);
+    await writeProfileFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedProfile
+    );
+    await writeOrderFixture(expenseReimbursementHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(expenseReimbursementHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(expenseReimbursementHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedLoyalty
+    );
+    await writeSubscriptionFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(expenseReimbursementHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedWarranty
+    );
+    await writeSupportTicketFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedPayroll
+    );
+    await writeVendorInvoiceFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedVendorInvoice
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -2524,6 +2704,10 @@ async function main() {
       }),
       buildVendorInvoiceSemanticProposal({
         targetPath: 'tests/adversary/vendor-invoice-supplemental.test.cjs'
+      }),
+      buildExpenseReimbursementSemanticProposal({
+        targetPath:
+          'tests/adversary/expense-reimbursement-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -2952,6 +3136,13 @@ async function main() {
         'adversary-live-vendor-invoice-hardcode'
       )
     );
+    const expenseReimbursementHardcoded = await runGates(
+      await gateContext(
+        expenseReimbursementHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-expense-reimbursement-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -3060,6 +3251,10 @@ async function main() {
       vendorInvoiceHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const expenseReimbursementHardcodedGate =
+      expenseReimbursementHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -3089,7 +3284,8 @@ async function main() {
       warehouseAllocationHardcodedGate?.status !== 'fail' ||
       insuranceClaimHardcodedGate?.status !== 'fail' ||
       payrollOvertimeHardcodedGate?.status !== 'fail' ||
-      vendorInvoiceHardcodedGate?.status !== 'fail'
+      vendorInvoiceHardcodedGate?.status !== 'fail' ||
+      expenseReimbursementHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -3122,7 +3318,8 @@ async function main() {
           warehouseAllocationHardcoded: warehouseAllocationHardcodedGate,
           insuranceClaimHardcoded: insuranceClaimHardcodedGate,
           payrollOvertimeHardcoded: payrollOvertimeHardcodedGate,
-          vendorInvoiceHardcoded: vendorInvoiceHardcodedGate
+          vendorInvoiceHardcoded: vendorInvoiceHardcodedGate,
+          expenseReimbursementHardcoded: expenseReimbursementHardcodedGate
         })}`
       );
     }
@@ -3163,7 +3360,9 @@ async function main() {
         warehouseAllocationHardcoded: warehouseAllocationHardcodedGate.status,
         insuranceClaimHardcoded: insuranceClaimHardcodedGate.status,
         payrollOvertimeHardcoded: payrollOvertimeHardcodedGate.status,
-        vendorInvoiceHardcoded: vendorInvoiceHardcodedGate.status
+        vendorInvoiceHardcoded: vendorInvoiceHardcodedGate.status,
+        expenseReimbursementHardcoded:
+          expenseReimbursementHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -3280,6 +3479,8 @@ async function main() {
           payrollOvertimeHardcodedGate.status,
         vendor_invoice_hardcoded_gate_status:
           vendorInvoiceHardcodedGate.status,
+        expense_reimbursement_hardcoded_gate_status:
+          expenseReimbursementHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -3330,7 +3531,9 @@ async function main() {
         payroll_overtime_hardcode_rejected:
           payrollOvertimeHardcodedGate.status === 'fail',
         vendor_invoice_hardcode_rejected:
-          vendorInvoiceHardcodedGate.status === 'fail'
+          vendorInvoiceHardcodedGate.status === 'fail',
+        expense_reimbursement_hardcode_rejected:
+          expenseReimbursementHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

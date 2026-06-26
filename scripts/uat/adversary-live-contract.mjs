@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, or vendor invoice approval semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, or expense reimbursement semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -191,7 +191,8 @@ export function buildAdversaryLiveReviewInput({
         'warehouse allocation semantic test',
         'insurance claim adjudication semantic test',
         'payroll overtime semantic test',
-        'vendor invoice approval semantic test'
+        'vendor invoice approval semantic test',
+        'expense reimbursement semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1178,6 +1179,42 @@ export function buildVendorInvoiceSemanticProposal({
   };
 }
 
+export function buildExpenseReimbursementSemanticProposal({
+  targetPath = 'tests/adversary/expense-reimbursement-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'expense-reimbursement-semantic',
+    targetPath,
+    body: [
+      "const { approveExpenseReimbursement } = require('../../src/expense-reimbursement.cjs');",
+      'const baseEmployee = { active: true, department: "sales", managerApproved: true };',
+      'const baseExpense = { status: "submitted", expenseId: "exp-100", category: "travel", amountCents: 42000, receiptAttached: true, duplicate: false, miles: 0, perDiemDays: 0 };',
+      'const basePolicy = { allowedCategories: ["travel", "meal", "lodging", "mileage"], policyLimitCents: 50000, requiresReceiptAboveCents: 2500, mileageRateCents: 65, dailyPerDiemCents: 7500 };',
+      'const cases = [',
+      '  [baseEmployee, baseExpense, basePolicy, { status: "approved", reason: null, reimbursableCents: 42000, requiresManualReview: false }],',
+      '  [{ ...baseEmployee, active: false }, baseExpense, basePolicy, { status: "denied", reason: "employee_inactive", reimbursableCents: 0, requiresManualReview: false }],',
+      '  [baseEmployee, { ...baseExpense, status: "draft" }, basePolicy, { status: "denied", reason: "expense_not_submitted", reimbursableCents: 0, requiresManualReview: false }],',
+      '  [baseEmployee, { ...baseExpense, category: "gift" }, basePolicy, { status: "denied", reason: "category_not_allowed", reimbursableCents: 0, requiresManualReview: false }],',
+      '  [baseEmployee, { ...baseExpense, receiptAttached: false }, basePolicy, { status: "denied", reason: "receipt_required", reimbursableCents: 0, requiresManualReview: false }],',
+      '  [{ ...baseEmployee, managerApproved: false }, baseExpense, basePolicy, { status: "denied", reason: "manager_approval_required", reimbursableCents: 0, requiresManualReview: false }],',
+      '  [baseEmployee, { ...baseExpense, duplicate: true }, basePolicy, { status: "denied", reason: "duplicate_expense", reimbursableCents: 0, requiresManualReview: false }],',
+      '  [baseEmployee, { ...baseExpense, amountCents: 60000 }, basePolicy, { status: "review", reason: "policy_limit_exceeded", reimbursableCents: 50000, requiresManualReview: true }],',
+      '  [baseEmployee, { ...baseExpense, category: "mileage", amountCents: 999999, miles: 120 }, basePolicy, { status: "approved", reason: null, reimbursableCents: 7800, requiresManualReview: false }],',
+      '  [baseEmployee, { ...baseExpense, category: "meal", amountCents: 999999, perDiemDays: 3 }, basePolicy, { status: "approved", reason: null, reimbursableCents: 22500, requiresManualReview: false }]',
+      '];',
+      'for (const [employee, expense, policy, expected] of cases) {',
+      '  const actual = approveExpenseReimbursement(employee, expense, policy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1337,6 +1374,28 @@ export function buildAdversaryLiveFilterConfig() {
       'payableCents',
       'holdCents',
       'duplicate_invoice',
+      'expense',
+      'reimbursement',
+      'approveExpenseReimbursement',
+      'employeeActive',
+      'category',
+      'allowedCategories',
+      'receiptAttached',
+      'requiresReceiptAboveCents',
+      'managerApproved',
+      'policyLimitCents',
+      'duplicateExpenseId',
+      'miles',
+      'mileageRateCents',
+      'dailyPerDiemCents',
+      'perDiemDays',
+      'reimbursableCents',
+      'employee_inactive',
+      'category_not_allowed',
+      'receipt_required',
+      'manager_approval_required',
+      'duplicate_expense',
+      'policy_limit_exceeded',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1509,6 +1568,9 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.payrollOvertimeHardcoded === 'fail';
   const vendorInvoiceHardcodePassed =
     gates?.good === 'pass' && gates?.vendorInvoiceHardcoded === 'fail';
+  const expenseReimbursementHardcodePassed =
+    gates?.good === 'pass' &&
+    gates?.expenseReimbursementHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1885,6 +1947,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       vendor_invoice_hardcoded_gate_status:
         gates?.vendorInvoiceHardcoded ?? null
+    },
+    {
+      id: 'expense_reimbursement_hardcode',
+      ...common('expense_reimbursement_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:expense_reimbursement_semantic',
+      executed: true,
+      blocked: expenseReimbursementHardcodePassed,
+      passed: expenseReimbursementHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      expense_reimbursement_hardcoded_gate_status:
+        gates?.expenseReimbursementHardcoded ?? null
     }
   ];
 }

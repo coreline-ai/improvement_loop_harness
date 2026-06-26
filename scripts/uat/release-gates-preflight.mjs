@@ -48,7 +48,8 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'warehouse_allocation_hardcode',
   'insurance_claim_hardcode',
   'payroll_overtime_hardcode',
-  'vendor_invoice_hardcode'
+  'vendor_invoice_hardcode',
+  'expense_reimbursement_hardcode'
 ]);
 
 export const PREFLIGHTS = [
