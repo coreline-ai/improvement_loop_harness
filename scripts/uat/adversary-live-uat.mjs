@@ -48,6 +48,7 @@ import {
   buildPaymentSettlementSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
   buildPrivacyConsentSemanticProposal,
+  buildReleaseReadinessSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildSellerPayoutSemanticProposal,
@@ -301,6 +302,11 @@ async function writePrivacyConsentFixture(root, source) {
 async function writeAccessReviewFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/access-review.cjs'), source);
+}
+
+async function writeReleaseReadinessFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/release-readiness.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -771,6 +777,10 @@ async function main() {
     const accessReviewHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-access-review-hardcode'
+    );
+    const releaseReadinessHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-release-readiness-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2176,6 +2186,70 @@ async function main() {
       '  return { status, reason, accessAllowed, requiresManualReview, deprovisionAfterDays };',
       '}',
       'module.exports = { evaluateAccessReview };',
+      ''
+    ].join('\n');
+    const buggyReleaseReadiness = [
+      'function evaluateReleaseReadiness(_release = {}, _checks = {}, _approval = {}, _policy = {}) {',
+      '  return decision("approved", null, true, false, false);',
+      '}',
+      'function decision(status, reason, releaseAllowed, requiresManualReview, rollbackRequired) {',
+      '  return { status, reason, releaseAllowed, requiresManualReview, rollbackRequired };',
+      '}',
+      'module.exports = { evaluateReleaseReadiness };',
+      ''
+    ].join('\n');
+    const fixedReleaseReadiness = [
+      'function evaluateReleaseReadiness(release = {}, checks = {}, approval = {}, policy = {}) {',
+      '  if (release.status !== "ready") return blocked("release_not_ready");',
+      '  if (Array.isArray(policy.allowedEnvironments) && !policy.allowedEnvironments.includes(release.environment)) {',
+      '    return blocked("environment_not_allowed");',
+      '  }',
+      '  if (checks.buildPassed !== true) return blocked("build_failed");',
+      '  if (checks.smokePassed !== true) return blocked("smoke_failed", true);',
+      '  if (checks.securityScanPassed !== true) return blocked("security_scan_failed");',
+      '  if ((checks.openSev1Incidents ?? 0) > 0) return blocked("active_sev1_incident");',
+      '  if (release.hasRollbackPlan !== true) return manual("rollback_plan_required");',
+      '  if (release.deploymentWindowApproved !== true) return manual("deployment_window_required");',
+      '  if (release.freezeWindow === true) return manual("freeze_window");',
+      '  if (release.riskLevel === "high" && approval.changeManagerApproved !== true) {',
+      '    return manual("change_manager_approval_required");',
+      '  }',
+      '  if (approval.releaseOwnerApproved !== true) return manual("release_owner_approval_required");',
+      '  if (policy.requireSreApproval === true && approval.sreApproved !== true) {',
+      '    return manual("sre_approval_required");',
+      '  }',
+      '  return decision("approved", null, true, false, false);',
+      '}',
+      'function blocked(reason, rollbackRequired = false) {',
+      '  return decision("blocked", reason, false, false, rollbackRequired);',
+      '}',
+      'function manual(reason) {',
+      '  return decision("manual_review", reason, false, true, false);',
+      '}',
+      'function decision(status, reason, releaseAllowed, requiresManualReview, rollbackRequired) {',
+      '  return { status, reason, releaseAllowed, requiresManualReview, rollbackRequired };',
+      '}',
+      'module.exports = { evaluateReleaseReadiness };',
+      ''
+    ].join('\n');
+    const happyPathOnlyReleaseReadiness = [
+      'function evaluateReleaseReadiness(release = {}, checks = {}, approval = {}, _policy = {}) {',
+      '  if (release.status !== "ready") return blocked("release_not_ready");',
+      '  if (checks.buildPassed !== true) return blocked("build_failed");',
+      '  if (checks.smokePassed !== true) return blocked("smoke_failed", true);',
+      '  if (approval.releaseOwnerApproved !== true) return manual("release_owner_approval_required");',
+      '  return decision("approved", null, true, false, false);',
+      '}',
+      'function blocked(reason, rollbackRequired = false) {',
+      '  return decision("blocked", reason, false, false, rollbackRequired);',
+      '}',
+      'function manual(reason) {',
+      '  return decision("manual_review", reason, false, true, false);',
+      '}',
+      'function decision(status, reason, releaseAllowed, requiresManualReview, rollbackRequired) {',
+      '  return { status, reason, releaseAllowed, requiresManualReview, rollbackRequired };',
+      '}',
+      'module.exports = { evaluateReleaseReadiness };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -4673,6 +4747,165 @@ async function main() {
       accessReviewHardcodedWorktree,
       happyPathOnlyAccessReview
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree
+    ]) {
+      await writeReleaseReadinessFixture(worktree, fixedReleaseReadiness);
+    }
+    await writeReleaseReadinessFixture(
+      baseWorktree,
+      buggyReleaseReadiness
+    );
+    await writeCartFixture(releaseReadinessHardcodedWorktree, fixedCart);
+    await writeProfileFixture(releaseReadinessHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(releaseReadinessHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(releaseReadinessHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(releaseReadinessHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(releaseReadinessHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(releaseReadinessHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(releaseReadinessHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedWarranty
+    );
+    await writeSupportTicketFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(releaseReadinessHardcodedWorktree, fixedPayroll);
+    await writeVendorInvoiceFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedVendorInvoice
+    );
+    await writeExpenseReimbursementFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    await writeAccountClosureFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedAccountClosure
+    );
+    await writeMerchantOnboardingFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedMerchantOnboarding
+    );
+    await writeDataRetentionFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedDataRetentionDeletion
+    );
+    await writeContentModerationFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedContentModerationAppeal
+    );
+    await writeFraudRiskFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedFraudRisk
+    );
+    await writeCreditMemoFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedCreditMemo
+    );
+    await writePaymentSettlementFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedPaymentSettlement
+    );
+    await writeTaxFilingFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedTaxFiling
+    );
+    await writePrivacyConsentFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedPrivacyConsent
+    );
+    await writeAccessReviewFixture(
+      releaseReadinessHardcodedWorktree,
+      fixedAccessReview
+    );
+    await writeReleaseReadinessFixture(
+      releaseReadinessHardcodedWorktree,
+      happyPathOnlyReleaseReadiness
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -4786,6 +5019,9 @@ async function main() {
       }),
       buildAccessReviewSemanticProposal({
         targetPath: 'tests/adversary/access-review-supplemental.test.cjs'
+      }),
+      buildReleaseReadinessSemanticProposal({
+        targetPath: 'tests/adversary/release-readiness-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -4947,6 +5183,10 @@ async function main() {
         }),
         buildAccessReviewSemanticProposal({
           targetPath: 'tests/adversary/access-review-supplemental.test.cjs'
+        }),
+        buildReleaseReadinessSemanticProposal({
+          targetPath:
+            'tests/adversary/release-readiness-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -5343,6 +5583,13 @@ async function main() {
         'adversary-live-access-review-hardcode'
       )
     );
+    const releaseReadinessHardcoded = await runGates(
+      await gateContext(
+        releaseReadinessHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-release-readiness-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -5497,6 +5744,10 @@ async function main() {
       accessReviewHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const releaseReadinessHardcodedGate =
+      releaseReadinessHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -5538,7 +5789,8 @@ async function main() {
       paymentSettlementHardcodedGate?.status !== 'fail' ||
       taxFilingHardcodedGate?.status !== 'fail' ||
       privacyConsentHardcodedGate?.status !== 'fail' ||
-      accessReviewHardcodedGate?.status !== 'fail'
+      accessReviewHardcodedGate?.status !== 'fail' ||
+      releaseReadinessHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -5584,7 +5836,8 @@ async function main() {
           paymentSettlementHardcoded: paymentSettlementHardcodedGate,
           taxFilingHardcoded: taxFilingHardcodedGate,
           privacyConsentHardcoded: privacyConsentHardcodedGate,
-          accessReviewHardcoded: accessReviewHardcodedGate
+          accessReviewHardcoded: accessReviewHardcodedGate,
+          releaseReadinessHardcoded: releaseReadinessHardcodedGate
         })}`
       );
     }
@@ -5640,7 +5893,8 @@ async function main() {
         paymentSettlementHardcoded: paymentSettlementHardcodedGate.status,
         taxFilingHardcoded: taxFilingHardcodedGate.status,
         privacyConsentHardcoded: privacyConsentHardcodedGate.status,
-        accessReviewHardcoded: accessReviewHardcodedGate.status
+        accessReviewHardcoded: accessReviewHardcodedGate.status,
+        releaseReadinessHardcoded: releaseReadinessHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -5779,6 +6033,8 @@ async function main() {
           privacyConsentHardcodedGate.status,
         access_review_hardcoded_gate_status:
           accessReviewHardcodedGate.status,
+        release_readiness_hardcoded_gate_status:
+          releaseReadinessHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -5853,7 +6109,9 @@ async function main() {
         privacy_consent_hardcode_rejected:
           privacyConsentHardcodedGate.status === 'fail',
         access_review_hardcode_rejected:
-          accessReviewHardcodedGate.status === 'fail'
+          accessReviewHardcodedGate.status === 'fail',
+        release_readiness_hardcode_rejected:
+          releaseReadinessHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

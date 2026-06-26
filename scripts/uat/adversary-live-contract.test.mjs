@@ -29,6 +29,7 @@ import {
   buildPaymentSettlementSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
   buildPrivacyConsentSemanticProposal,
+  buildReleaseReadinessSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
@@ -452,6 +453,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('unused_access');
   });
 
+  it('adds a supplemental release readiness semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildReleaseReadinessSemanticProposal({
+      targetPath: 'tests/adversary/release-readiness.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'release-readiness-semantic',
+      targetPath: 'tests/adversary/release-readiness.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateReleaseReadiness');
+    expect(proposal.body).toContain('environment_not_allowed');
+    expect(proposal.body).toContain('security_scan_failed');
+    expect(proposal.body).toContain('active_sev1_incident');
+    expect(proposal.body).toContain('rollback_plan_required');
+    expect(proposal.body).toContain('freeze_window');
+    expect(proposal.body).toContain('sre_approval_required');
+  });
+
   it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildWarehouseAllocationSemanticProposal({
       targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
@@ -722,7 +742,8 @@ describe('adversary live contract', () => {
         paymentSettlementHardcoded: 'fail',
         taxFilingHardcoded: 'fail',
         privacyConsentHardcoded: 'fail',
-        accessReviewHardcoded: 'fail'
+        accessReviewHardcoded: 'fail',
+        releaseReadinessHardcoded: 'fail'
       }
     });
 
@@ -986,6 +1007,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:access_review_semantic'
+        }),
+        expect.objectContaining({
+          id: 'release_readiness_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:release_readiness_semantic'
         })
       ])
     );
@@ -1061,7 +1088,8 @@ describe('adversary live contract', () => {
         'attack_scenario_payment_settlement_hardcode_missing',
         'attack_scenario_tax_filing_hardcode_missing',
         'attack_scenario_privacy_consent_hardcode_missing',
-        'attack_scenario_access_review_hardcode_missing'
+        'attack_scenario_access_review_hardcode_missing',
+        'attack_scenario_release_readiness_hardcode_missing'
       ])
     );
   });
@@ -1117,7 +1145,8 @@ describe('adversary live contract', () => {
         paymentSettlementHardcoded: 'fail',
         taxFilingHardcoded: 'fail',
         privacyConsentHardcoded: 'fail',
-        accessReviewHardcoded: 'fail'
+        accessReviewHardcoded: 'fail',
+        releaseReadinessHardcoded: 'fail'
       }
     });
 

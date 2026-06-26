@@ -383,7 +383,8 @@ function validAttackScenarios() {
     'payment_settlement_hardcode',
     'tax_filing_hardcode',
     'privacy_consent_hardcode',
-    'access_review_hardcode'
+    'access_review_hardcode',
+    'release_readiness_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -446,6 +447,8 @@ function validAttackScenarios() {
     tax_filing_hardcode: 'rulepack_semantic:tax_filing_semantic',
     privacy_consent_hardcode: 'rulepack_semantic:privacy_consent_semantic',
     access_review_hardcode: 'rulepack_semantic:access_review_semantic',
+    release_readiness_hardcode:
+      'rulepack_semantic:release_readiness_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
