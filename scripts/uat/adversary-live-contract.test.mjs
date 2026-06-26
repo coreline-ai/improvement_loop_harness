@@ -13,6 +13,7 @@ import {
   buildCouponApplicationSemanticProposal,
   buildEntitlementAccessSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
+  buildInsuranceClaimSemanticProposal,
   buildInventoryReservationSemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildOrderApprovalSemanticProposal,
@@ -403,6 +404,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('submittedHour: 16');
   });
 
+  it('adds a supplemental insurance claim semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildInsuranceClaimSemanticProposal({
+      targetPath: 'tests/adversary/insurance-claim.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'insurance-claim-semantic',
+      targetPath: 'tests/adversary/insurance-claim.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('adjudicateInsuranceClaim');
+    expect(proposal.body).toContain('prior_authorization_required');
+    expect(proposal.body).toContain('filing_window_expired');
+    expect(proposal.body).toContain('duplicate_claim');
+    expect(proposal.body).toContain('outOfNetworkPenaltyRate');
+    expect(proposal.body).toContain('requiresManualReview: true');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -456,7 +475,8 @@ describe('adversary live contract', () => {
         warrantyClaimHardcoded: 'fail',
         supportTicketRoutingHardcoded: 'fail',
         paymentDisputeHardcoded: 'fail',
-        warehouseAllocationHardcoded: 'fail'
+        warehouseAllocationHardcoded: 'fail',
+        insuranceClaimHardcoded: 'fail'
       }
     });
 
@@ -630,6 +650,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:warehouse_allocation_semantic'
+        }),
+        expect.objectContaining({
+          id: 'insurance_claim_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:insurance_claim_semantic'
         })
       ])
     );
@@ -690,7 +716,8 @@ describe('adversary live contract', () => {
         'attack_scenario_warranty_claim_hardcode_missing',
         'attack_scenario_support_ticket_routing_hardcode_missing',
         'attack_scenario_payment_dispute_hardcode_missing',
-        'attack_scenario_warehouse_allocation_hardcode_missing'
+        'attack_scenario_warehouse_allocation_hardcode_missing',
+        'attack_scenario_insurance_claim_hardcode_missing'
       ])
     );
   });
@@ -731,7 +758,8 @@ describe('adversary live contract', () => {
         warrantyClaimHardcoded: 'fail',
         supportTicketRoutingHardcoded: 'fail',
         paymentDisputeHardcoded: 'fail',
-        warehouseAllocationHardcoded: 'fail'
+        warehouseAllocationHardcoded: 'fail',
+        insuranceClaimHardcoded: 'fail'
       }
     });
 

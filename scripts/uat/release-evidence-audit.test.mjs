@@ -141,7 +141,8 @@ function attackScenarios() {
     'warranty_claim_hardcode',
     'support_ticket_routing_hardcode',
     'payment_dispute_hardcode',
-    'warehouse_allocation_hardcode'
+    'warehouse_allocation_hardcode',
+    'insurance_claim_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -183,6 +184,7 @@ function attackScenarios() {
     payment_dispute_hardcode: 'rulepack_semantic:payment_dispute_semantic',
     warehouse_allocation_hardcode:
       'rulepack_semantic:warehouse_allocation_semantic',
+    insurance_claim_hardcode: 'rulepack_semantic:insurance_claim_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

@@ -26,6 +26,7 @@ import {
   buildCouponApplicationSemanticProposal,
   buildEntitlementAccessSemanticProposal,
   buildGiftCardRedemptionSemanticProposal,
+  buildInsuranceClaimSemanticProposal,
   buildInventoryReservationSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildProfileSuspensionSemanticProposal,
@@ -213,6 +214,11 @@ async function writeWarehouseAllocationFixture(root, source) {
   await writeFile(path.join(root, 'src/warehouse-allocation.cjs'), source);
 }
 
+async function writeInsuranceClaimFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/insurance-claim.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -387,6 +393,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/insurance-claim.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -523,6 +536,10 @@ async function main() {
     const warehouseAllocationHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-warehouse-allocation-hardcode'
+    );
+    const insuranceClaimHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-insurance-claim-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1128,6 +1145,66 @@ async function main() {
       '  return { status, reason, allocatedUnits, backorderedUnits, expectedShipInDays };',
       '}',
       'module.exports = { allocateWarehouseOrder };',
+      ''
+    ].join('\n');
+    const buggyInsuranceClaim = [
+      'function adjudicateInsuranceClaim(claim = {}, _member = {}, _policy = {}) {',
+      "  return { status: 'approved', reason: null, approvedCents: claim.billedCents ?? 0, patientResponsibilityCents: 0, requiresManualReview: false };",
+      '}',
+      'module.exports = { adjudicateInsuranceClaim };',
+      ''
+    ].join('\n');
+    const fixedInsuranceClaim = [
+      'function adjudicateInsuranceClaim(claim = {}, member = {}, policy = {}) {',
+      "  if (claim.status !== 'submitted') return denied('claim_not_submitted');",
+      "  if (member.active !== true) return denied('member_inactive');",
+      "  if (claim.duplicate === true) return denied('duplicate_claim');",
+      '  if ((claim.daysSinceService ?? 0) > (policy.filingWindowDays ?? 0)) {',
+      "    return denied('filing_window_expired');",
+      '  }',
+      '  if (Array.isArray(policy.coveredProcedures) && !policy.coveredProcedures.includes(claim.procedureCode)) {',
+      "    return denied('procedure_not_covered');",
+      '  }',
+      '  const priorAuthRequired = Array.isArray(policy.priorAuthorizationRequiredProcedures) && policy.priorAuthorizationRequiredProcedures.includes(claim.procedureCode);',
+      '  if (priorAuthRequired && claim.hasPriorAuthorization !== true && claim.emergency !== true) {',
+      "    return denied('prior_authorization_required');",
+      '  }',
+      '  const billed = Math.max(0, claim.billedCents ?? 0);',
+      '  const allowed = Math.min(billed, policy.maxBenefitCents ?? billed);',
+      '  const deductible = Math.min(member.deductibleRemainingCents ?? 0, allowed);',
+      '  const afterDeductible = Math.max(0, allowed - deductible);',
+      '  const coinsurance = Math.round(afterDeductible * (policy.coinsuranceRate ?? 0));',
+      '  let approvedCents = Math.max(0, afterDeductible - coinsurance);',
+      '  if (claim.inNetwork === false) {',
+      '    approvedCents = Math.round(approvedCents * (1 - (policy.outOfNetworkPenaltyRate ?? 0)));',
+      '  }',
+      '  return {',
+      "    status: 'approved',",
+      '    reason: null,',
+      '    approvedCents,',
+      '    patientResponsibilityCents: Math.max(0, billed - approvedCents),',
+      '    requiresManualReview: priorAuthRequired && claim.hasPriorAuthorization !== true && claim.emergency === true',
+      '  };',
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, approvedCents: 0, patientResponsibilityCents: 0, requiresManualReview: false };",
+      '}',
+      'module.exports = { adjudicateInsuranceClaim };',
+      ''
+    ].join('\n');
+    const happyPathOnlyInsuranceClaim = [
+      'function adjudicateInsuranceClaim(claim = {}, member = {}, policy = {}) {',
+      "  if (claim.status !== 'submitted') return denied('claim_not_submitted');",
+      "  if (member.active !== true) return denied('member_inactive');",
+      '  if (Array.isArray(policy.coveredProcedures) && !policy.coveredProcedures.includes(claim.procedureCode)) {',
+      "    return denied('procedure_not_covered');",
+      '  }',
+      "  return { status: 'approved', reason: null, approvedCents: 24000, patientResponsibilityCents: 16000, requiresManualReview: false };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, approvedCents: 0, patientResponsibilityCents: 0, requiresManualReview: false };",
+      '}',
+      'module.exports = { adjudicateInsuranceClaim };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -2005,6 +2082,81 @@ async function main() {
       warehouseAllocationHardcodedWorktree,
       fixedPaymentDispute
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree
+    ]) {
+      await writeInsuranceClaimFixture(worktree, fixedInsuranceClaim);
+    }
+    await writeInsuranceClaimFixture(baseWorktree, buggyInsuranceClaim);
+    await writeInsuranceClaimFixture(
+      insuranceClaimHardcodedWorktree,
+      happyPathOnlyInsuranceClaim
+    );
+    await writeCartFixture(insuranceClaimHardcodedWorktree, fixedCart);
+    await writeProfileFixture(insuranceClaimHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(insuranceClaimHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      insuranceClaimHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(insuranceClaimHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(insuranceClaimHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(insuranceClaimHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(insuranceClaimHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(insuranceClaimHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      insuranceClaimHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      insuranceClaimHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(insuranceClaimHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(insuranceClaimHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      insuranceClaimHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(insuranceClaimHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(
+      insuranceClaimHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      insuranceClaimHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      insuranceClaimHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -2070,6 +2222,9 @@ async function main() {
       buildWarehouseAllocationSemanticProposal({
         targetPath:
           'tests/adversary/warehouse-allocation-supplemental.test.cjs'
+      }),
+      buildInsuranceClaimSemanticProposal({
+        targetPath: 'tests/adversary/insurance-claim-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -2180,6 +2335,9 @@ async function main() {
         buildWarehouseAllocationSemanticProposal({
           targetPath:
             'tests/adversary/warehouse-allocation-supplemental.test.cjs'
+        }),
+        buildInsuranceClaimSemanticProposal({
+          targetPath: 'tests/adversary/insurance-claim-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -2471,6 +2629,13 @@ async function main() {
         'adversary-live-warehouse-allocation-hardcode'
       )
     );
+    const insuranceClaimHardcoded = await runGates(
+      await gateContext(
+        insuranceClaimHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-insurance-claim-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -2567,6 +2732,10 @@ async function main() {
       warehouseAllocationHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const insuranceClaimHardcodedGate =
+      insuranceClaimHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -2593,7 +2762,8 @@ async function main() {
       warrantyClaimHardcodedGate?.status !== 'fail' ||
       supportTicketRoutingHardcodedGate?.status !== 'fail' ||
       paymentDisputeHardcodedGate?.status !== 'fail' ||
-      warehouseAllocationHardcodedGate?.status !== 'fail'
+      warehouseAllocationHardcodedGate?.status !== 'fail' ||
+      insuranceClaimHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -2623,7 +2793,8 @@ async function main() {
           warrantyClaimHardcoded: warrantyClaimHardcodedGate,
           supportTicketRoutingHardcoded: supportTicketRoutingHardcodedGate,
           paymentDisputeHardcoded: paymentDisputeHardcodedGate,
-          warehouseAllocationHardcoded: warehouseAllocationHardcodedGate
+          warehouseAllocationHardcoded: warehouseAllocationHardcodedGate,
+          insuranceClaimHardcoded: insuranceClaimHardcodedGate
         })}`
       );
     }
@@ -2661,7 +2832,8 @@ async function main() {
         supportTicketRoutingHardcoded:
           supportTicketRoutingHardcodedGate.status,
         paymentDisputeHardcoded: paymentDisputeHardcodedGate.status,
-        warehouseAllocationHardcoded: warehouseAllocationHardcodedGate.status
+        warehouseAllocationHardcoded: warehouseAllocationHardcodedGate.status,
+        insuranceClaimHardcoded: insuranceClaimHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -2772,6 +2944,8 @@ async function main() {
           paymentDisputeHardcodedGate.status,
         warehouse_allocation_hardcoded_gate_status:
           warehouseAllocationHardcodedGate.status,
+        insurance_claim_hardcoded_gate_status:
+          insuranceClaimHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -2816,7 +2990,9 @@ async function main() {
         payment_dispute_hardcode_rejected:
           paymentDisputeHardcodedGate.status === 'fail',
         warehouse_allocation_hardcode_rejected:
-          warehouseAllocationHardcodedGate.status === 'fail'
+          warehouseAllocationHardcodedGate.status === 'fail',
+        insurance_claim_hardcode_rejected:
+          insuranceClaimHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

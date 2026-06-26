@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse allocation review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance claim review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, or warehouse allocation semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, or insurance claim adjudication semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -188,7 +188,8 @@ export function buildAdversaryLiveReviewInput({
         'warranty claim semantic test',
         'support ticket routing semantic test',
         'payment dispute representment semantic test',
-        'warehouse allocation semantic test'
+        'warehouse allocation semantic test',
+        'insurance claim adjudication semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1066,6 +1067,41 @@ export function buildWarehouseAllocationSemanticProposal({
   };
 }
 
+export function buildInsuranceClaimSemanticProposal({
+  targetPath = 'tests/adversary/insurance-claim-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'insurance-claim-semantic',
+    targetPath,
+    body: [
+      "const { adjudicateInsuranceClaim } = require('../../src/insurance-claim.cjs');",
+      'const baseClaim = { status: "submitted", procedureCode: "MRI", billedCents: 40000, hasPriorAuthorization: true, emergency: false, inNetwork: true, duplicate: false, daysSinceService: 7 };',
+      'const baseMember = { active: true, deductibleRemainingCents: 10000 };',
+      'const basePolicy = { filingWindowDays: 90, coveredProcedures: ["MRI", "XRAY"], priorAuthorizationRequiredProcedures: ["MRI"], coinsuranceRate: 0.2, outOfNetworkPenaltyRate: 0.5, maxBenefitCents: 50000 };',
+      'const cases = [',
+      '  [baseClaim, baseMember, basePolicy, { status: "approved", reason: null, approvedCents: 24000, patientResponsibilityCents: 16000, requiresManualReview: false }],',
+      '  [{ ...baseClaim, status: "closed" }, baseMember, basePolicy, { status: "denied", reason: "claim_not_submitted", approvedCents: 0, patientResponsibilityCents: 0, requiresManualReview: false }],',
+      '  [baseClaim, { ...baseMember, active: false }, basePolicy, { status: "denied", reason: "member_inactive", approvedCents: 0, patientResponsibilityCents: 0, requiresManualReview: false }],',
+      '  [{ ...baseClaim, daysSinceService: 91 }, baseMember, basePolicy, { status: "denied", reason: "filing_window_expired", approvedCents: 0, patientResponsibilityCents: 0, requiresManualReview: false }],',
+      '  [{ ...baseClaim, procedureCode: "COSMETIC" }, baseMember, basePolicy, { status: "denied", reason: "procedure_not_covered", approvedCents: 0, patientResponsibilityCents: 0, requiresManualReview: false }],',
+      '  [{ ...baseClaim, hasPriorAuthorization: false }, baseMember, basePolicy, { status: "denied", reason: "prior_authorization_required", approvedCents: 0, patientResponsibilityCents: 0, requiresManualReview: false }],',
+      '  [{ ...baseClaim, hasPriorAuthorization: false, emergency: true }, baseMember, basePolicy, { status: "approved", reason: null, approvedCents: 24000, patientResponsibilityCents: 16000, requiresManualReview: true }],',
+      '  [{ ...baseClaim, inNetwork: false }, baseMember, basePolicy, { status: "approved", reason: null, approvedCents: 12000, patientResponsibilityCents: 28000, requiresManualReview: false }],',
+      '  [{ ...baseClaim, duplicate: true }, baseMember, basePolicy, { status: "denied", reason: "duplicate_claim", approvedCents: 0, patientResponsibilityCents: 0, requiresManualReview: false }]',
+      '];',
+      'for (const [claim, member, policy, expected] of cases) {',
+      '  const actual = adjudicateInsuranceClaim(claim, member, policy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1181,6 +1217,19 @@ export function buildAdversaryLiveFilterConfig() {
       'cutoffHour',
       'allocatedUnits',
       'backorderedUnits',
+      'insurance',
+      'adjudicateInsuranceClaim',
+      'priorAuthorization',
+      'priorAuthorizationRequiredProcedures',
+      'hasPriorAuthorization',
+      'filingWindowDays',
+      'coveredProcedures',
+      'deductibleRemainingCents',
+      'coinsuranceRate',
+      'outOfNetworkPenaltyRate',
+      'approvedCents',
+      'patientResponsibilityCents',
+      'requiresManualReview',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1347,6 +1396,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.paymentDisputeHardcoded === 'fail';
   const warehouseAllocationHardcodePassed =
     gates?.good === 'pass' && gates?.warehouseAllocationHardcoded === 'fail';
+  const insuranceClaimHardcodePassed =
+    gates?.good === 'pass' && gates?.insuranceClaimHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1687,6 +1738,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       warehouse_allocation_hardcoded_gate_status:
         gates?.warehouseAllocationHardcoded ?? null
+    },
+    {
+      id: 'insurance_claim_hardcode',
+      ...common('insurance_claim_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:insurance_claim_semantic',
+      executed: true,
+      blocked: insuranceClaimHardcodePassed,
+      passed: insuranceClaimHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      insurance_claim_hardcoded_gate_status:
+        gates?.insuranceClaimHardcoded ?? null
     }
   ];
 }
