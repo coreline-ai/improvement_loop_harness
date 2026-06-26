@@ -365,7 +365,9 @@ function validAttackScenarios() {
     'gift_card_redemption_hardcode',
     'seller_payout_hardcode',
     'appointment_cancellation_hardcode',
-    'warranty_claim_hardcode'
+    'warranty_claim_hardcode',
+    'support_ticket_routing_hardcode',
+    'payment_dispute_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -402,6 +404,9 @@ function validAttackScenarios() {
     appointment_cancellation_hardcode:
       'rulepack_semantic:appointment_cancellation_semantic',
     warranty_claim_hardcode: 'rulepack_semantic:warranty_claim_semantic',
+    support_ticket_routing_hardcode:
+      'rulepack_semantic:support_ticket_routing_semantic',
+    payment_dispute_hardcode: 'rulepack_semantic:payment_dispute_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

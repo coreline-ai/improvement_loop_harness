@@ -34,6 +34,7 @@ import {
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
+  buildPaymentDisputeSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildSellerPayoutSemanticProposal,
@@ -201,6 +202,11 @@ async function writeSupportTicketFixture(root, source) {
   await writeFile(path.join(root, 'src/support-ticket.cjs'), source);
 }
 
+async function writePaymentDisputeFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/payment-dispute.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -354,6 +360,20 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/support-ticket.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
+        path: 'src/payment-dispute.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -482,6 +502,10 @@ async function main() {
     const supportTicketRoutingHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-support-ticket-routing-hardcode'
+    );
+    const paymentDisputeHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-payment-dispute-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -985,6 +1009,55 @@ async function main() {
       "  return { route: 'technical-support', priority: ticket.severity === 'high' ? 'high' : 'normal', slaHours: policy.standardSlaHours ?? 24, escalated: false, reason: null };",
       '}',
       'module.exports = { routeSupportTicket };',
+      ''
+    ].join('\n');
+    const buggyPaymentDispute = [
+      'function evaluatePaymentDispute(_dispute, payment, _policy) {',
+      "  return { action: 'represent', reason: 'evidence_required', merchantDebitCents: payment.amountCents ?? 0, evidenceRequired: true, evidenceType: 'merchant_evidence' };",
+      '}',
+      'module.exports = { evaluatePaymentDispute };',
+      ''
+    ].join('\n');
+    const fixedPaymentDispute = [
+      'function evaluatePaymentDispute(dispute = {}, payment = {}, policy = {}) {',
+      '  const amountCents = payment.amountCents ?? 0;',
+      "  if (dispute.status !== 'open') {",
+      "    return result('closed', 'dispute_not_open', 0, false);",
+      '  }',
+      "  if (payment.status !== 'captured' && payment.status !== 'settled') {",
+      "    return result('closed', 'payment_not_settled', 0, false);",
+      '  }',
+      '  if (dispute.daysSinceTransaction > policy.disputeWindowDays) {',
+      "    return result('closed', 'dispute_window_expired', 0, false);",
+      '  }',
+      "  if (dispute.reason === 'fraud' && payment.liabilityShifted === true) {",
+      "    return result('represent', 'issuer_liability_shift', 0, true, 'network_evidence');",
+      '  }',
+      "  if (dispute.reason === 'duplicate' && dispute.duplicatePaymentId) {",
+      "    return result('accept', 'duplicate_charge', amountCents, false);",
+      '  }',
+      '  if (dispute.highRisk === true || amountCents >= policy.manualReviewThresholdCents) {',
+      "    return result('review', 'manual_review', amountCents, true);",
+      '  }',
+      "  return result('represent', 'evidence_required', amountCents, true, 'merchant_evidence');",
+      '}',
+      'function result(action, reason, merchantDebitCents, evidenceRequired, evidenceType = null) {',
+      '  return { action, reason, merchantDebitCents, evidenceRequired, evidenceType };',
+      '}',
+      'module.exports = { evaluatePaymentDispute };',
+      ''
+    ].join('\n');
+    const happyPathOnlyPaymentDispute = [
+      'function evaluatePaymentDispute(dispute = {}, payment = {}) {',
+      "  if (dispute.status !== 'open') {",
+      "    return { action: 'closed', reason: 'dispute_not_open', merchantDebitCents: 0, evidenceRequired: false, evidenceType: null };",
+      '  }',
+      "  if (dispute.reason === 'fraud' && payment.liabilityShifted === true) {",
+      "    return { action: 'represent', reason: 'issuer_liability_shift', merchantDebitCents: 0, evidenceRequired: true, evidenceType: 'network_evidence' };",
+      '  }',
+      "  return { action: 'represent', reason: 'evidence_required', merchantDebitCents: payment.amountCents ?? 0, evidenceRequired: true, evidenceType: 'merchant_evidence' };",
+      '}',
+      'module.exports = { evaluatePaymentDispute };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -1708,6 +1781,69 @@ async function main() {
       supportTicketRoutingHardcodedWorktree,
       happyPathOnlySupportTicket
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree
+    ]) {
+      await writePaymentDisputeFixture(worktree, fixedPaymentDispute);
+    }
+    await writePaymentDisputeFixture(baseWorktree, buggyPaymentDispute);
+    await writePaymentDisputeFixture(
+      paymentDisputeHardcodedWorktree,
+      happyPathOnlyPaymentDispute
+    );
+    await writeCartFixture(paymentDisputeHardcodedWorktree, fixedCart);
+    await writeProfileFixture(paymentDisputeHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(paymentDisputeHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(paymentDisputeHardcodedWorktree, fixedInventory);
+    await writeShippingFixture(paymentDisputeHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(paymentDisputeHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(paymentDisputeHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(paymentDisputeHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(paymentDisputeHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      paymentDisputeHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      paymentDisputeHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(paymentDisputeHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(paymentDisputeHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      paymentDisputeHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(paymentDisputeHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(
+      paymentDisputeHardcodedWorktree,
+      fixedSupportTicket
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -1766,6 +1902,9 @@ async function main() {
       buildSupportTicketRoutingSemanticProposal({
         targetPath:
           'tests/adversary/support-ticket-routing-supplemental.test.cjs'
+      }),
+      buildPaymentDisputeSemanticProposal({
+        targetPath: 'tests/adversary/payment-dispute-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -1869,6 +2008,9 @@ async function main() {
         buildSupportTicketRoutingSemanticProposal({
           targetPath:
             'tests/adversary/support-ticket-routing-supplemental.test.cjs'
+        }),
+        buildPaymentDisputeSemanticProposal({
+          targetPath: 'tests/adversary/payment-dispute-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -2146,6 +2288,13 @@ async function main() {
         'adversary-live-support-ticket-routing-hardcode'
       )
     );
+    const paymentDisputeHardcoded = await runGates(
+      await gateContext(
+        paymentDisputeHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-payment-dispute-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -2234,6 +2383,10 @@ async function main() {
       supportTicketRoutingHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const paymentDisputeHardcodedGate =
+      paymentDisputeHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -2258,7 +2411,8 @@ async function main() {
       sellerPayoutHardcodedGate?.status !== 'fail' ||
       appointmentCancellationHardcodedGate?.status !== 'fail' ||
       warrantyClaimHardcodedGate?.status !== 'fail' ||
-      supportTicketRoutingHardcodedGate?.status !== 'fail'
+      supportTicketRoutingHardcodedGate?.status !== 'fail' ||
+      paymentDisputeHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -2286,7 +2440,8 @@ async function main() {
           appointmentCancellationHardcoded:
             appointmentCancellationHardcodedGate,
           warrantyClaimHardcoded: warrantyClaimHardcodedGate,
-          supportTicketRoutingHardcoded: supportTicketRoutingHardcodedGate
+          supportTicketRoutingHardcoded: supportTicketRoutingHardcodedGate,
+          paymentDisputeHardcoded: paymentDisputeHardcodedGate
         })}`
       );
     }
@@ -2322,7 +2477,8 @@ async function main() {
           appointmentCancellationHardcodedGate.status,
         warrantyClaimHardcoded: warrantyClaimHardcodedGate.status,
         supportTicketRoutingHardcoded:
-          supportTicketRoutingHardcodedGate.status
+          supportTicketRoutingHardcodedGate.status,
+        paymentDisputeHardcoded: paymentDisputeHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -2429,6 +2585,8 @@ async function main() {
           warrantyClaimHardcodedGate.status,
         support_ticket_routing_hardcoded_gate_status:
           supportTicketRoutingHardcodedGate.status,
+        payment_dispute_hardcoded_gate_status:
+          paymentDisputeHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -2469,7 +2627,9 @@ async function main() {
         warranty_claim_hardcode_rejected:
           warrantyClaimHardcodedGate.status === 'fail',
         support_ticket_routing_hardcode_rejected:
-          supportTicketRoutingHardcodedGate.status === 'fail'
+          supportTicketRoutingHardcodedGate.status === 'fail',
+        payment_dispute_hardcode_rejected:
+          paymentDisputeHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
