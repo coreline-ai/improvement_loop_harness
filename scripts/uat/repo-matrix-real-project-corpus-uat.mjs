@@ -1247,6 +1247,26 @@ function buildPaymentSettlementCaptureVerifier(cases) {
   ].join('\n');
 }
 
+function buildTaxFilingComplianceVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { prepareTaxFiling } = require(process.cwd() + '/examples/business-source/tax-filing-compliance.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = prepareTaxFiling(item.payee, item.payer, item.filing, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -4511,6 +4531,247 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             reason: 'currency_mismatch',
             requiresManualReview: false,
             settled: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'tax-filing-backup-withholding',
+    semantic_domain: 'tax_filing_backup_withholding_gate',
+    business_source_repair: true,
+    business_domain: 'tax_filing_compliance',
+    relativePath: 'examples/business-source/tax-filing-compliance.cjs',
+    language: 'javascript',
+    originalNeedle: '  if (payee.w9OnFile !== true) {',
+    regressionText: '  if (payee.w9OnFile === true) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildTaxFilingComplianceVerifier([
+        {
+          name: 'missing W-9 triggers backup withholding',
+          payee: {
+            id: 'payee_visible_missing_w9',
+            status: 'active',
+            kind: 'contractor',
+            w9OnFile: false,
+            tinVerified: true
+          },
+          payer: {
+            id: 'payer_visible_a',
+            status: 'active'
+          },
+          filing: {
+            grossCents: 60000,
+            form: '1099-NEC',
+            filedAt: '2026-01-20T00:00:00.000Z'
+          },
+          policy: {
+            reportingThresholdCents: 60000,
+            backupWithholdingRate: 0.24,
+            filingDeadline: '2026-01-31T23:59:59.000Z'
+          },
+          now: '2026-01-20T12:00:00.000Z',
+          expected: {
+            status: 'withholding_required',
+            reason: 'backup_withholding_required',
+            withholdingCents: 14400,
+            requiresBackupWithholding: true,
+            accepted: false
+          }
+        },
+        {
+          name: 'verified domestic contractor filing is accepted',
+          payee: {
+            id: 'payee_visible_verified',
+            status: 'active',
+            kind: 'contractor',
+            w9OnFile: true,
+            tinVerified: true
+          },
+          payer: {
+            id: 'payer_visible_b',
+            status: 'active'
+          },
+          filing: {
+            grossCents: 90000,
+            form: '1099-NEC',
+            filedAt: '2026-01-25T00:00:00.000Z'
+          },
+          policy: {
+            reportingThresholdCents: 60000,
+            filingDeadline: '2026-01-31T23:59:59.000Z'
+          },
+          now: '2026-01-25T12:00:00.000Z',
+          expected: {
+            status: 'filed',
+            reason: null,
+            withholdingCents: 0,
+            requiresBackupWithholding: false,
+            accepted: true
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildTaxFilingComplianceVerifier([
+        {
+          name: 'TIN verification failure also triggers withholding',
+          payee: {
+            id: 'payee_hidden_tin',
+            status: 'active',
+            kind: 'contractor',
+            w9OnFile: true,
+            tinVerified: false
+          },
+          payer: {
+            id: 'payer_hidden_a',
+            status: 'active'
+          },
+          filing: {
+            grossCents: 100000,
+            form: '1099-NEC',
+            filedAt: '2026-01-21T00:00:00.000Z'
+          },
+          policy: {
+            reportingThresholdCents: 60000,
+            backupWithholdingRate: 0.24,
+            filingDeadline: '2026-01-31T23:59:59.000Z'
+          },
+          now: '2026-01-21T12:00:00.000Z',
+          expected: {
+            status: 'withholding_required',
+            reason: 'backup_withholding_required',
+            withholdingCents: 24000,
+            requiresBackupWithholding: true,
+            accepted: false
+          }
+        },
+        {
+          name: 'withholding shortfall requires manual review',
+          payee: {
+            id: 'payee_hidden_shortfall',
+            status: 'active',
+            kind: 'contractor',
+            w9OnFile: false,
+            tinVerified: true
+          },
+          payer: {
+            id: 'payer_hidden_b',
+            status: 'active'
+          },
+          filing: {
+            grossCents: 80000,
+            form: '1099-NEC',
+            filedAt: '2026-01-23T00:00:00.000Z',
+            withholdingPaidCents: 10000
+          },
+          policy: {
+            reportingThresholdCents: 60000,
+            backupWithholdingRate: 0.24,
+            filingDeadline: '2026-01-31T23:59:59.000Z'
+          },
+          now: '2026-01-23T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'withholding_shortfall',
+            withholdingCents: 19200,
+            requiresBackupWithholding: true,
+            accepted: false
+          }
+        },
+        {
+          name: 'foreign vendor without treaty documentation needs review',
+          payee: {
+            id: 'payee_hidden_foreign',
+            status: 'active',
+            kind: 'contractor',
+            foreign: true,
+            treatyDocumentOnFile: false,
+            w9OnFile: true,
+            tinVerified: true
+          },
+          payer: {
+            id: 'payer_hidden_c',
+            status: 'active'
+          },
+          filing: {
+            grossCents: 120000,
+            form: '1042-S',
+            filedAt: '2026-01-20T00:00:00.000Z'
+          },
+          policy: {
+            reportingThresholdCents: 60000,
+            filingDeadline: '2026-01-31T23:59:59.000Z'
+          },
+          now: '2026-01-20T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'treaty_review_required',
+            requiresBackupWithholding: false,
+            accepted: false
+          }
+        },
+        {
+          name: 'correction without original filing is denied',
+          payee: {
+            id: 'payee_hidden_correction',
+            status: 'active',
+            kind: 'attorney',
+            w9OnFile: true,
+            tinVerified: true
+          },
+          payer: {
+            id: 'payer_hidden_d',
+            status: 'active'
+          },
+          filing: {
+            correction: true,
+            grossCents: 130000,
+            form: '1099-MISC',
+            filedAt: '2026-01-24T00:00:00.000Z'
+          },
+          policy: {
+            reportingThresholdCents: 60000,
+            filingDeadline: '2026-01-31T23:59:59.000Z'
+          },
+          now: '2026-01-24T12:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'correction_without_original',
+            requiresBackupWithholding: false,
+            accepted: false
+          }
+        },
+        {
+          name: 'form mismatch is denied for attorney payee',
+          payee: {
+            id: 'payee_hidden_form',
+            status: 'active',
+            kind: 'attorney',
+            w9OnFile: true,
+            tinVerified: true
+          },
+          payer: {
+            id: 'payer_hidden_e',
+            status: 'active'
+          },
+          filing: {
+            grossCents: 140000,
+            form: '1099-NEC',
+            filedAt: '2026-01-20T00:00:00.000Z'
+          },
+          policy: {
+            reportingThresholdCents: 60000,
+            filingDeadline: '2026-01-31T23:59:59.000Z'
+          },
+          now: '2026-01-20T12:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'form_mismatch',
+            requiresBackupWithholding: false,
+            accepted: false
           }
         }
       ])
