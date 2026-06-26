@@ -2516,9 +2516,9 @@ describe('release evidence audit', () => {
         scenario,
         expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 13,
-          min_pass_count: 13,
-          min_distinct_semantic_target_count: 13,
+          min_cell_count: 14,
+          min_pass_count: 14,
+          min_distinct_semantic_target_count: 14,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_business_source_repair: true,
@@ -2565,8 +2565,8 @@ describe('release evidence audit', () => {
         provider: 'codex',
         model: 'gpt-5.5'
       },
-      cell_count: 13,
-      pass_count: 13,
+      cell_count: 14,
+      pass_count: 14,
       fail_count: 0,
       cells: [
         {
@@ -2857,6 +2857,28 @@ describe('release evidence audit', () => {
             semantic_target_id: 'fraud-risk-velocity-review',
             existing_source: true,
             repair_source: 'examples/business-source/fraud-risk-review.cjs',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'credit-memo-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_source_repair: true,
+            business_bug_repair: true,
+            business_domain: 'credit_memo_approval',
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'credit_memo_dispute_evidence_approval_gate',
+            semantic_target_id: 'credit-memo-approval-dispute-policy',
+            existing_source: true,
+            repair_source: 'examples/business-source/credit-memo-approval.cjs',
             visible_acceptance: { status: 'pass' },
             hidden_acceptance: { status: 'pass' },
             diff_scope: { status: 'pass' },

@@ -1207,6 +1207,26 @@ function buildFraudRiskReviewVerifier(cases) {
   ].join('\n');
 }
 
+function buildCreditMemoApprovalVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateCreditMemo } = require(process.cwd() + '/examples/business-source/credit-memo-approval.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateCreditMemo(item.invoice, item.request, item.account, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -3955,6 +3975,255 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             reason: 'order_not_submitted',
             riskScore: 0,
             requiresManualReview: false,
+            approved: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'credit-memo-approval-dispute-policy',
+    semantic_domain: 'credit_memo_dispute_evidence_approval_gate',
+    business_source_repair: true,
+    business_domain: 'credit_memo_approval',
+    relativePath: 'examples/business-source/credit-memo-approval.cjs',
+    language: 'javascript',
+    originalNeedle:
+      "  if (request.type === 'service_credit' && !request.linkedDisputeId) {",
+    regressionText:
+      "  if (request.type === 'service_credit' && request.linkedDisputeId) {",
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildCreditMemoApprovalVerifier([
+        {
+          name: 'service credit without dispute evidence requires review',
+          invoice: {
+            id: 'invoice_visible_missing_dispute',
+            accountId: 'account_visible_a',
+            status: 'paid',
+            paidCents: 120000,
+            taxCents: 8000,
+            settledAt: '2026-06-01T00:00:00.000Z',
+            currency: 'USD'
+          },
+          request: {
+            type: 'service_credit',
+            reason: 'sla_breach',
+            amountCents: 7500
+          },
+          account: {
+            id: 'account_visible_a',
+            status: 'active'
+          },
+          policy: {
+            creditWindowDays: 90,
+            autoApproveLimitCents: 10000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'missing_dispute_evidence',
+            requiresApproval: true,
+            approved: false
+          }
+        },
+        {
+          name: 'settled invoice with dispute evidence is auto approved',
+          invoice: {
+            id: 'invoice_visible_auto',
+            accountId: 'account_visible_b',
+            status: 'settled',
+            paidCents: 90000,
+            taxCents: 5000,
+            settledAt: '2026-06-10T00:00:00.000Z',
+            currency: 'USD'
+          },
+          request: {
+            type: 'service_credit',
+            reason: 'billing_adjustment',
+            linkedDisputeId: 'dispute_visible_1',
+            amountCents: 4500
+          },
+          account: {
+            id: 'account_visible_b',
+            status: 'active'
+          },
+          policy: {
+            creditWindowDays: 90,
+            autoApproveLimitCents: 10000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            requiresApproval: false,
+            approved: true
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildCreditMemoApprovalVerifier([
+        {
+          name: 'different service credit without linked dispute still requires review',
+          invoice: {
+            id: 'invoice_hidden_missing_dispute',
+            accountId: 'account_hidden_a',
+            status: 'settled',
+            paidCents: 50000,
+            taxCents: 4000,
+            settledAt: '2026-06-18T00:00:00.000Z',
+            currency: 'USD'
+          },
+          request: {
+            type: 'service_credit',
+            reason: 'quality_credit',
+            amountCents: 3000
+          },
+          account: {
+            id: 'account_hidden_a',
+            status: 'active'
+          },
+          policy: {
+            creditWindowDays: 60,
+            autoApproveLimitCents: 8000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'missing_dispute_evidence',
+            requiresApproval: true,
+            approved: false
+          }
+        },
+        {
+          name: 'stale settled invoice is denied',
+          invoice: {
+            id: 'invoice_hidden_stale',
+            accountId: 'account_hidden_b',
+            status: 'paid',
+            paidCents: 40000,
+            taxCents: 2500,
+            settledAt: '2026-01-01T00:00:00.000Z',
+            currency: 'USD'
+          },
+          request: {
+            type: 'billing_credit',
+            reason: 'billing_adjustment',
+            amountCents: 2500
+          },
+          account: {
+            id: 'account_hidden_b',
+            status: 'active'
+          },
+          policy: {
+            creditWindowDays: 90,
+            autoApproveLimitCents: 10000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'credit_window_expired',
+            requiresApproval: false,
+            approved: false
+          }
+        },
+        {
+          name: 'duplicate credit memo is denied',
+          invoice: {
+            id: 'invoice_hidden_duplicate',
+            accountId: 'account_hidden_c',
+            status: 'settled',
+            paidCents: 75000,
+            taxCents: 6000,
+            settledAt: '2026-06-22T00:00:00.000Z',
+            hasOpenCreditMemo: true,
+            currency: 'USD'
+          },
+          request: {
+            type: 'billing_credit',
+            reason: 'billing_adjustment',
+            amountCents: 5000
+          },
+          account: {
+            id: 'account_hidden_c',
+            status: 'active'
+          },
+          policy: {
+            creditWindowDays: 90,
+            autoApproveLimitCents: 10000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'duplicate_credit_memo',
+            requiresApproval: false,
+            approved: false
+          }
+        },
+        {
+          name: 'large credit over threshold requires approval',
+          invoice: {
+            id: 'invoice_hidden_threshold',
+            accountId: 'account_hidden_d',
+            status: 'settled',
+            paidCents: 200000,
+            taxCents: 12000,
+            settledAt: '2026-06-20T00:00:00.000Z',
+            currency: 'USD'
+          },
+          request: {
+            type: 'billing_credit',
+            reason: 'billing_adjustment',
+            amountCents: 25000
+          },
+          account: {
+            id: 'account_hidden_d',
+            status: 'active'
+          },
+          policy: {
+            creditWindowDays: 90,
+            autoApproveLimitCents: 10000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'approval_threshold',
+            requiresApproval: true,
+            approved: false
+          }
+        },
+        {
+          name: 'tax adjustment above cap requires review',
+          invoice: {
+            id: 'invoice_hidden_tax',
+            accountId: 'account_hidden_e',
+            status: 'paid',
+            paidCents: 100000,
+            taxCents: 7000,
+            settledAt: '2026-06-21T00:00:00.000Z',
+            currency: 'USD'
+          },
+          request: {
+            type: 'tax_credit',
+            reason: 'tax_adjustment',
+            amountCents: 9000
+          },
+          account: {
+            id: 'account_hidden_e',
+            status: 'active'
+          },
+          policy: {
+            creditWindowDays: 90,
+            taxAdjustmentCapRate: 1,
+            autoApproveLimitCents: 20000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'tax_adjustment_cap',
+            requiresApproval: true,
             approved: false
           }
         }
