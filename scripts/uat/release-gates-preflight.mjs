@@ -266,6 +266,20 @@ export const SKILL_PROMPT_JOURNEY_EVIDENCE_SCENARIO = {
   }
 };
 
+export const SKILL_PROMPT_CORPUS_LIVE_EVIDENCE_SCENARIO = {
+  gate: 'P1',
+  name: 'Skill natural-language prompt corpus live evidence',
+  scenario: 'skill-real-user-prompt-corpus-live-uat',
+  require_manifest: true,
+  expected_status: 'SKILL_PROMPT_CORPUS_LIVE_UAT_PASS',
+  expected_ledger: {
+    required_skill_prompt_corpus_live: true,
+    min_skill_prompt_corpus_variant_count: 16,
+    min_skill_prompt_corpus_user_issue_count: 8,
+    min_skill_prompt_corpus_auto_discovery_count: 8
+  }
+};
+
 export const SKILL_FULL_UAT_EVIDENCE_SCENARIO = {
   gate: 'P1',
   name: 'Skill full fixture UAT evidence',
@@ -1286,6 +1300,8 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
       ? {
           real_llm: ledgerJson.orchestrator.real_llm ?? null,
           codex_cli: ledgerJson.orchestrator.codex_cli ?? null,
+          required_child_skill_file_read:
+            ledgerJson.orchestrator.required_child_skill_file_read ?? null,
           reported_skill_file_read:
             ledgerJson.orchestrator.reported_skill_file_read ?? null,
           reported_skill_name:
@@ -1410,6 +1426,87 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
       ledgerJson.evidence_missing_count ??
       ledgerJson.evidence?.evidence_missing_count ??
       null
+  };
+}
+
+function summarizeSkillPromptCorpus(corpus) {
+  if (!corpus || typeof corpus !== 'object') return null;
+  return {
+    proof_scope: corpus.proof_scope ?? null,
+    builder_mode: corpus.builder_mode ?? null,
+    github_draft_pr_requested: corpus.github_draft_pr_requested ?? null,
+    requested_variant_count: corpus.requested_variant_count ?? null,
+    executed_variant_count: corpus.executed_variant_count ?? null,
+    passed_variant_count: corpus.passed_variant_count ?? null,
+    failed_variant_count: corpus.failed_variant_count ?? null,
+    blocked_variant_count: corpus.blocked_variant_count ?? null,
+    modes: corpus.modes ?? {},
+    variants: Array.isArray(corpus.variants)
+      ? corpus.variants.map((variant) => ({
+          id: variant.id ?? null,
+          mode: variant.mode ?? null,
+          variant_id: variant.variant_id ?? null,
+          language: variant.language ?? null,
+          expected_status: variant.expected_status ?? null,
+          status: variant.status ?? null,
+          pass: variant.pass === true,
+          failures: Array.isArray(variant.failures) ? variant.failures : [],
+          orchestrator: variant.orchestrator
+            ? {
+                real_llm: variant.orchestrator.real_llm ?? null,
+                codex_cli: variant.orchestrator.codex_cli ?? null,
+                reported_skill_file_read:
+                  variant.orchestrator.reported_skill_file_read ?? null,
+                reported_skill_name:
+                  variant.orchestrator.reported_skill_name ?? null
+              }
+            : null,
+          builder: variant.builder
+            ? {
+                real_llm: variant.builder.real_llm ?? null,
+                via: variant.builder.via ?? null,
+                model: variant.builder.model ?? null
+              }
+            : null,
+          helper: variant.helper
+            ? {
+                mode: variant.helper.mode ?? null,
+                command_kind: variant.helper.command_kind ?? null,
+                executed: variant.helper.executed ?? null,
+                execution_code: variant.helper.execution_code ?? null
+              }
+            : null,
+          prompt_ux: variant.prompt_ux
+            ? {
+                expected_mode: variant.prompt_ux.expected_mode ?? null,
+                matched_expected_mode:
+                  variant.prompt_ux.matched_expected_mode ?? null,
+                prompt_present: variant.prompt_ux.prompt_present ?? null,
+                prompt_sha256: variant.prompt_ux.prompt_sha256 ?? null
+              }
+            : null,
+          pr_candidate: variant.pr_candidate ?? null,
+          final_verification: variant.final_verification
+            ? {
+                provenance_ok:
+                  variant.final_verification.provenance_ok ?? null,
+                reverify_attempted:
+                  variant.final_verification.reverify_attempted ?? null,
+                reverified: variant.final_verification.reverified ?? null,
+                passed: variant.final_verification.passed ?? null
+              }
+            : null,
+          promotion: variant.promotion
+            ? {
+                branch_name: variant.promotion.branch_name ?? null,
+                pushed: variant.promotion.pushed ?? null
+              }
+            : null,
+          github_draft_pr: variant.github_draft_pr ?? null,
+          github_draft_pr_verified: variant.github_draft_pr_verified ?? null,
+          leak: variant.leak ?? null
+        }))
+      : []
   };
 }
 
@@ -1801,6 +1898,153 @@ function requiredSkillPromptJourneyFailures(ledgerSummary) {
   return failures;
 }
 
+function requiredSkillPromptCorpusLiveFailures(
+  ledgerSummary,
+  expectedLedger = {}
+) {
+  const failures = [];
+  const corpus = ledgerSummary.prompt_corpus;
+  const minVariantCount =
+    expectedLedger.min_skill_prompt_corpus_variant_count ?? 1;
+  const minUserIssueCount =
+    expectedLedger.min_skill_prompt_corpus_user_issue_count ?? 1;
+  const minAutoDiscoveryCount =
+    expectedLedger.min_skill_prompt_corpus_auto_discovery_count ?? 1;
+
+  if (!corpus) {
+    failures.push('skill_prompt_corpus');
+    return failures;
+  }
+  if (
+    ledgerSummary.proof_scope !== 'natural_language_skill_prompt_live_corpus' ||
+    corpus.proof_scope !== 'natural_language_skill_prompt_live_corpus'
+  ) {
+    failures.push('skill_prompt_corpus.proof_scope');
+  }
+  if (corpus.builder_mode !== 'codex') {
+    failures.push('skill_prompt_corpus.builder_mode');
+  }
+  if (
+    ledgerSummary.orchestrator?.real_llm !== true ||
+    ledgerSummary.orchestrator?.codex_cli !== true ||
+    ledgerSummary.orchestrator?.required_child_skill_file_read !== true
+  ) {
+    failures.push('skill_prompt_corpus.orchestrator');
+  }
+  if (
+    ledgerSummary.builder?.real_llm !== true ||
+    ledgerSummary.builder?.provider !== 'codex' ||
+    ledgerSummary.builder?.via !== 'chatgpt-oauth-proxy'
+  ) {
+    failures.push('skill_prompt_corpus.builder');
+  }
+  if (!(corpus.requested_variant_count >= minVariantCount)) {
+    failures.push('skill_prompt_corpus.requested_variant_count');
+  }
+  if (corpus.executed_variant_count !== corpus.requested_variant_count) {
+    failures.push('skill_prompt_corpus.executed_variant_count');
+  }
+  if (corpus.passed_variant_count !== corpus.requested_variant_count) {
+    failures.push('skill_prompt_corpus.passed_variant_count');
+  }
+  if (corpus.failed_variant_count !== 0) {
+    failures.push('skill_prompt_corpus.failed_variant_count');
+  }
+  if (corpus.blocked_variant_count !== 0) {
+    failures.push('skill_prompt_corpus.blocked_variant_count');
+  }
+  if (!(corpus.modes?.user_issue?.variant_count >= minUserIssueCount)) {
+    failures.push('skill_prompt_corpus.user_issue.variant_count');
+  }
+  if (
+    corpus.modes?.user_issue?.passed_count !==
+    corpus.modes?.user_issue?.variant_count
+  ) {
+    failures.push('skill_prompt_corpus.user_issue.passed_count');
+  }
+  if (corpus.modes?.user_issue?.failed_count !== 0) {
+    failures.push('skill_prompt_corpus.user_issue.failed_count');
+  }
+  if (
+    !(corpus.modes?.auto_discovery?.variant_count >= minAutoDiscoveryCount)
+  ) {
+    failures.push('skill_prompt_corpus.auto_discovery.variant_count');
+  }
+  if (
+    corpus.modes?.auto_discovery?.passed_count !==
+    corpus.modes?.auto_discovery?.variant_count
+  ) {
+    failures.push('skill_prompt_corpus.auto_discovery.passed_count');
+  }
+  if (corpus.modes?.auto_discovery?.failed_count !== 0) {
+    failures.push('skill_prompt_corpus.auto_discovery.failed_count');
+  }
+  if (ledgerSummary.false_pass !== 0) {
+    failures.push('skill_prompt_corpus.false_pass');
+  }
+  if (ledgerSummary.leak !== 0) {
+    failures.push('skill_prompt_corpus.leak');
+  }
+  if (ledgerSummary.failure_reasons_count !== 0) {
+    failures.push('skill_prompt_corpus.failure_reasons');
+  }
+  if (
+    corpus.github_draft_pr_requested === true &&
+    ledgerSummary.github_draft_pr_verified !== true
+  ) {
+    failures.push('skill_prompt_corpus.github_draft_pr_verified');
+  }
+
+  if (corpus.variants.length !== corpus.executed_variant_count) {
+    failures.push('skill_prompt_corpus.variants.count');
+  }
+  if (
+    corpus.variants.some((variant) => {
+      const expectedCommand =
+        variant.mode === 'user_issue'
+          ? 'vibeloop_improve'
+          : variant.mode === 'auto_discovery'
+            ? 'vibeloop_orchestrate'
+            : null;
+      return (
+        variant.pass !== true ||
+        variant.status !== variant.expected_status ||
+        !String(variant.status ?? '').endsWith('_PASS') ||
+        variant.failures.length !== 0 ||
+        variant.orchestrator?.real_llm !== true ||
+        variant.orchestrator?.codex_cli !== true ||
+        variant.orchestrator?.reported_skill_file_read !== true ||
+        variant.orchestrator?.reported_skill_name !== 'vibeloop-harness' ||
+        variant.builder?.real_llm !== true ||
+        variant.builder?.via !== 'chatgpt-oauth-proxy' ||
+        variant.helper?.mode !== variant.mode ||
+        variant.helper?.command_kind !== expectedCommand ||
+        variant.helper?.executed !== true ||
+        variant.helper?.execution_code !== 0 ||
+        variant.prompt_ux?.expected_mode !== variant.mode ||
+        variant.prompt_ux?.matched_expected_mode !== true ||
+        variant.prompt_ux?.prompt_present !== true ||
+        typeof variant.prompt_ux?.prompt_sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(variant.prompt_ux.prompt_sha256) ||
+        variant.pr_candidate !== true ||
+        variant.final_verification?.provenance_ok !== true ||
+        variant.final_verification?.reverify_attempted !== true ||
+        variant.final_verification?.reverified !== true ||
+        variant.final_verification?.passed !== true ||
+        !variant.promotion?.branch_name ||
+        variant.promotion?.pushed !== false ||
+        (corpus.github_draft_pr_requested === true &&
+          variant.github_draft_pr_verified !== true) ||
+        variant.leak !== 0
+      );
+    })
+  ) {
+    failures.push('skill_prompt_corpus.variants');
+  }
+
+  return failures;
+}
+
 async function validateRequiredStatusEvidence({
   scenario,
   scenarioDir,
@@ -2097,6 +2341,8 @@ export async function latestEvidenceBundle(
           ? {
               real_llm: ledgerJson.orchestrator.real_llm ?? null,
               codex_cli: ledgerJson.orchestrator.codex_cli ?? null,
+              required_child_skill_file_read:
+                ledgerJson.orchestrator.required_child_skill_file_read ?? null,
               reported_skill_file_read:
                 ledgerJson.orchestrator.reported_skill_file_read ?? null,
               reported_skill_name:
@@ -2183,6 +2429,7 @@ export async function latestEvidenceBundle(
           ledgerJson.not_live_codex_or_github_pass ?? null,
         actual_user_environment: ledgerJson.actual_user_environment ?? null,
         prompt_journey: ledgerJson.prompt_journey ?? null,
+        prompt_corpus: summarizeSkillPromptCorpus(ledgerJson.prompt_corpus),
         required_cases: ledgerJson.required_cases ?? null,
         total_cases: ledgerJson.total_cases ?? null,
         passed_cases: ledgerJson.passed_cases ?? null,
@@ -2347,6 +2594,14 @@ export async function latestEvidenceBundle(
     }
     if (options.expectedLedger?.required_skill_prompt_journey) {
       ledgerFailures.push(...requiredSkillPromptJourneyFailures(ledgerSummary));
+    }
+    if (options.expectedLedger?.required_skill_prompt_corpus_live) {
+      ledgerFailures.push(
+        ...requiredSkillPromptCorpusLiveFailures(
+          ledgerSummary,
+          options.expectedLedger
+        )
+      );
     }
     if (
       options.expectedLedger?.required_hidden_acceptance &&

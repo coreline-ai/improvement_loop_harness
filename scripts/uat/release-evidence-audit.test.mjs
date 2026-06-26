@@ -587,6 +587,136 @@ function skillPromptLiveLedger(overrides = {}) {
   };
 }
 
+function skillPromptCorpusLiveLedger(overrides = {}) {
+  const userIssueCount = overrides.userIssueCount ?? 8;
+  const autoDiscoveryCount = overrides.autoDiscoveryCount ?? 8;
+  const variants = [
+    ...Array.from({ length: userIssueCount }, (_, index) => ({
+      id: `user-${index + 1}`,
+      mode: 'user_issue',
+      variant_id: `user-variant-${index + 1}`,
+      language: index % 2 === 0 ? 'ko' : 'en'
+    })),
+    ...Array.from({ length: autoDiscoveryCount }, (_, index) => ({
+      id: `auto-${index + 1}`,
+      mode: 'auto_discovery',
+      variant_id: `auto-variant-${index + 1}`,
+      language: index % 2 === 0 ? 'ko' : 'en'
+    }))
+  ].map((variant, index) => {
+    const promptMode =
+      variant.mode === 'user_issue' ? 'vibeloop_improve' : 'vibeloop_orchestrate';
+    return {
+      ...variant,
+      expected_status:
+        variant.mode === 'user_issue'
+          ? 'SKILL_PROMPT_LIVE_UAT_PASS'
+          : 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+      status:
+        variant.mode === 'user_issue'
+          ? 'SKILL_PROMPT_LIVE_UAT_PASS'
+          : 'SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS',
+      pass: true,
+      failures: [],
+      orchestrator: {
+        real_llm: true,
+        codex_cli: true,
+        reported_skill_file_read: true,
+        reported_skill_name: 'vibeloop-harness'
+      },
+      builder: {
+        real_llm: true,
+        via: 'chatgpt-oauth-proxy',
+        model: 'gpt-5.5'
+      },
+      helper: {
+        mode: variant.mode,
+        command_kind: promptMode,
+        executed: true,
+        execution_code: 0
+      },
+      prompt_ux: {
+        expected_mode: variant.mode,
+        matched_expected_mode: true,
+        prompt_present: true,
+        prompt_sha256: `${String(index).padStart(64, '0')}`.slice(-64)
+      },
+      pr_candidate: true,
+      final_verification: {
+        provenance_ok: true,
+        reverify_attempted: true,
+        reverified: true,
+        passed: true
+      },
+      promotion: {
+        branch_name:
+          variant.mode === 'user_issue'
+            ? 'pr-candidate/skill-prompt-uat'
+            : 'pr-candidate/skill-prompt-auto-uat',
+        pushed: false
+      },
+      github_draft_pr: false,
+      github_draft_pr_verified: false,
+      leak: 0,
+      ...(overrides.variantPatches?.[variant.id] ?? {})
+    };
+  });
+  return {
+    status: 'SKILL_PROMPT_CORPUS_LIVE_UAT_PASS',
+    scenario: 'skill-real-user-prompt-corpus-live-uat',
+    proof_scope: 'natural_language_skill_prompt_live_corpus',
+    prompt_corpus: {
+      proof_scope: 'natural_language_skill_prompt_live_corpus',
+      builder_mode: 'codex',
+      github_draft_pr_requested: false,
+      requested_variant_count: variants.length,
+      executed_variant_count: variants.length,
+      passed_variant_count: variants.length,
+      failed_variant_count: 0,
+      blocked_variant_count: 0,
+      modes: {
+        user_issue: {
+          variant_count: userIssueCount,
+          passed_count: userIssueCount,
+          failed_count: 0
+        },
+        auto_discovery: {
+          variant_count: autoDiscoveryCount,
+          passed_count: autoDiscoveryCount,
+          failed_count: 0
+        }
+      },
+      variants,
+      ...(overrides.prompt_corpus ?? {})
+    },
+    orchestrator: {
+      real_llm: true,
+      codex_cli: true,
+      required_child_skill_file_read: true,
+      ...(overrides.orchestrator ?? {})
+    },
+    builder: {
+      real_llm: true,
+      provider: 'codex',
+      via: 'chatgpt-oauth-proxy',
+      model: 'gpt-5.5',
+      ...(overrides.builder ?? {})
+    },
+    github_draft_pr: false,
+    github_draft_pr_verified: false,
+    draft_pr: false,
+    total_cases: variants.length,
+    passed_cases: variants.length,
+    failed_cases: 0,
+    false_pass: 0,
+    leak: 0,
+    failure_reasons: [],
+    evidence_missing_count: 0,
+    evidence_copied_count: 98,
+    ...(overrides.ledger ?? {})
+  };
+}
+
 async function writeValidCiEvidence(root) {
   await writeLedger(
     root,
@@ -996,6 +1126,98 @@ describe('release evidence audit', () => {
             report_summary_steps: 1
           })
         })
+      })
+    );
+  });
+
+  it('can audit Skill prompt corpus live evidence as an explicit scenario', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-live-run',
+      skillPromptCorpusLiveLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-live-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P1',
+        scenario,
+        expected_status: 'SKILL_PROMPT_CORPUS_LIVE_UAT_PASS'
+      })
+    ]);
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          status: 'SKILL_PROMPT_CORPUS_LIVE_UAT_PASS',
+          proof_scope: 'natural_language_skill_prompt_live_corpus',
+          prompt_corpus: expect.objectContaining({
+            requested_variant_count: 16,
+            executed_variant_count: 16,
+            passed_variant_count: 16,
+            failed_variant_count: 0,
+            blocked_variant_count: 0
+          }),
+          builder: expect.objectContaining({
+            real_llm: true,
+            provider: 'codex',
+            via: 'chatgpt-oauth-proxy'
+          })
+        })
+      })
+    );
+  });
+
+  it('fails Skill prompt corpus live audit when corpus evidence is weak', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-live-run',
+      skillPromptCorpusLiveLedger({
+        builder: { real_llm: false },
+        prompt_corpus: {
+          passed_variant_count: 15,
+          failed_variant_count: 1
+        },
+        variantPatches: {
+          'user-1': {
+            pass: false,
+            status: 'SKILL_PROMPT_LIVE_UAT_FAIL',
+            failures: ['final_verification']
+          }
+        }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-live-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        status: 'invalid_ledger',
+        ledger_failures: expect.arrayContaining([
+          'skill_prompt_corpus.builder',
+          'skill_prompt_corpus.passed_variant_count',
+          'skill_prompt_corpus.failed_variant_count',
+          'skill_prompt_corpus.variants'
+        ])
       })
     );
   });
