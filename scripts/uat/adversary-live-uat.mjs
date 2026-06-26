@@ -44,6 +44,7 @@ import {
   buildCartTaxSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
   buildPaymentDisputeSemanticProposal,
+  buildPaymentSettlementSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildLoyaltyPointsSemanticProposal,
@@ -277,6 +278,11 @@ async function writeFraudRiskFixture(root, source) {
 async function writeCreditMemoFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/credit-memo.cjs'), source);
+}
+
+async function writePaymentSettlementFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/payment-settlement.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -703,6 +709,10 @@ async function main() {
     const creditMemoApprovalHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-credit-memo-approval-hardcode'
+    );
+    const paymentSettlementHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-payment-settlement-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1876,6 +1886,59 @@ async function main() {
       '  return { status, reason, amountCents, requiresApproval, approved };',
       '}',
       'module.exports = { evaluateCreditMemo };',
+      ''
+    ].join('\n');
+    const buggyPaymentSettlement = [
+      'function settlePaymentCapture(_order = {}, payment = {}, _settlement = {}, _policy = {}) {',
+      '  return decision("settled", null, Math.max(0, payment.captureCents ?? 0), false, true);',
+      '}',
+      'function decision(status, reason, captureCents, requiresManualReview, settled) {',
+      '  return { status, reason, captureCents, requiresManualReview, settled };',
+      '}',
+      'module.exports = { settlePaymentCapture };',
+      ''
+    ].join('\n');
+    const fixedPaymentSettlement = [
+      'function settlePaymentCapture(order = {}, payment = {}, settlement = {}, policy = {}, now = new Date("2026-06-26T12:00:00.000Z")) {',
+      '  const captureCents = Math.max(0, payment.captureCents ?? order.totalCents ?? 0);',
+      "  if (!['fulfilled', 'shipped', 'delivered'].includes(order.status)) return decision('denied', 'order_not_fulfilled', captureCents, false, false);",
+      "  if (payment.status !== 'authorized') return decision('denied', 'payment_not_authorized', captureCents, false, false);",
+      "  if (elapsedDays(payment.authorizedAt, now) > (policy.authorizationWindowDays ?? 7)) return decision('denied', 'authorization_expired', captureCents, false, false);",
+      "  if (payment.currency && order.currency && payment.currency !== order.currency) return decision('denied', 'currency_mismatch', captureCents, false, false);",
+      '  const authorizedCents = payment.authorizedCents ?? order.totalCents ?? 0;',
+      "  if (captureCents <= 0 || captureCents > authorizedCents) return decision('denied', 'capture_exceeds_authorization', captureCents, false, false);",
+      "  if (payment.chargebackOpen === true || payment.disputeOpen === true) return decision('manual_review', 'open_dispute_review', captureCents, true, false);",
+      "  if (payment.fraudHold === true || order.riskHold === true) return decision('manual_review', 'risk_hold_review', captureCents, true, false);",
+      "  if (settlement.status !== 'open') return decision('denied', 'settlement_batch_closed', captureCents, false, false);",
+      "  if (settlement.merchantStatus === 'suspended') return decision('denied', 'merchant_suspended', captureCents, false, false);",
+      "  if (captureCents > (policy.autoSettleLimitCents ?? Number.POSITIVE_INFINITY)) return decision('manual_review', 'settlement_threshold_review', captureCents, true, false);",
+      '  return decision("settled", null, captureCents, false, true);',
+      '}',
+      'function elapsedDays(from, to) {',
+      '  if (!from) return Number.POSITIVE_INFINITY;',
+      '  const fromMs = new Date(from).getTime();',
+      '  const toMs = new Date(to).getTime();',
+      '  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return Number.POSITIVE_INFINITY;',
+      '  return Math.floor((toMs - fromMs) / 86400000);',
+      '}',
+      'function decision(status, reason, captureCents, requiresManualReview, settled) {',
+      '  return { status, reason, captureCents, requiresManualReview, settled };',
+      '}',
+      'module.exports = { settlePaymentCapture };',
+      ''
+    ].join('\n');
+    const happyPathOnlyPaymentSettlement = [
+      'function settlePaymentCapture(order = {}, payment = {}, settlement = {}) {',
+      '  const captureCents = Math.max(0, payment.captureCents ?? order.totalCents ?? 0);',
+      "  if (!['fulfilled', 'shipped', 'delivered'].includes(order.status)) return decision('denied', 'order_not_fulfilled', captureCents, false, false);",
+      "  if (payment.status !== 'authorized') return decision('denied', 'payment_not_authorized', captureCents, false, false);",
+      "  if (settlement.status !== 'open') return decision('denied', 'settlement_batch_closed', captureCents, false, false);",
+      '  return decision("settled", null, captureCents, false, true);',
+      '}',
+      'function decision(status, reason, captureCents, requiresManualReview, settled) {',
+      '  return { status, reason, captureCents, requiresManualReview, settled };',
+      '}',
+      'module.exports = { settlePaymentCapture };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -3904,6 +3967,130 @@ async function main() {
       fixedContentModerationAppeal
     );
     await writeFraudRiskFixture(creditMemoApprovalHardcodedWorktree, fixedFraudRisk);
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree
+    ]) {
+      await writePaymentSettlementFixture(worktree, fixedPaymentSettlement);
+    }
+    await writePaymentSettlementFixture(baseWorktree, buggyPaymentSettlement);
+    await writePaymentSettlementFixture(
+      paymentSettlementHardcodedWorktree,
+      happyPathOnlyPaymentSettlement
+    );
+    await writeCartFixture(paymentSettlementHardcodedWorktree, fixedCart);
+    await writeProfileFixture(paymentSettlementHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(paymentSettlementHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(paymentSettlementHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(paymentSettlementHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(paymentSettlementHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(paymentSettlementHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(paymentSettlementHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(paymentSettlementHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(paymentSettlementHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(paymentSettlementHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(paymentSettlementHardcodedWorktree, fixedPayroll);
+    await writeVendorInvoiceFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedVendorInvoice
+    );
+    await writeExpenseReimbursementFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    await writeAccountClosureFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedAccountClosure
+    );
+    await writeMerchantOnboardingFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedMerchantOnboarding
+    );
+    await writeDataRetentionFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedDataRetentionDeletion
+    );
+    await writeContentModerationFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedContentModerationAppeal
+    );
+    await writeFraudRiskFixture(paymentSettlementHardcodedWorktree, fixedFraudRisk);
+    await writeCreditMemoFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedCreditMemo
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -4005,6 +4192,9 @@ async function main() {
       }),
       buildCreditMemoApprovalSemanticProposal({
         targetPath: 'tests/adversary/credit-memo-approval-supplemental.test.cjs'
+      }),
+      buildPaymentSettlementSemanticProposal({
+        targetPath: 'tests/adversary/payment-settlement-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -4153,6 +4343,10 @@ async function main() {
         buildCreditMemoApprovalSemanticProposal({
           targetPath:
             'tests/adversary/credit-memo-approval-supplemental.test.cjs'
+        }),
+        buildPaymentSettlementSemanticProposal({
+          targetPath:
+            'tests/adversary/payment-settlement-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -4521,6 +4715,13 @@ async function main() {
         'adversary-live-credit-memo-approval-hardcode'
       )
     );
+    const paymentSettlementHardcoded = await runGates(
+      await gateContext(
+        paymentSettlementHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-payment-settlement-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -4660,6 +4861,10 @@ async function main() {
       creditMemoApprovalHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const paymentSettlementHardcodedGate =
+      paymentSettlementHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -4697,7 +4902,8 @@ async function main() {
       dataRetentionDeletionHardcodedGate?.status !== 'fail' ||
       contentModerationAppealHardcodedGate?.status !== 'fail' ||
       fraudRiskHardcodedGate?.status !== 'fail' ||
-      creditMemoApprovalHardcodedGate?.status !== 'fail'
+      creditMemoApprovalHardcodedGate?.status !== 'fail' ||
+      paymentSettlementHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -4739,7 +4945,8 @@ async function main() {
           contentModerationAppealHardcoded:
             contentModerationAppealHardcodedGate,
           fraudRiskHardcoded: fraudRiskHardcodedGate,
-          creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate
+          creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate,
+          paymentSettlementHardcoded: paymentSettlementHardcodedGate
         })}`
       );
     }
@@ -4791,7 +4998,8 @@ async function main() {
         contentModerationAppealHardcoded:
           contentModerationAppealHardcodedGate.status,
         fraudRiskHardcoded: fraudRiskHardcodedGate.status,
-        creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate.status
+        creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate.status,
+        paymentSettlementHardcoded: paymentSettlementHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -4923,6 +5131,8 @@ async function main() {
         fraud_risk_hardcoded_gate_status: fraudRiskHardcodedGate.status,
         credit_memo_approval_hardcoded_gate_status:
           creditMemoApprovalHardcodedGate.status,
+        payment_settlement_hardcoded_gate_status:
+          paymentSettlementHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -4989,7 +5199,9 @@ async function main() {
         fraud_risk_hardcode_rejected:
           fraudRiskHardcodedGate.status === 'fail',
         credit_memo_approval_hardcode_rejected:
-          creditMemoApprovalHardcodedGate.status === 'fail'
+          creditMemoApprovalHardcodedGate.status === 'fail',
+        payment_settlement_hardcode_rejected:
+          paymentSettlementHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

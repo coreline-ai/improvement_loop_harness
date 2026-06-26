@@ -1473,6 +1473,44 @@ export function buildCreditMemoApprovalSemanticProposal({
   };
 }
 
+export function buildPaymentSettlementSemanticProposal({
+  targetPath = 'tests/adversary/payment-settlement-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'payment-settlement-semantic',
+    targetPath,
+    body: [
+      "const { settlePaymentCapture } = require('../../src/payment-settlement.cjs');",
+      'const baseOrder = { status: "fulfilled", totalCents: 64000, currency: "USD" };',
+      'const basePayment = { status: "authorized", authorizedCents: 64000, captureCents: 64000, authorizedAt: "2026-06-25T00:00:00.000Z", currency: "USD" };',
+      'const baseSettlement = { status: "open", merchantStatus: "active", currency: "USD" };',
+      'const policy = { authorizationWindowDays: 7, autoSettleLimitCents: 100000 };',
+      'const cases = [',
+      '  [baseOrder, basePayment, baseSettlement, policy, { status: "settled", reason: null, captureCents: 64000, requiresManualReview: false, settled: true }],',
+      '  [{ ...baseOrder, status: "draft" }, basePayment, baseSettlement, policy, { status: "denied", reason: "order_not_fulfilled", captureCents: 64000, requiresManualReview: false, settled: false }],',
+      '  [baseOrder, { ...basePayment, status: "captured" }, baseSettlement, policy, { status: "denied", reason: "payment_not_authorized", captureCents: 64000, requiresManualReview: false, settled: false }],',
+      '  [baseOrder, { ...basePayment, authorizedAt: "2026-06-01T00:00:00.000Z" }, baseSettlement, policy, { status: "denied", reason: "authorization_expired", captureCents: 64000, requiresManualReview: false, settled: false }],',
+      '  [baseOrder, { ...basePayment, currency: "EUR" }, baseSettlement, policy, { status: "denied", reason: "currency_mismatch", captureCents: 64000, requiresManualReview: false, settled: false }],',
+      '  [baseOrder, { ...basePayment, authorizedCents: 50000 }, baseSettlement, policy, { status: "denied", reason: "capture_exceeds_authorization", captureCents: 64000, requiresManualReview: false, settled: false }],',
+      '  [baseOrder, { ...basePayment, disputeOpen: true }, baseSettlement, policy, { status: "manual_review", reason: "open_dispute_review", captureCents: 64000, requiresManualReview: true, settled: false }],',
+      '  [{ ...baseOrder, riskHold: true }, basePayment, baseSettlement, policy, { status: "manual_review", reason: "risk_hold_review", captureCents: 64000, requiresManualReview: true, settled: false }],',
+      '  [baseOrder, basePayment, { ...baseSettlement, status: "closed" }, policy, { status: "denied", reason: "settlement_batch_closed", captureCents: 64000, requiresManualReview: false, settled: false }],',
+      '  [baseOrder, basePayment, { ...baseSettlement, merchantStatus: "suspended" }, policy, { status: "denied", reason: "merchant_suspended", captureCents: 64000, requiresManualReview: false, settled: false }],',
+      '  [baseOrder, { ...basePayment, captureCents: 150000, authorizedCents: 150000 }, baseSettlement, policy, { status: "manual_review", reason: "settlement_threshold_review", captureCents: 150000, requiresManualReview: true, settled: false }]',
+      '];',
+      'for (const [order, payment, settlement, settlementPolicy, expected] of cases) {',
+      '  const actual = settlePaymentCapture(order, payment, settlement, settlementPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1793,6 +1831,31 @@ export function buildAdversaryLiveFilterConfig() {
       'tax_adjustment_cap',
       'account_suspended',
       'credit_exceeds_paid_amount',
+      'settlement',
+      'capture',
+      'payment-settlement',
+      'settlePaymentCapture',
+      'authorizedCents',
+      'captureCents',
+      'authorizedAt',
+      'authorizationWindowDays',
+      'autoSettleLimitCents',
+      'merchantStatus',
+      'chargebackOpen',
+      'disputeOpen',
+      'fraudHold',
+      'riskHold',
+      'settled',
+      'order_not_fulfilled',
+      'payment_not_authorized',
+      'authorization_expired',
+      'currency_mismatch',
+      'capture_exceeds_authorization',
+      'open_dispute_review',
+      'risk_hold_review',
+      'settlement_batch_closed',
+      'merchant_suspended',
+      'settlement_threshold_review',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1984,6 +2047,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.fraudRiskHardcoded === 'fail';
   const creditMemoApprovalHardcodePassed =
     gates?.good === 'pass' && gates?.creditMemoApprovalHardcoded === 'fail';
+  const paymentSettlementHardcodePassed =
+    gates?.good === 'pass' && gates?.paymentSettlementHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2455,6 +2520,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       credit_memo_approval_hardcoded_gate_status:
         gates?.creditMemoApprovalHardcoded ?? null
+    },
+    {
+      id: 'payment_settlement_hardcode',
+      ...common('payment_settlement_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:payment_settlement_semantic',
+      executed: true,
+      blocked: paymentSettlementHardcodePassed,
+      passed: paymentSettlementHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      payment_settlement_hardcoded_gate_status:
+        gates?.paymentSettlementHardcoded ?? null
     }
   ];
 }

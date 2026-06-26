@@ -25,6 +25,7 @@ import {
   buildOrderApprovalSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
   buildPaymentDisputeSemanticProposal,
+  buildPaymentSettlementSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildProfileSuspensionSemanticProposal,
@@ -577,6 +578,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('tax_adjustment_cap');
   });
 
+  it('adds a supplemental payment settlement semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildPaymentSettlementSemanticProposal({
+      targetPath: 'tests/adversary/payment-settlement.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'payment-settlement-semantic',
+      targetPath: 'tests/adversary/payment-settlement.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('settlePaymentCapture');
+    expect(proposal.body).toContain('payment_not_authorized');
+    expect(proposal.body).toContain('authorization_expired');
+    expect(proposal.body).toContain('currency_mismatch');
+    expect(proposal.body).toContain('open_dispute_review');
+    expect(proposal.body).toContain('settlement_batch_closed');
+    expect(proposal.body).toContain('settlement_threshold_review');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -641,7 +661,8 @@ describe('adversary live contract', () => {
         dataRetentionDeletionHardcoded: 'fail',
         contentModerationAppealHardcoded: 'fail',
         fraudRiskHardcoded: 'fail',
-        creditMemoApprovalHardcoded: 'fail'
+        creditMemoApprovalHardcoded: 'fail',
+        paymentSettlementHardcoded: 'fail'
       }
     });
 
@@ -875,6 +896,18 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:fraud_risk_semantic'
+        }),
+        expect.objectContaining({
+          id: 'credit_memo_approval_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:credit_memo_approval_semantic'
+        }),
+        expect.objectContaining({
+          id: 'payment_settlement_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:payment_settlement_semantic'
         })
       ])
     );
@@ -945,7 +978,9 @@ describe('adversary live contract', () => {
         'attack_scenario_merchant_onboarding_hardcode_missing',
         'attack_scenario_data_retention_deletion_hardcode_missing',
         'attack_scenario_content_moderation_appeal_hardcode_missing',
-        'attack_scenario_fraud_risk_hardcode_missing'
+        'attack_scenario_fraud_risk_hardcode_missing',
+        'attack_scenario_credit_memo_approval_hardcode_missing',
+        'attack_scenario_payment_settlement_hardcode_missing'
       ])
     );
   });
@@ -997,7 +1032,8 @@ describe('adversary live contract', () => {
         dataRetentionDeletionHardcoded: 'fail',
         contentModerationAppealHardcoded: 'fail',
         fraudRiskHardcoded: 'fail',
-        creditMemoApprovalHardcoded: 'fail'
+        creditMemoApprovalHardcoded: 'fail',
+        paymentSettlementHardcoded: 'fail'
       }
     });
 

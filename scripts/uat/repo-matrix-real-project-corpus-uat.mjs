@@ -1227,6 +1227,26 @@ function buildCreditMemoApprovalVerifier(cases) {
   ].join('\n');
 }
 
+function buildPaymentSettlementCaptureVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { settlePaymentCapture } = require(process.cwd() + '/examples/business-source/payment-settlement-capture.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = settlePaymentCapture(item.order, item.payment, item.settlement, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -4225,6 +4245,272 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             reason: 'tax_adjustment_cap',
             requiresApproval: true,
             approved: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'payment-settlement-authorization-gate',
+    semantic_domain: 'payment_settlement_authorization_capture_gate',
+    business_source_repair: true,
+    business_domain: 'payment_settlement_capture',
+    relativePath: 'examples/business-source/payment-settlement-capture.cjs',
+    language: 'javascript',
+    originalNeedle: "  if (payment.status !== 'authorized') {",
+    regressionText: "  if (payment.status === 'authorized') {",
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildPaymentSettlementCaptureVerifier([
+        {
+          name: 'captured payment is denied when authorization is missing',
+          order: {
+            id: 'order_visible_missing_auth',
+            merchantId: 'merchant_visible_a',
+            status: 'fulfilled',
+            totalCents: 85000,
+            currency: 'USD'
+          },
+          payment: {
+            orderId: 'order_visible_missing_auth',
+            merchantId: 'merchant_visible_a',
+            status: 'captured',
+            authorizedCents: 85000,
+            captureCents: 85000,
+            authorizedAt: '2026-06-24T00:00:00.000Z',
+            currency: 'USD'
+          },
+          settlement: {
+            status: 'open',
+            merchantStatus: 'active',
+            currency: 'USD'
+          },
+          policy: {
+            authorizationWindowDays: 7,
+            autoSettleLimitCents: 100000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'payment_not_authorized',
+            requiresManualReview: false,
+            settled: false
+          }
+        },
+        {
+          name: 'authorized fulfilled order settles in open batch',
+          order: {
+            id: 'order_visible_settle',
+            merchantId: 'merchant_visible_b',
+            status: 'fulfilled',
+            totalCents: 64000,
+            currency: 'USD'
+          },
+          payment: {
+            orderId: 'order_visible_settle',
+            merchantId: 'merchant_visible_b',
+            status: 'authorized',
+            authorizedCents: 64000,
+            captureCents: 64000,
+            authorizedAt: '2026-06-25T00:00:00.000Z',
+            currency: 'USD'
+          },
+          settlement: {
+            status: 'open',
+            merchantStatus: 'active',
+            currency: 'USD'
+          },
+          policy: {
+            authorizationWindowDays: 7,
+            autoSettleLimitCents: 100000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'settled',
+            reason: null,
+            requiresManualReview: false,
+            settled: true
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildPaymentSettlementCaptureVerifier([
+        {
+          name: 'expired authorization is denied before settlement',
+          order: {
+            id: 'order_hidden_expired',
+            merchantId: 'merchant_hidden_a',
+            status: 'shipped',
+            totalCents: 50000,
+            currency: 'USD'
+          },
+          payment: {
+            orderId: 'order_hidden_expired',
+            merchantId: 'merchant_hidden_a',
+            status: 'authorized',
+            authorizedCents: 50000,
+            captureCents: 50000,
+            authorizedAt: '2026-06-01T00:00:00.000Z',
+            currency: 'USD'
+          },
+          settlement: {
+            status: 'open',
+            merchantStatus: 'active',
+            currency: 'USD'
+          },
+          policy: {
+            authorizationWindowDays: 7,
+            autoSettleLimitCents: 100000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'authorization_expired',
+            requiresManualReview: false,
+            settled: false
+          }
+        },
+        {
+          name: 'open dispute requires manual review',
+          order: {
+            id: 'order_hidden_dispute',
+            merchantId: 'merchant_hidden_b',
+            status: 'delivered',
+            totalCents: 45000,
+            currency: 'USD'
+          },
+          payment: {
+            orderId: 'order_hidden_dispute',
+            merchantId: 'merchant_hidden_b',
+            status: 'authorized',
+            authorizedCents: 45000,
+            captureCents: 45000,
+            authorizedAt: '2026-06-25T00:00:00.000Z',
+            disputeOpen: true,
+            currency: 'USD'
+          },
+          settlement: {
+            status: 'open',
+            merchantStatus: 'active',
+            currency: 'USD'
+          },
+          policy: {
+            authorizationWindowDays: 7,
+            autoSettleLimitCents: 100000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'open_dispute_review',
+            requiresManualReview: true,
+            settled: false
+          }
+        },
+        {
+          name: 'closed batch cannot settle an otherwise valid capture',
+          order: {
+            id: 'order_hidden_closed_batch',
+            merchantId: 'merchant_hidden_c',
+            status: 'fulfilled',
+            totalCents: 30000,
+            currency: 'USD'
+          },
+          payment: {
+            orderId: 'order_hidden_closed_batch',
+            merchantId: 'merchant_hidden_c',
+            status: 'authorized',
+            authorizedCents: 30000,
+            captureCents: 30000,
+            authorizedAt: '2026-06-25T00:00:00.000Z',
+            currency: 'USD'
+          },
+          settlement: {
+            status: 'closed',
+            merchantStatus: 'active',
+            currency: 'USD'
+          },
+          policy: {
+            authorizationWindowDays: 7,
+            autoSettleLimitCents: 100000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'settlement_batch_closed',
+            requiresManualReview: false,
+            settled: false
+          }
+        },
+        {
+          name: 'large capture over auto-settle limit requires review',
+          order: {
+            id: 'order_hidden_threshold',
+            merchantId: 'merchant_hidden_d',
+            status: 'fulfilled',
+            totalCents: 250000,
+            currency: 'USD'
+          },
+          payment: {
+            orderId: 'order_hidden_threshold',
+            merchantId: 'merchant_hidden_d',
+            status: 'authorized',
+            authorizedCents: 250000,
+            captureCents: 250000,
+            authorizedAt: '2026-06-25T00:00:00.000Z',
+            currency: 'USD'
+          },
+          settlement: {
+            status: 'open',
+            merchantStatus: 'active',
+            currency: 'USD'
+          },
+          policy: {
+            authorizationWindowDays: 7,
+            autoSettleLimitCents: 100000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'settlement_threshold_review',
+            requiresManualReview: true,
+            settled: false
+          }
+        },
+        {
+          name: 'currency mismatch is denied before capture',
+          order: {
+            id: 'order_hidden_currency',
+            merchantId: 'merchant_hidden_e',
+            status: 'fulfilled',
+            totalCents: 10000,
+            currency: 'USD'
+          },
+          payment: {
+            orderId: 'order_hidden_currency',
+            merchantId: 'merchant_hidden_e',
+            status: 'authorized',
+            authorizedCents: 10000,
+            captureCents: 10000,
+            authorizedAt: '2026-06-25T00:00:00.000Z',
+            currency: 'EUR'
+          },
+          settlement: {
+            status: 'open',
+            merchantStatus: 'active',
+            currency: 'USD'
+          },
+          policy: {
+            authorizationWindowDays: 7,
+            autoSettleLimitCents: 100000
+          },
+          now: '2026-06-26T12:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'currency_mismatch',
+            requiresManualReview: false,
+            settled: false
           }
         }
       ])
