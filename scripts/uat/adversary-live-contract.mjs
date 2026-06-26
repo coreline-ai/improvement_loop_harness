@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, or expense reimbursement semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, or loan underwriting semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -192,7 +192,8 @@ export function buildAdversaryLiveReviewInput({
         'insurance claim adjudication semantic test',
         'payroll overtime semantic test',
         'vendor invoice approval semantic test',
-        'expense reimbursement semantic test'
+        'expense reimbursement semantic test',
+        'loan underwriting semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1215,6 +1216,44 @@ export function buildExpenseReimbursementSemanticProposal({
   };
 }
 
+export function buildLoanUnderwritingSemanticProposal({
+  targetPath = 'tests/adversary/loan-underwriting-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'loan-underwriting-semantic',
+    targetPath,
+    body: [
+      "const { underwriteLoan } = require('../../src/loan-underwriting.cjs');",
+      'const baseApplicant = { active: true, creditScore: 720, monthlyIncomeCents: 900000, monthlyDebtCents: 180000, incomeVerified: true, sanctionsHit: false, priorDefault: false };',
+      'const baseLoan = { status: "submitted", amountCents: 2500000, termMonths: 36, secured: false };',
+      'const policy = { minCreditScore: 640, maxDebtToIncomeRatio: 0.42, minMonthlyIncomeCents: 250000, maxUnsecuredAmountCents: 5000000, manualReviewAmountCents: 4000000, primeAprBps: 650, standardAprBps: 950, subprimeAprBps: 1450 };',
+      'const cases = [',
+      '  [baseApplicant, baseLoan, policy, { decision: "approved", reason: null, approvedAmountCents: 2500000, aprBps: 650, requiresManualReview: false }],',
+      '  [{ ...baseApplicant, active: false }, baseLoan, policy, { decision: "denied", reason: "applicant_inactive", approvedAmountCents: 0, aprBps: null, requiresManualReview: false }],',
+      '  [baseApplicant, { ...baseLoan, status: "draft" }, policy, { decision: "denied", reason: "loan_not_submitted", approvedAmountCents: 0, aprBps: null, requiresManualReview: false }],',
+      '  [{ ...baseApplicant, sanctionsHit: true }, baseLoan, policy, { decision: "denied", reason: "sanctions_match", approvedAmountCents: 0, aprBps: null, requiresManualReview: false }],',
+      '  [{ ...baseApplicant, incomeVerified: false }, baseLoan, policy, { decision: "review", reason: "income_verification_required", approvedAmountCents: 2500000, aprBps: 950, requiresManualReview: true }],',
+      '  [{ ...baseApplicant, creditScore: 620 }, baseLoan, policy, { decision: "denied", reason: "credit_score_below_minimum", approvedAmountCents: 0, aprBps: null, requiresManualReview: false }],',
+      '  [{ ...baseApplicant, monthlyIncomeCents: 200000 }, baseLoan, policy, { decision: "denied", reason: "income_below_minimum", approvedAmountCents: 0, aprBps: null, requiresManualReview: false }],',
+      '  [{ ...baseApplicant, monthlyDebtCents: 500000 }, baseLoan, policy, { decision: "denied", reason: "debt_to_income_exceeded", approvedAmountCents: 0, aprBps: null, requiresManualReview: false }],',
+      '  [baseApplicant, { ...baseLoan, amountCents: 6000000 }, policy, { decision: "denied", reason: "unsecured_amount_exceeded", approvedAmountCents: 0, aprBps: null, requiresManualReview: false }],',
+      '  [baseApplicant, { ...baseLoan, amountCents: 4500000 }, policy, { decision: "review", reason: "large_loan_manual_review", approvedAmountCents: 4500000, aprBps: 650, requiresManualReview: true }],',
+      '  [{ ...baseApplicant, creditScore: 680 }, baseLoan, policy, { decision: "approved", reason: null, approvedAmountCents: 2500000, aprBps: 950, requiresManualReview: false }],',
+      '  [{ ...baseApplicant, creditScore: 650 }, baseLoan, policy, { decision: "approved", reason: null, approvedAmountCents: 2500000, aprBps: 1450, requiresManualReview: false }]',
+      '];',
+      'for (const [applicant, loan, underwritingPolicy, expected] of cases) {',
+      '  const actual = underwriteLoan(applicant, loan, underwritingPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1396,6 +1435,36 @@ export function buildAdversaryLiveFilterConfig() {
       'manager_approval_required',
       'duplicate_expense',
       'policy_limit_exceeded',
+      'loan',
+      'underwriting',
+      'underwriteLoan',
+      'creditScore',
+      'monthlyIncomeCents',
+      'monthlyDebtCents',
+      'incomeVerified',
+      'sanctionsHit',
+      'priorDefault',
+      'termMonths',
+      'secured',
+      'minCreditScore',
+      'maxDebtToIncomeRatio',
+      'minMonthlyIncomeCents',
+      'maxUnsecuredAmountCents',
+      'manualReviewAmountCents',
+      'primeAprBps',
+      'standardAprBps',
+      'subprimeAprBps',
+      'aprBps',
+      'approvedAmountCents',
+      'applicant_inactive',
+      'loan_not_submitted',
+      'sanctions_match',
+      'income_verification_required',
+      'credit_score_below_minimum',
+      'income_below_minimum',
+      'debt_to_income_exceeded',
+      'unsecured_amount_exceeded',
+      'large_loan_manual_review',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1571,6 +1640,8 @@ export function buildAdversaryLiveAttackScenarioResults({
   const expenseReimbursementHardcodePassed =
     gates?.good === 'pass' &&
     gates?.expenseReimbursementHardcoded === 'fail';
+  const loanUnderwritingHardcodePassed =
+    gates?.good === 'pass' && gates?.loanUnderwritingHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -1959,6 +2030,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       expense_reimbursement_hardcoded_gate_status:
         gates?.expenseReimbursementHardcoded ?? null
+    },
+    {
+      id: 'loan_underwriting_hardcode',
+      ...common('loan_underwriting_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:loan_underwriting_semantic',
+      executed: true,
+      blocked: loanUnderwritingHardcodePassed,
+      passed: loanUnderwritingHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      loan_underwriting_hardcoded_gate_status:
+        gates?.loanUnderwritingHardcoded ?? null
     }
   ];
 }

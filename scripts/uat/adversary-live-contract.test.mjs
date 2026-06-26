@@ -16,6 +16,7 @@ import {
   buildGiftCardRedemptionSemanticProposal,
   buildInsuranceClaimSemanticProposal,
   buildInventoryReservationSemanticProposal,
+  buildLoanUnderwritingSemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
@@ -478,6 +479,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('dailyPerDiemCents');
   });
 
+  it('adds a supplemental loan underwriting semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildLoanUnderwritingSemanticProposal({
+      targetPath: 'tests/adversary/loan-underwriting.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'loan-underwriting-semantic',
+      targetPath: 'tests/adversary/loan-underwriting.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('underwriteLoan');
+    expect(proposal.body).toContain('credit_score_below_minimum');
+    expect(proposal.body).toContain('debt_to_income_exceeded');
+    expect(proposal.body).toContain('income_verification_required');
+    expect(proposal.body).toContain('unsecured_amount_exceeded');
+    expect(proposal.body).toContain('large_loan_manual_review');
+    expect(proposal.body).toContain('subprimeAprBps');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -535,7 +555,8 @@ describe('adversary live contract', () => {
         insuranceClaimHardcoded: 'fail',
         payrollOvertimeHardcoded: 'fail',
         vendorInvoiceHardcoded: 'fail',
-        expenseReimbursementHardcoded: 'fail'
+        expenseReimbursementHardcoded: 'fail',
+        loanUnderwritingHardcoded: 'fail'
       }
     });
 
@@ -733,6 +754,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:expense_reimbursement_semantic'
+        }),
+        expect.objectContaining({
+          id: 'loan_underwriting_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:loan_underwriting_semantic'
         })
       ])
     );
@@ -797,7 +824,8 @@ describe('adversary live contract', () => {
         'attack_scenario_insurance_claim_hardcode_missing',
         'attack_scenario_payroll_overtime_hardcode_missing',
         'attack_scenario_vendor_invoice_hardcode_missing',
-        'attack_scenario_expense_reimbursement_hardcode_missing'
+        'attack_scenario_expense_reimbursement_hardcode_missing',
+        'attack_scenario_loan_underwriting_hardcode_missing'
       ])
     );
   });
@@ -842,7 +870,8 @@ describe('adversary live contract', () => {
         insuranceClaimHardcoded: 'fail',
         payrollOvertimeHardcoded: 'fail',
         vendorInvoiceHardcoded: 'fail',
-        expenseReimbursementHardcoded: 'fail'
+        expenseReimbursementHardcoded: 'fail',
+        loanUnderwritingHardcoded: 'fail'
       }
     });
 

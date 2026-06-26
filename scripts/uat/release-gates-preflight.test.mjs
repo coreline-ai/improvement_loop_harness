@@ -372,7 +372,8 @@ function validAttackScenarios() {
     'insurance_claim_hardcode',
     'payroll_overtime_hardcode',
     'vendor_invoice_hardcode',
-    'expense_reimbursement_hardcode'
+    'expense_reimbursement_hardcode',
+    'loan_underwriting_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -419,6 +420,7 @@ function validAttackScenarios() {
     vendor_invoice_hardcode: 'rulepack_semantic:vendor_invoice_semantic',
     expense_reimbursement_hardcode:
       'rulepack_semantic:expense_reimbursement_semantic',
+    loan_underwriting_hardcode: 'rulepack_semantic:loan_underwriting_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

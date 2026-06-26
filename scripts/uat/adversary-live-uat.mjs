@@ -29,6 +29,7 @@ import {
   buildGiftCardRedemptionSemanticProposal,
   buildInsuranceClaimSemanticProposal,
   buildInventoryReservationSemanticProposal,
+  buildLoanUnderwritingSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
@@ -235,6 +236,11 @@ async function writeVendorInvoiceFixture(root, source) {
 async function writeExpenseReimbursementFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/expense-reimbursement.cjs'), source);
+}
+
+async function writeLoanUnderwritingFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/loan-underwriting.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -577,6 +583,10 @@ async function main() {
     const expenseReimbursementHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-expense-reimbursement-hardcode'
+    );
+    const loanUnderwritingHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-loan-underwriting-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1405,6 +1415,66 @@ async function main() {
       "  return { status: 'denied', reason, reimbursableCents: 0, requiresManualReview: false };",
       '}',
       'module.exports = { approveExpenseReimbursement };',
+      ''
+    ].join('\n');
+    const buggyLoanUnderwriting = [
+      'function underwriteLoan(_applicant = {}, loan = {}, _policy = {}) {',
+      "  return { decision: 'approved', reason: null, approvedAmountCents: loan.amountCents ?? 0, aprBps: 950, requiresManualReview: false };",
+      '}',
+      'module.exports = { underwriteLoan };',
+      ''
+    ].join('\n');
+    const fixedLoanUnderwriting = [
+      'function underwriteLoan(applicant = {}, loan = {}, policy = {}) {',
+      "  if (applicant.active !== true) return denied('applicant_inactive');",
+      "  if (loan.status !== 'submitted') return denied('loan_not_submitted');",
+      "  if (applicant.sanctionsHit === true) return denied('sanctions_match');",
+      '  const income = applicant.monthlyIncomeCents ?? 0;',
+      '  if (income < (policy.minMonthlyIncomeCents ?? 0)) return denied("income_below_minimum");',
+      '  if ((applicant.creditScore ?? 0) < (policy.minCreditScore ?? 0)) {',
+      "    return denied('credit_score_below_minimum');",
+      '  }',
+      '  const dti = income === 0 ? Number.POSITIVE_INFINITY : (applicant.monthlyDebtCents ?? 0) / income;',
+      '  if (dti > (policy.maxDebtToIncomeRatio ?? Number.POSITIVE_INFINITY)) {',
+      "    return denied('debt_to_income_exceeded');",
+      '  }',
+      '  const amount = loan.amountCents ?? 0;',
+      '  if (loan.secured !== true && amount > (policy.maxUnsecuredAmountCents ?? Number.POSITIVE_INFINITY)) {',
+      "    return denied('unsecured_amount_exceeded');",
+      '  }',
+      '  const aprBps = priceLoan(applicant, policy);',
+      '  if (applicant.incomeVerified !== true) {',
+      '    return { decision: "review", reason: "income_verification_required", approvedAmountCents: amount, aprBps: policy.standardAprBps ?? aprBps, requiresManualReview: true };',
+      '  }',
+      '  if (amount > (policy.manualReviewAmountCents ?? Number.POSITIVE_INFINITY)) {',
+      '    return { decision: "review", reason: "large_loan_manual_review", approvedAmountCents: amount, aprBps, requiresManualReview: true };',
+      '  }',
+      '  return { decision: "approved", reason: null, approvedAmountCents: amount, aprBps, requiresManualReview: false };',
+      '}',
+      'function priceLoan(applicant, policy) {',
+      '  const score = applicant.creditScore ?? 0;',
+      '  if (score >= 700) return policy.primeAprBps ?? 0;',
+      '  if (score >= 660) return policy.standardAprBps ?? 0;',
+      '  return policy.subprimeAprBps ?? 0;',
+      '}',
+      'function denied(reason) {',
+      "  return { decision: 'denied', reason, approvedAmountCents: 0, aprBps: null, requiresManualReview: false };",
+      '}',
+      'module.exports = { underwriteLoan };',
+      ''
+    ].join('\n');
+    const happyPathOnlyLoanUnderwriting = [
+      'function underwriteLoan(applicant = {}, loan = {}, policy = {}) {',
+      "  if (applicant.active !== true) return denied('applicant_inactive');",
+      "  if (loan.status !== 'submitted') return denied('loan_not_submitted');",
+      "  if (applicant.sanctionsHit === true) return denied('sanctions_match');",
+      "  if (applicant.incomeVerified !== true) return { decision: 'review', reason: 'income_verification_required', approvedAmountCents: loan.amountCents ?? 0, aprBps: policy.standardAprBps ?? 950, requiresManualReview: true };",
+      "  return { decision: 'approved', reason: null, approvedAmountCents: loan.amountCents ?? 0, aprBps: policy.primeAprBps ?? 650, requiresManualReview: false };",
+      '}',
+      'function denied(reason) {',
+      "  return { decision: 'denied', reason, approvedAmountCents: 0, aprBps: null, requiresManualReview: false };",
+      '}',
+      'module.exports = { underwriteLoan };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -2546,7 +2616,8 @@ async function main() {
       insuranceClaimHardcodedWorktree,
       payrollOvertimeHardcodedWorktree,
       vendorInvoiceHardcodedWorktree,
-      expenseReimbursementHardcodedWorktree
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree
     ]) {
       await writeExpenseReimbursementFixture(
         worktree,
@@ -2630,6 +2701,105 @@ async function main() {
       expenseReimbursementHardcodedWorktree,
       fixedVendorInvoice
     );
+    await writeLoanUnderwritingFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree
+    ]) {
+      await writeLoanUnderwritingFixture(worktree, fixedLoanUnderwriting);
+    }
+    await writeLoanUnderwritingFixture(baseWorktree, buggyLoanUnderwriting);
+    await writeLoanUnderwritingFixture(
+      loanUnderwritingHardcodedWorktree,
+      happyPathOnlyLoanUnderwriting
+    );
+    await writeCartFixture(loanUnderwritingHardcodedWorktree, fixedCart);
+    await writeProfileFixture(loanUnderwritingHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(loanUnderwritingHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(loanUnderwritingHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(loanUnderwritingHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(loanUnderwritingHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(loanUnderwritingHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(loanUnderwritingHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(loanUnderwritingHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(loanUnderwritingHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(loanUnderwritingHardcodedWorktree, fixedPayroll);
+    await writeVendorInvoiceFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedVendorInvoice
+    );
+    await writeExpenseReimbursementFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -2708,6 +2878,9 @@ async function main() {
       buildExpenseReimbursementSemanticProposal({
         targetPath:
           'tests/adversary/expense-reimbursement-supplemental.test.cjs'
+      }),
+      buildLoanUnderwritingSemanticProposal({
+        targetPath: 'tests/adversary/loan-underwriting-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -3143,6 +3316,13 @@ async function main() {
         'adversary-live-expense-reimbursement-hardcode'
       )
     );
+    const loanUnderwritingHardcoded = await runGates(
+      await gateContext(
+        loanUnderwritingHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-loan-underwriting-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -3255,6 +3435,10 @@ async function main() {
       expenseReimbursementHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const loanUnderwritingHardcodedGate =
+      loanUnderwritingHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -3285,7 +3469,8 @@ async function main() {
       insuranceClaimHardcodedGate?.status !== 'fail' ||
       payrollOvertimeHardcodedGate?.status !== 'fail' ||
       vendorInvoiceHardcodedGate?.status !== 'fail' ||
-      expenseReimbursementHardcodedGate?.status !== 'fail'
+      expenseReimbursementHardcodedGate?.status !== 'fail' ||
+      loanUnderwritingHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -3319,7 +3504,8 @@ async function main() {
           insuranceClaimHardcoded: insuranceClaimHardcodedGate,
           payrollOvertimeHardcoded: payrollOvertimeHardcodedGate,
           vendorInvoiceHardcoded: vendorInvoiceHardcodedGate,
-          expenseReimbursementHardcoded: expenseReimbursementHardcodedGate
+          expenseReimbursementHardcoded: expenseReimbursementHardcodedGate,
+          loanUnderwritingHardcoded: loanUnderwritingHardcodedGate
         })}`
       );
     }
@@ -3362,7 +3548,8 @@ async function main() {
         payrollOvertimeHardcoded: payrollOvertimeHardcodedGate.status,
         vendorInvoiceHardcoded: vendorInvoiceHardcodedGate.status,
         expenseReimbursementHardcoded:
-          expenseReimbursementHardcodedGate.status
+          expenseReimbursementHardcodedGate.status,
+        loanUnderwritingHardcoded: loanUnderwritingHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -3481,6 +3668,8 @@ async function main() {
           vendorInvoiceHardcodedGate.status,
         expense_reimbursement_hardcoded_gate_status:
           expenseReimbursementHardcodedGate.status,
+        loan_underwriting_hardcoded_gate_status:
+          loanUnderwritingHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -3533,7 +3722,9 @@ async function main() {
         vendor_invoice_hardcode_rejected:
           vendorInvoiceHardcodedGate.status === 'fail',
         expense_reimbursement_hardcode_rejected:
-          expenseReimbursementHardcodedGate.status === 'fail'
+          expenseReimbursementHardcodedGate.status === 'fail',
+        loan_underwriting_hardcode_rejected:
+          loanUnderwritingHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
