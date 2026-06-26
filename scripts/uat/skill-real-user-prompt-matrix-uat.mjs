@@ -110,6 +110,22 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-scan-customer-flow-one-fix',
+    prompt:
+      '프로젝트 스캔으로 고객 결제 흐름에서 재현 가능한 문제 하나 찾아 고치고 검증 가능한 PR 후보로 정리해줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-scan-customer-facing-regression',
+    prompt:
+      'Find one reproducible customer-facing regression by scanning this repo, fix it, verify it, and prepare a PR-ready result.',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
     expectedMode: 'user_issue',
@@ -168,6 +184,22 @@ const cases = [
     id: 'en-checkout-quantity-regression',
     prompt:
       'Checkout totals only use the unit price when a line has quantity 3. Fix the cart total regression and add a test.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-ops-cart-quantity-undercharge',
+    prompt:
+      '운영자가 확인한 cart quantity 과소청구 문제가 있어. 여러 개 담은 장바구니 총액을 고치고 회귀 테스트를 추가해줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-customer-cart-quantity-undercharge',
+    prompt:
+      'Customer carts with quantity 4 are undercharged as one item. Fix the cart quantity total and leave regression coverage.',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true

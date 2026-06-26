@@ -248,6 +248,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Bulk cart orders with quantity 5 are charged as one unit. Fix quantity-aware totals and add regression coverage.'
+    },
+    {
+      id: 'ko-ops-cart-quantity-undercharge',
+      language: 'ko',
+      prompt:
+        '운영자가 확인한 cart quantity 과소청구 문제가 있어. 여러 개 담은 장바구니 총액을 고치고 회귀 테스트를 추가해줘'
+    },
+    {
+      id: 'en-customer-cart-quantity-undercharge',
+      language: 'en',
+      prompt:
+        'Customer carts with quantity 4 are undercharged as one item. Fix the cart quantity total and leave regression coverage.'
     }
   ],
   auto_discovery: [
@@ -331,6 +343,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Perform a user-style project review, discover one concrete regression, fix it, verify it, and prepare a PR candidate.'
+    },
+    {
+      id: 'ko-scan-customer-flow-one-fix',
+      language: 'ko',
+      prompt:
+        '프로젝트 스캔으로 고객 결제 흐름에서 재현 가능한 문제 하나 찾아 고치고 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'en-scan-customer-facing-regression',
+      language: 'en',
+      prompt:
+        'Find one reproducible customer-facing regression by scanning this repo, fix it, verify it, and prepare a PR-ready result.'
     }
   ]
 };
