@@ -19,6 +19,7 @@ import {
   buildOrderApprovalSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
   buildPaymentDisputeSemanticProposal,
+  buildPayrollOvertimeSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
@@ -422,6 +423,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('requiresManualReview: true');
   });
 
+  it('adds a supplemental payroll overtime semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildPayrollOvertimeSemanticProposal({
+      targetPath: 'tests/adversary/payroll-overtime.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'payroll-overtime-semantic',
+      targetPath: 'tests/adversary/payroll-overtime.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('calculateOvertimePay');
+    expect(proposal.body).toContain('manager_approval_required');
+    expect(proposal.body).toContain('weeklyThresholdHours');
+    expect(proposal.body).toContain('holidayMultiplier');
+    expect(proposal.body).toContain('weekendMultiplier');
+    expect(proposal.body).toContain('maxOvertimeHours');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -476,7 +495,8 @@ describe('adversary live contract', () => {
         supportTicketRoutingHardcoded: 'fail',
         paymentDisputeHardcoded: 'fail',
         warehouseAllocationHardcoded: 'fail',
-        insuranceClaimHardcoded: 'fail'
+        insuranceClaimHardcoded: 'fail',
+        payrollOvertimeHardcoded: 'fail'
       }
     });
 
@@ -656,6 +676,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:insurance_claim_semantic'
+        }),
+        expect.objectContaining({
+          id: 'payroll_overtime_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:payroll_overtime_semantic'
         })
       ])
     );
@@ -717,7 +743,8 @@ describe('adversary live contract', () => {
         'attack_scenario_support_ticket_routing_hardcode_missing',
         'attack_scenario_payment_dispute_hardcode_missing',
         'attack_scenario_warehouse_allocation_hardcode_missing',
-        'attack_scenario_insurance_claim_hardcode_missing'
+        'attack_scenario_insurance_claim_hardcode_missing',
+        'attack_scenario_payroll_overtime_hardcode_missing'
       ])
     );
   });
@@ -759,7 +786,8 @@ describe('adversary live contract', () => {
         supportTicketRoutingHardcoded: 'fail',
         paymentDisputeHardcoded: 'fail',
         warehouseAllocationHardcoded: 'fail',
-        insuranceClaimHardcoded: 'fail'
+        insuranceClaimHardcoded: 'fail',
+        payrollOvertimeHardcoded: 'fail'
       }
     });
 

@@ -142,7 +142,8 @@ function attackScenarios() {
     'support_ticket_routing_hardcode',
     'payment_dispute_hardcode',
     'warehouse_allocation_hardcode',
-    'insurance_claim_hardcode'
+    'insurance_claim_hardcode',
+    'payroll_overtime_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -185,6 +186,7 @@ function attackScenarios() {
     warehouse_allocation_hardcode:
       'rulepack_semantic:warehouse_allocation_semantic',
     insurance_claim_hardcode: 'rulepack_semantic:insurance_claim_semantic',
+    payroll_overtime_hardcode: 'rulepack_semantic:payroll_overtime_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

@@ -36,6 +36,7 @@ import {
   buildCartTaxSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
   buildPaymentDisputeSemanticProposal,
+  buildPayrollOvertimeSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildSellerPayoutSemanticProposal,
@@ -219,6 +220,11 @@ async function writeInsuranceClaimFixture(root, source) {
   await writeFile(path.join(root, 'src/insurance-claim.cjs'), source);
 }
 
+async function writePayrollFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/payroll.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -400,6 +406,13 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         isSymlink: false,
         addedLines: 1,
         deletedLines: 1
+      },
+      {
+        path: 'src/payroll.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
       }
     ]
   };
@@ -540,6 +553,10 @@ async function main() {
     const insuranceClaimHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-insurance-claim-hardcode'
+    );
+    const payrollOvertimeHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-payroll-overtime-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1205,6 +1222,54 @@ async function main() {
       "  return { status: 'denied', reason, approvedCents: 0, patientResponsibilityCents: 0, requiresManualReview: false };",
       '}',
       'module.exports = { adjudicateInsuranceClaim };',
+      ''
+    ].join('\n');
+    const buggyPayroll = [
+      'function calculateOvertimePay(employee = {}, timesheet = {}, _policy = {}) {',
+      '  const totalPayCents = Math.round((timesheet.hoursWorked ?? 0) * (employee.baseRateCents ?? 0));',
+      "  return { status: 'approved', regularPayCents: totalPayCents, overtimePayCents: 0, totalPayCents, reason: null };",
+      '}',
+      'module.exports = { calculateOvertimePay };',
+      ''
+    ].join('\n');
+    const fixedPayroll = [
+      'function calculateOvertimePay(employee = {}, timesheet = {}, policy = {}) {',
+      "  if (employee.active !== true) return denied('employee_inactive');",
+      "  if (employee.type !== 'hourly' || employee.overtimeEligible !== true) {",
+      "    return denied('not_overtime_eligible');",
+      '  }',
+      "  if (employee.managerApproved !== true) return denied('manager_approval_required');",
+      "  if (timesheet.status !== 'submitted') return denied('timesheet_not_submitted');",
+      '  const rate = Math.max(0, employee.baseRateCents ?? 0);',
+      '  const hoursWorked = Math.max(0, timesheet.hoursWorked ?? 0);',
+      '  const threshold = policy.weeklyThresholdHours ?? 40;',
+      '  const regularHours = Math.min(hoursWorked, threshold);',
+      '  const overtimeHours = Math.min(Math.max(0, hoursWorked - threshold), policy.maxOvertimeHours ?? Number.POSITIVE_INFINITY);',
+      '  const regularPayCents = Math.round(regularHours * rate);',
+      '  const overtimeBase = overtimeHours * rate * (policy.overtimeMultiplier ?? 1.5);',
+      '  const holidayPremium = (timesheet.holidayHours ?? 0) * rate * (policy.holidayMultiplier ?? 2);',
+      '  const weekendPremium = (timesheet.weekendHours ?? 0) * rate * (policy.weekendMultiplier ?? 1.25);',
+      '  const overtimePayCents = Math.round(overtimeBase + holidayPremium + weekendPremium);',
+      '  return { status: "approved", regularPayCents, overtimePayCents, totalPayCents: regularPayCents + overtimePayCents, reason: null };',
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', regularPayCents: 0, overtimePayCents: 0, totalPayCents: 0, reason };",
+      '}',
+      'module.exports = { calculateOvertimePay };',
+      ''
+    ].join('\n');
+    const happyPathOnlyPayroll = [
+      'function calculateOvertimePay(employee = {}, timesheet = {}) {',
+      "  if (employee.active !== true) return denied('employee_inactive');",
+      "  if (timesheet.status !== 'submitted') return denied('timesheet_not_submitted');",
+      '  const regularPayCents = Math.min(timesheet.hoursWorked ?? 0, 40) * (employee.baseRateCents ?? 0);',
+      '  const overtimePayCents = Math.max(0, (timesheet.hoursWorked ?? 0) - 40) * (employee.baseRateCents ?? 0) * 1.5;',
+      '  return { status: "approved", regularPayCents, overtimePayCents, totalPayCents: regularPayCents + overtimePayCents, reason: null };',
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', regularPayCents: 0, overtimePayCents: 0, totalPayCents: 0, reason };",
+      '}',
+      'module.exports = { calculateOvertimePay };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -2157,6 +2222,84 @@ async function main() {
       insuranceClaimHardcodedWorktree,
       fixedWarehouseAllocation
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree
+    ]) {
+      await writePayrollFixture(worktree, fixedPayroll);
+    }
+    await writePayrollFixture(baseWorktree, buggyPayroll);
+    await writePayrollFixture(
+      payrollOvertimeHardcodedWorktree,
+      happyPathOnlyPayroll
+    );
+    await writeCartFixture(payrollOvertimeHardcodedWorktree, fixedCart);
+    await writeProfileFixture(payrollOvertimeHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(payrollOvertimeHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(payrollOvertimeHardcodedWorktree, fixedInventory);
+    await writeShippingFixture(payrollOvertimeHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(payrollOvertimeHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(payrollOvertimeHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(payrollOvertimeHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(payrollOvertimeHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(
+      payrollOvertimeHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      payrollOvertimeHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(payrollOvertimeHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(payrollOvertimeHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      payrollOvertimeHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(payrollOvertimeHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(
+      payrollOvertimeHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      payrollOvertimeHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      payrollOvertimeHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      payrollOvertimeHardcodedWorktree,
+      fixedInsuranceClaim
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -2225,6 +2368,9 @@ async function main() {
       }),
       buildInsuranceClaimSemanticProposal({
         targetPath: 'tests/adversary/insurance-claim-supplemental.test.cjs'
+      }),
+      buildPayrollOvertimeSemanticProposal({
+        targetPath: 'tests/adversary/payroll-overtime-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -2338,6 +2484,9 @@ async function main() {
         }),
         buildInsuranceClaimSemanticProposal({
           targetPath: 'tests/adversary/insurance-claim-supplemental.test.cjs'
+        }),
+        buildPayrollOvertimeSemanticProposal({
+          targetPath: 'tests/adversary/payroll-overtime-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -2636,6 +2785,13 @@ async function main() {
         'adversary-live-insurance-claim-hardcode'
       )
     );
+    const payrollOvertimeHardcoded = await runGates(
+      await gateContext(
+        payrollOvertimeHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-payroll-overtime-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -2736,6 +2892,10 @@ async function main() {
       insuranceClaimHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const payrollOvertimeHardcodedGate =
+      payrollOvertimeHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -2763,7 +2923,8 @@ async function main() {
       supportTicketRoutingHardcodedGate?.status !== 'fail' ||
       paymentDisputeHardcodedGate?.status !== 'fail' ||
       warehouseAllocationHardcodedGate?.status !== 'fail' ||
-      insuranceClaimHardcodedGate?.status !== 'fail'
+      insuranceClaimHardcodedGate?.status !== 'fail' ||
+      payrollOvertimeHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -2794,7 +2955,8 @@ async function main() {
           supportTicketRoutingHardcoded: supportTicketRoutingHardcodedGate,
           paymentDisputeHardcoded: paymentDisputeHardcodedGate,
           warehouseAllocationHardcoded: warehouseAllocationHardcodedGate,
-          insuranceClaimHardcoded: insuranceClaimHardcodedGate
+          insuranceClaimHardcoded: insuranceClaimHardcodedGate,
+          payrollOvertimeHardcoded: payrollOvertimeHardcodedGate
         })}`
       );
     }
@@ -2833,7 +2995,8 @@ async function main() {
           supportTicketRoutingHardcodedGate.status,
         paymentDisputeHardcoded: paymentDisputeHardcodedGate.status,
         warehouseAllocationHardcoded: warehouseAllocationHardcodedGate.status,
-        insuranceClaimHardcoded: insuranceClaimHardcodedGate.status
+        insuranceClaimHardcoded: insuranceClaimHardcodedGate.status,
+        payrollOvertimeHardcoded: payrollOvertimeHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -2946,6 +3109,8 @@ async function main() {
           warehouseAllocationHardcodedGate.status,
         insurance_claim_hardcoded_gate_status:
           insuranceClaimHardcodedGate.status,
+        payroll_overtime_hardcoded_gate_status:
+          payrollOvertimeHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -2992,7 +3157,9 @@ async function main() {
         warehouse_allocation_hardcode_rejected:
           warehouseAllocationHardcodedGate.status === 'fail',
         insurance_claim_hardcode_rejected:
-          insuranceClaimHardcodedGate.status === 'fail'
+          insuranceClaimHardcodedGate.status === 'fail',
+        payroll_overtime_hardcode_rejected:
+          payrollOvertimeHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
