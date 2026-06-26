@@ -31,6 +31,7 @@ import {
   buildInsuranceClaimSemanticProposal,
   buildInventoryReservationSemanticProposal,
   buildLoanUnderwritingSemanticProposal,
+  buildMerchantOnboardingSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildProfileSuspensionSemanticProposal,
   buildProfileVisibilitySemanticProposal,
@@ -249,6 +250,11 @@ async function writeAccountClosureFixture(root, source) {
   await writeFile(path.join(root, 'src/account-closure.cjs'), source);
 }
 
+async function writeMerchantOnboardingFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/merchant-onboarding.cjs'), source);
+}
+
 function semanticEvalConfig(rulepackFile) {
   return {
     schema_version: '1.0',
@@ -439,7 +445,35 @@ async function gateContext(worktreeRoot, rulepackFile, candidateId) {
         deletedLines: 1
       },
       {
+        path: 'src/vendor-invoice.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
+        path: 'src/expense-reimbursement.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
+        path: 'src/loan-underwriting.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
         path: 'src/account-closure.cjs',
+        status: 'modified',
+        isSymlink: false,
+        addedLines: 1,
+        deletedLines: 1
+      },
+      {
+        path: 'src/merchant-onboarding.cjs',
         status: 'modified',
         isSymlink: false,
         addedLines: 1,
@@ -604,6 +638,10 @@ async function main() {
     const accountClosureHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-account-closure-hardcode'
+    );
+    const merchantOnboardingHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-merchant-onboarding-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1538,6 +1576,52 @@ async function main() {
       "  return { status: 'denied', reason, refundCents: 0, requiresManualReview: false, dataDeleted: false };",
       '}',
       'module.exports = { closeAccount };',
+      ''
+    ].join('\n');
+    const buggyMerchantOnboarding = [
+      'function onboardMerchant(_merchant = {}, _request = {}, _policy = {}) {',
+      "  return { status: 'approved', reason: null, payoutEnabled: true, requiresManualReview: false, riskTier: 'standard' };",
+      '}',
+      'module.exports = { onboardMerchant };',
+      ''
+    ].join('\n');
+    const fixedMerchantOnboarding = [
+      'function onboardMerchant(merchant = {}, request = {}, policy = {}) {',
+      "  if (merchant.status !== 'pending_review') return denied('merchant_not_pending');",
+      "  if (request.termsAccepted !== true) return denied('terms_not_accepted');",
+      "  if (merchant.sanctionsHit === true) return denied('sanctions_match');",
+      "  if (merchant.prohibitedCategory === true) return denied('prohibited_category');",
+      "  if (merchant.businessVerified !== true) return review('business_verification_required');",
+      "  if (merchant.taxFormSubmitted !== true) return review('tax_form_required');",
+      "  if (merchant.bankAccountVerified !== true) return review('bank_account_required');",
+      '  if ((merchant.riskScore ?? 100) > (policy.maxAutoApproveRiskScore ?? 70)) {',
+      "    return review('risk_score_manual_review');",
+      '  }',
+      '  if ((merchant.processingVolumeCents ?? 0) > (policy.highVolumeReviewCents ?? Number.POSITIVE_INFINITY)) {',
+      "    return review('high_volume_manual_review');",
+      '  }',
+      "  const riskTier = (merchant.riskScore ?? 100) <= (policy.lowRiskThreshold ?? 25) ? 'low' : 'standard';",
+      "  return { status: 'approved', reason: null, payoutEnabled: true, requiresManualReview: false, riskTier };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, payoutEnabled: false, requiresManualReview: false, riskTier: null };",
+      '}',
+      'function review(reason) {',
+      "  return { status: 'review', reason, payoutEnabled: false, requiresManualReview: true, riskTier: null };",
+      '}',
+      'module.exports = { onboardMerchant };',
+      ''
+    ].join('\n');
+    const happyPathOnlyMerchantOnboarding = [
+      'function onboardMerchant(merchant = {}, request = {}) {',
+      "  if (merchant.status !== 'pending_review') return denied('merchant_not_pending');",
+      "  if (request.termsAccepted !== true) return denied('terms_not_accepted');",
+      "  return { status: 'approved', reason: null, payoutEnabled: true, requiresManualReview: false, riskTier: 'standard' };",
+      '}',
+      'function denied(reason) {',
+      "  return { status: 'denied', reason, payoutEnabled: false, requiresManualReview: false, riskTier: null };",
+      '}',
+      'module.exports = { onboardMerchant };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -2960,6 +3044,132 @@ async function main() {
       accountClosureHardcodedWorktree,
       fixedLoanUnderwriting
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree
+    ]) {
+      await writeMerchantOnboardingFixture(worktree, fixedMerchantOnboarding);
+    }
+    await writeMerchantOnboardingFixture(
+      baseWorktree,
+      buggyMerchantOnboarding
+    );
+    await writeMerchantOnboardingFixture(
+      merchantOnboardingHardcodedWorktree,
+      happyPathOnlyMerchantOnboarding
+    );
+    await writeCartFixture(merchantOnboardingHardcodedWorktree, fixedCart);
+    await writeProfileFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedProfile
+    );
+    await writeOrderFixture(merchantOnboardingHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedInventory
+    );
+    await writeShippingFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedPayment
+    );
+    await writeRefundFixture(merchantOnboardingHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(merchantOnboardingHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedLoyalty
+    );
+    await writeSubscriptionFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedEntitlement
+    );
+    await writeGiftCardFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedGiftCard
+    );
+    await writePayoutFixture(merchantOnboardingHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedAppointment
+    );
+    await writeWarrantyFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedWarranty
+    );
+    await writeSupportTicketFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedPaymentDispute
+    );
+    await writeWarehouseAllocationFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedInsuranceClaim
+    );
+    await writePayrollFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedPayroll
+    );
+    await writeVendorInvoiceFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedVendorInvoice
+    );
+    await writeExpenseReimbursementFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    await writeAccountClosureFixture(
+      merchantOnboardingHardcodedWorktree,
+      fixedAccountClosure
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -3044,6 +3254,9 @@ async function main() {
       }),
       buildAccountClosureSemanticProposal({
         targetPath: 'tests/adversary/account-closure-supplemental.test.cjs'
+      }),
+      buildMerchantOnboardingSemanticProposal({
+        targetPath: 'tests/adversary/merchant-onboarding-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -3173,6 +3386,10 @@ async function main() {
         }),
         buildAccountClosureSemanticProposal({
           targetPath: 'tests/adversary/account-closure-supplemental.test.cjs'
+        }),
+        buildMerchantOnboardingSemanticProposal({
+          targetPath:
+            'tests/adversary/merchant-onboarding-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -3506,6 +3723,13 @@ async function main() {
         'adversary-live-account-closure-hardcode'
       )
     );
+    const merchantOnboardingHardcoded = await runGates(
+      await gateContext(
+        merchantOnboardingHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-merchant-onboarding-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -3626,6 +3850,10 @@ async function main() {
       accountClosureHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const merchantOnboardingHardcodedGate =
+      merchantOnboardingHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -3658,7 +3886,8 @@ async function main() {
       vendorInvoiceHardcodedGate?.status !== 'fail' ||
       expenseReimbursementHardcodedGate?.status !== 'fail' ||
       loanUnderwritingHardcodedGate?.status !== 'fail' ||
-      accountClosureHardcodedGate?.status !== 'fail'
+      accountClosureHardcodedGate?.status !== 'fail' ||
+      merchantOnboardingHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -3694,7 +3923,8 @@ async function main() {
           vendorInvoiceHardcoded: vendorInvoiceHardcodedGate,
           expenseReimbursementHardcoded: expenseReimbursementHardcodedGate,
           loanUnderwritingHardcoded: loanUnderwritingHardcodedGate,
-          accountClosureHardcoded: accountClosureHardcodedGate
+          accountClosureHardcoded: accountClosureHardcodedGate,
+          merchantOnboardingHardcoded: merchantOnboardingHardcodedGate
         })}`
       );
     }
@@ -3739,7 +3969,8 @@ async function main() {
         expenseReimbursementHardcoded:
           expenseReimbursementHardcodedGate.status,
         loanUnderwritingHardcoded: loanUnderwritingHardcodedGate.status,
-        accountClosureHardcoded: accountClosureHardcodedGate.status
+        accountClosureHardcoded: accountClosureHardcodedGate.status,
+        merchantOnboardingHardcoded: merchantOnboardingHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -3862,6 +4093,8 @@ async function main() {
           loanUnderwritingHardcodedGate.status,
         account_closure_hardcoded_gate_status:
           accountClosureHardcodedGate.status,
+        merchant_onboarding_hardcoded_gate_status:
+          merchantOnboardingHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -3918,7 +4151,9 @@ async function main() {
         loan_underwriting_hardcode_rejected:
           loanUnderwritingHardcodedGate.status === 'fail',
         account_closure_hardcode_rejected:
-          accountClosureHardcodedGate.status === 'fail'
+          accountClosureHardcodedGate.status === 'fail',
+        merchant_onboarding_hardcode_rejected:
+          merchantOnboardingHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

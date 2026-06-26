@@ -19,6 +19,7 @@ import {
   buildInventoryReservationSemanticProposal,
   buildLoanUnderwritingSemanticProposal,
   buildLoyaltyPointsSemanticProposal,
+  buildMerchantOnboardingSemanticProposal,
   buildOrderApprovalSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
   buildPaymentDisputeSemanticProposal,
@@ -517,6 +518,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('confirmation_required');
   });
 
+  it('adds a supplemental merchant onboarding semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildMerchantOnboardingSemanticProposal({
+      targetPath: 'tests/adversary/merchant-onboarding.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'merchant-onboarding-semantic',
+      targetPath: 'tests/adversary/merchant-onboarding.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('onboardMerchant');
+    expect(proposal.body).toContain('business_verification_required');
+    expect(proposal.body).toContain('sanctions_match');
+    expect(proposal.body).toContain('tax_form_required');
+    expect(proposal.body).toContain('bank_account_required');
+    expect(proposal.body).toContain('risk_score_manual_review');
+    expect(proposal.body).toContain('high_volume_manual_review');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -576,7 +596,8 @@ describe('adversary live contract', () => {
         vendorInvoiceHardcoded: 'fail',
         expenseReimbursementHardcoded: 'fail',
         loanUnderwritingHardcoded: 'fail',
-        accountClosureHardcoded: 'fail'
+        accountClosureHardcoded: 'fail',
+        merchantOnboardingHardcoded: 'fail'
       }
     });
 
@@ -786,6 +807,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:account_closure_semantic'
+        }),
+        expect.objectContaining({
+          id: 'merchant_onboarding_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:merchant_onboarding_semantic'
         })
       ])
     );
@@ -852,7 +879,8 @@ describe('adversary live contract', () => {
         'attack_scenario_vendor_invoice_hardcode_missing',
         'attack_scenario_expense_reimbursement_hardcode_missing',
         'attack_scenario_loan_underwriting_hardcode_missing',
-        'attack_scenario_account_closure_hardcode_missing'
+        'attack_scenario_account_closure_hardcode_missing',
+        'attack_scenario_merchant_onboarding_hardcode_missing'
       ])
     );
   });
@@ -899,7 +927,8 @@ describe('adversary live contract', () => {
         vendorInvoiceHardcoded: 'fail',
         expenseReimbursementHardcoded: 'fail',
         loanUnderwritingHardcoded: 'fail',
-        accountClosureHardcoded: 'fail'
+        accountClosureHardcoded: 'fail',
+        merchantOnboardingHardcoded: 'fail'
       }
     });
 

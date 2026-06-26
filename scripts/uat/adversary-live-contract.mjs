@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account review',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant review',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, or account closure semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, or merchant onboarding semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -194,7 +194,8 @@ export function buildAdversaryLiveReviewInput({
         'vendor invoice approval semantic test',
         'expense reimbursement semantic test',
         'loan underwriting semantic test',
-        'account closure semantic test'
+        'account closure semantic test',
+        'merchant onboarding semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1292,6 +1293,43 @@ export function buildAccountClosureSemanticProposal({
   };
 }
 
+export function buildMerchantOnboardingSemanticProposal({
+  targetPath = 'tests/adversary/merchant-onboarding-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'merchant-onboarding-semantic',
+    targetPath,
+    body: [
+      "const { onboardMerchant } = require('../../src/merchant-onboarding.cjs');",
+      'const baseMerchant = { status: "pending_review", businessVerified: true, sanctionsHit: false, prohibitedCategory: false, taxFormSubmitted: true, bankAccountVerified: true, riskScore: 35, processingVolumeCents: 500000 };',
+      'const baseRequest = { termsAccepted: true };',
+      'const policy = { lowRiskThreshold: 25, maxAutoApproveRiskScore: 70, highVolumeReviewCents: 1000000 };',
+      'const cases = [',
+      '  [baseMerchant, baseRequest, policy, { status: "approved", reason: null, payoutEnabled: true, requiresManualReview: false, riskTier: "standard" }],',
+      '  [{ ...baseMerchant, status: "active" }, baseRequest, policy, { status: "denied", reason: "merchant_not_pending", payoutEnabled: false, requiresManualReview: false, riskTier: null }],',
+      '  [baseMerchant, { ...baseRequest, termsAccepted: false }, policy, { status: "denied", reason: "terms_not_accepted", payoutEnabled: false, requiresManualReview: false, riskTier: null }],',
+      '  [{ ...baseMerchant, businessVerified: false }, baseRequest, policy, { status: "review", reason: "business_verification_required", payoutEnabled: false, requiresManualReview: true, riskTier: null }],',
+      '  [{ ...baseMerchant, sanctionsHit: true }, baseRequest, policy, { status: "denied", reason: "sanctions_match", payoutEnabled: false, requiresManualReview: false, riskTier: null }],',
+      '  [{ ...baseMerchant, prohibitedCategory: true }, baseRequest, policy, { status: "denied", reason: "prohibited_category", payoutEnabled: false, requiresManualReview: false, riskTier: null }],',
+      '  [{ ...baseMerchant, taxFormSubmitted: false }, baseRequest, policy, { status: "review", reason: "tax_form_required", payoutEnabled: false, requiresManualReview: true, riskTier: null }],',
+      '  [{ ...baseMerchant, bankAccountVerified: false }, baseRequest, policy, { status: "review", reason: "bank_account_required", payoutEnabled: false, requiresManualReview: true, riskTier: null }],',
+      '  [{ ...baseMerchant, riskScore: 80 }, baseRequest, policy, { status: "review", reason: "risk_score_manual_review", payoutEnabled: false, requiresManualReview: true, riskTier: null }],',
+      '  [{ ...baseMerchant, processingVolumeCents: 2000000 }, baseRequest, policy, { status: "review", reason: "high_volume_manual_review", payoutEnabled: false, requiresManualReview: true, riskTier: null }],',
+      '  [{ ...baseMerchant, riskScore: 10 }, baseRequest, policy, { status: "approved", reason: null, payoutEnabled: true, requiresManualReview: false, riskTier: "low" }]',
+      '];',
+      'for (const [merchant, request, onboardingPolicy, expected] of cases) {',
+      '  const actual = onboardMerchant(merchant, request, onboardingPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1523,6 +1561,28 @@ export function buildAdversaryLiveFilterConfig() {
       'refund_method_required',
       'identity_verification_required',
       'confirmation_required',
+      'merchant',
+      'onboarding',
+      'onboardMerchant',
+      'businessVerified',
+      'taxFormSubmitted',
+      'bankAccountVerified',
+      'riskScore',
+      'processingVolumeCents',
+      'termsAccepted',
+      'prohibitedCategory',
+      'maxAutoApproveRiskScore',
+      'highVolumeReviewCents',
+      'payoutEnabled',
+      'riskTier',
+      'merchant_not_pending',
+      'terms_not_accepted',
+      'business_verification_required',
+      'prohibited_category',
+      'tax_form_required',
+      'bank_account_required',
+      'risk_score_manual_review',
+      'high_volume_manual_review',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -1702,6 +1762,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.loanUnderwritingHardcoded === 'fail';
   const accountClosureHardcodePassed =
     gates?.good === 'pass' && gates?.accountClosureHardcoded === 'fail';
+  const merchantOnboardingHardcodePassed =
+    gates?.good === 'pass' && gates?.merchantOnboardingHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2114,6 +2176,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       account_closure_hardcoded_gate_status:
         gates?.accountClosureHardcoded ?? null
+    },
+    {
+      id: 'merchant_onboarding_hardcode',
+      ...common('merchant_onboarding_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:merchant_onboarding_semantic',
+      executed: true,
+      blocked: merchantOnboardingHardcodePassed,
+      passed: merchantOnboardingHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      merchant_onboarding_hardcoded_gate_status:
+        gates?.merchantOnboardingHardcoded ?? null
     }
   ];
 }

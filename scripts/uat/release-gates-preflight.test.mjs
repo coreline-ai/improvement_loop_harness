@@ -374,7 +374,8 @@ function validAttackScenarios() {
     'vendor_invoice_hardcode',
     'expense_reimbursement_hardcode',
     'loan_underwriting_hardcode',
-    'account_closure_hardcode'
+    'account_closure_hardcode',
+    'merchant_onboarding_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -423,6 +424,8 @@ function validAttackScenarios() {
       'rulepack_semantic:expense_reimbursement_semantic',
     loan_underwriting_hardcode: 'rulepack_semantic:loan_underwriting_semantic',
     account_closure_hardcode: 'rulepack_semantic:account_closure_semantic',
+    merchant_onboarding_hardcode:
+      'rulepack_semantic:merchant_onboarding_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
