@@ -818,6 +818,29 @@ async function githubToken() {
   return result.stdout.trim();
 }
 
+async function githubCleanupBlocker() {
+  if (!githubDraftPrRequested || keepRemote) return null;
+  const result = await run('gh', ['auth', 'status'], { timeoutMs: 30_000 });
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (result.code !== 0) {
+    return {
+      reason: 'GH_AUTH_STATUS_FAILED',
+      gh_exit_code: result.code,
+      stderr: redact(result.stderr).trim()
+    };
+  }
+  if (!/\bdelete_repo\b/.test(output)) {
+    return {
+      reason: 'GITHUB_DRAFT_PR_REQUIRES_DELETE_REPO_OR_KEEP_REMOTE',
+      required_scope: 'delete_repo',
+      keep_remote: keepRemote,
+      next_step:
+        'Run gh auth refresh -h github.com -s delete_repo for cleanup-capable ephemeral repos, or rerun with VIBELOOP_UAT_KEEP_REMOTE=1 to intentionally preserve UAT repos.'
+    };
+  }
+  return null;
+}
+
 function assertGeneratedSkillPromptRepoName(repoName) {
   if (!repoName.startsWith('vibeloop-skill-prompt-')) {
     throw new Error(`refusing to manage non-UAT GitHub repo: ${repoName}`);
@@ -831,6 +854,10 @@ async function main() {
     return blocked('GITHUB_DRAFT_PR_REQUIRES_REAL_BUILDER', {
       builder_mode: builderMode
     });
+  }
+  const cleanupBlocker = await githubCleanupBlocker();
+  if (cleanupBlocker) {
+    return blocked(cleanupBlocker.reason, cleanupBlocker);
   }
   if ((await run('codex', ['--version'], { timeoutMs: 30_000 })).code !== 0) {
     return blocked('CODEX_CLI_NOT_AVAILABLE');
