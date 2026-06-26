@@ -56,7 +56,9 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'data_retention_deletion_hardcode',
   'content_moderation_appeal_hardcode',
   'fraud_risk_hardcode',
-  'credit_memo_approval_hardcode'
+  'credit_memo_approval_hardcode',
+  'payment_settlement_hardcode',
+  'tax_filing_hardcode'
 ]);
 
 export const PREFLIGHTS = [

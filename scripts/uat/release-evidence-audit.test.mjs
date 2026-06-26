@@ -152,7 +152,9 @@ function attackScenarios() {
     'data_retention_deletion_hardcode',
     'content_moderation_appeal_hardcode',
     'fraud_risk_hardcode',
-    'credit_memo_approval_hardcode'
+    'credit_memo_approval_hardcode',
+    'payment_settlement_hardcode',
+    'tax_filing_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -212,6 +214,7 @@ function attackScenarios() {
       'rulepack_semantic:credit_memo_approval_semantic',
     payment_settlement_hardcode:
       'rulepack_semantic:payment_settlement_semantic',
+    tax_filing_hardcode: 'rulepack_semantic:tax_filing_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

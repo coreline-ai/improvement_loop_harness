@@ -37,6 +37,7 @@ import {
   buildShippingEligibilitySemanticProposal,
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
+  buildTaxFilingSemanticProposal,
   buildVendorInvoiceSemanticProposal,
   buildWarrantyClaimSemanticProposal,
   buildWarehouseAllocationSemanticProposal,
@@ -395,6 +396,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('manual_review');
   });
 
+  it('adds a supplemental tax filing semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildTaxFilingSemanticProposal({
+      targetPath: 'tests/adversary/tax-filing.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'tax-filing-semantic',
+      targetPath: 'tests/adversary/tax-filing.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('assessTaxFiling');
+    expect(proposal.body).toContain('w9OnFile: false');
+    expect(proposal.body).toContain('tinVerified: false');
+    expect(proposal.body).toContain('backup_withholding_required');
+    expect(proposal.body).toContain('withholding_shortfall');
+    expect(proposal.body).toContain('treaty_review_required');
+  });
+
   it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildWarehouseAllocationSemanticProposal({
       targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
@@ -662,7 +681,8 @@ describe('adversary live contract', () => {
         contentModerationAppealHardcoded: 'fail',
         fraudRiskHardcoded: 'fail',
         creditMemoApprovalHardcoded: 'fail',
-        paymentSettlementHardcoded: 'fail'
+        paymentSettlementHardcoded: 'fail',
+        taxFilingHardcoded: 'fail'
       }
     });
 
@@ -908,6 +928,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:payment_settlement_semantic'
+        }),
+        expect.objectContaining({
+          id: 'tax_filing_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:tax_filing_semantic'
         })
       ])
     );
@@ -980,7 +1006,8 @@ describe('adversary live contract', () => {
         'attack_scenario_content_moderation_appeal_hardcode_missing',
         'attack_scenario_fraud_risk_hardcode_missing',
         'attack_scenario_credit_memo_approval_hardcode_missing',
-        'attack_scenario_payment_settlement_hardcode_missing'
+        'attack_scenario_payment_settlement_hardcode_missing',
+        'attack_scenario_tax_filing_hardcode_missing'
       ])
     );
   });
@@ -1033,7 +1060,8 @@ describe('adversary live contract', () => {
         contentModerationAppealHardcoded: 'fail',
         fraudRiskHardcoded: 'fail',
         creditMemoApprovalHardcoded: 'fail',
-        paymentSettlementHardcoded: 'fail'
+        paymentSettlementHardcoded: 'fail',
+        taxFilingHardcoded: 'fail'
       }
     });
 

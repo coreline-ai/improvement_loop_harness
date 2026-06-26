@@ -1511,6 +1511,44 @@ export function buildPaymentSettlementSemanticProposal({
   };
 }
 
+export function buildTaxFilingSemanticProposal({
+  targetPath = 'tests/adversary/tax-filing-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'tax-filing-semantic',
+    targetPath,
+    body: [
+      "const { assessTaxFiling } = require('../../src/tax-filing.cjs');",
+      'const basePayer = { status: "active", country: "US", taxYear: 2026 };',
+      'const baseVendor = { status: "active", entityType: "contractor", country: "US", w9OnFile: true, tinVerified: true };',
+      'const baseFiling = { form: "1099-NEC", amountCents: 65000, filedAt: "2027-01-20T00:00:00.000Z", withholdingCents: 0, correction: false };',
+      'const policy = { reportingThresholdCents: 60000, filingDeadline: "2027-01-31T23:59:59.000Z", backupWithholdingRate: 0.24 };',
+      'const cases = [',
+      '  [basePayer, baseVendor, baseFiling, policy, { status: "accepted", reason: null, reportableAmountCents: 65000, withholdingCents: 0, requiresManualReview: false, filed: true }],',
+      '  [{ ...basePayer, status: "inactive" }, baseVendor, baseFiling, policy, { status: "denied", reason: "payer_inactive", reportableAmountCents: 65000, withholdingCents: 0, requiresManualReview: false, filed: false }],',
+      '  [basePayer, baseVendor, { ...baseFiling, amountCents: 50000 }, policy, { status: "not_required", reason: "reporting_threshold_not_met", reportableAmountCents: 50000, withholdingCents: 0, requiresManualReview: false, filed: false }],',
+      '  [basePayer, { ...baseVendor, w9OnFile: false }, baseFiling, policy, { status: "manual_review", reason: "backup_withholding_required", reportableAmountCents: 65000, withholdingCents: 15600, requiresManualReview: true, filed: false }],',
+      '  [basePayer, { ...baseVendor, tinVerified: false }, { ...baseFiling, withholdingCents: 0 }, policy, { status: "manual_review", reason: "backup_withholding_required", reportableAmountCents: 65000, withholdingCents: 15600, requiresManualReview: true, filed: false }],',
+      '  [basePayer, baseVendor, { ...baseFiling, filedAt: "2027-02-10T00:00:00.000Z" }, policy, { status: "denied", reason: "filing_deadline_missed", reportableAmountCents: 65000, withholdingCents: 0, requiresManualReview: false, filed: false }],',
+      '  [basePayer, baseVendor, { ...baseFiling, form: "1099-MISC" }, policy, { status: "denied", reason: "form_mismatch", reportableAmountCents: 65000, withholdingCents: 0, requiresManualReview: false, filed: false }],',
+      '  [basePayer, { ...baseVendor, status: "suspended" }, baseFiling, policy, { status: "denied", reason: "payee_suspended", reportableAmountCents: 65000, withholdingCents: 0, requiresManualReview: false, filed: false }],',
+      '  [basePayer, { ...baseVendor, country: "CA", treatyOnFile: false }, baseFiling, policy, { status: "manual_review", reason: "treaty_review_required", reportableAmountCents: 65000, withholdingCents: 0, requiresManualReview: true, filed: false }],',
+      '  [basePayer, baseVendor, { ...baseFiling, correction: true, originalAccepted: false }, policy, { status: "denied", reason: "correction_without_original", reportableAmountCents: 65000, withholdingCents: 0, requiresManualReview: false, filed: false }],',
+      '  [basePayer, { ...baseVendor, tinVerified: false }, { ...baseFiling, withholdingCents: 5000 }, policy, { status: "manual_review", reason: "withholding_shortfall", reportableAmountCents: 65000, withholdingCents: 15600, requiresManualReview: true, filed: false }]',
+      '];',
+      'for (const [payer, vendor, filing, filingPolicy, expected] of cases) {',
+      '  const actual = assessTaxFiling(payer, vendor, filing, filingPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(`expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -1856,6 +1894,18 @@ export function buildAdversaryLiveFilterConfig() {
       'settlement_batch_closed',
       'merchant_suspended',
       'settlement_threshold_review',
+      'taxFiling',
+      'tax-filing',
+      'assessTaxFiling',
+      'w9OnFile',
+      'tinVerified',
+      'reportingThresholdCents',
+      'filingDeadline',
+      'backupWithholdingRate',
+      'backup_withholding_required',
+      'withholding_shortfall',
+      'treaty_review_required',
+      'correction_without_original',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2049,6 +2099,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.creditMemoApprovalHardcoded === 'fail';
   const paymentSettlementHardcodePassed =
     gates?.good === 'pass' && gates?.paymentSettlementHardcoded === 'fail';
+  const taxFilingHardcodePassed =
+    gates?.good === 'pass' && gates?.taxFilingHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2532,6 +2584,17 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       payment_settlement_hardcoded_gate_status:
         gates?.paymentSettlementHardcoded ?? null
+    },
+    {
+      id: 'tax_filing_hardcode',
+      ...common('tax_filing_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:tax_filing_semantic',
+      executed: true,
+      blocked: taxFilingHardcodePassed,
+      passed: taxFilingHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      tax_filing_hardcoded_gate_status: gates?.taxFilingHardcoded ?? null
     }
   ];
 }

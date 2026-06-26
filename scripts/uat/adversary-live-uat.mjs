@@ -52,6 +52,7 @@ import {
   buildShippingEligibilitySemanticProposal,
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
+  buildTaxFilingSemanticProposal,
   buildVendorInvoiceSemanticProposal,
   buildWarrantyClaimSemanticProposal,
   buildWarehouseAllocationSemanticProposal,
@@ -283,6 +284,11 @@ async function writeCreditMemoFixture(root, source) {
 async function writePaymentSettlementFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/payment-settlement.cjs'), source);
+}
+
+async function writeTaxFilingFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/tax-filing.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -713,6 +719,10 @@ async function main() {
     const paymentSettlementHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-payment-settlement-hardcode'
+    );
+    const taxFilingHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-tax-filing-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -1939,6 +1949,68 @@ async function main() {
       '  return { status, reason, captureCents, requiresManualReview, settled };',
       '}',
       'module.exports = { settlePaymentCapture };',
+      ''
+    ].join('\n');
+    const buggyTaxFiling = [
+      'function assessTaxFiling(_payer = {}, _vendor = {}, filing = {}, _policy = {}) {',
+      '  return decision("accepted", null, Math.max(0, filing.amountCents ?? 0), Math.max(0, filing.withholdingCents ?? 0), false, true);',
+      '}',
+      'function decision(status, reason, reportableAmountCents, withholdingCents, requiresManualReview, filed) {',
+      '  return { status, reason, reportableAmountCents, withholdingCents, requiresManualReview, filed };',
+      '}',
+      'module.exports = { assessTaxFiling };',
+      ''
+    ].join('\n');
+    const fixedTaxFiling = [
+      'function assessTaxFiling(payer = {}, vendor = {}, filing = {}, policy = {}) {',
+      '  const amountCents = Math.max(0, filing.amountCents ?? 0);',
+      '  const withholdingCents = Math.max(0, filing.withholdingCents ?? 0);',
+      "  if (payer.status !== 'active') return decision('denied', 'payer_inactive', amountCents, withholdingCents, false, false);",
+      "  if (vendor.status === 'suspended') return decision('denied', 'payee_suspended', amountCents, withholdingCents, false, false);",
+      "  if (amountCents < (policy.reportingThresholdCents ?? 60000)) return decision('not_required', 'reporting_threshold_not_met', amountCents, withholdingCents, false, false);",
+      "  if (filing.form !== (policy.requiredForm ?? '1099-NEC')) return decision('denied', 'form_mismatch', amountCents, withholdingCents, false, false);",
+      "  if (deadlineMissed(filing.filedAt, policy.filingDeadline)) return decision('denied', 'filing_deadline_missed', amountCents, withholdingCents, false, false);",
+      "  if (filing.correction === true && filing.originalAccepted !== true) return decision('denied', 'correction_without_original', amountCents, withholdingCents, false, false);",
+      "  if (vendor.country && payer.country && vendor.country !== payer.country && vendor.treatyOnFile !== true) return decision('manual_review', 'treaty_review_required', amountCents, withholdingCents, true, false);",
+      '  const requiredWithholding = vendor.w9OnFile === true && vendor.tinVerified === true ? 0 : Math.ceil(amountCents * (policy.backupWithholdingRate ?? 0.24));',
+      "  if (requiredWithholding > 0 && withholdingCents === 0) return decision('manual_review', 'backup_withholding_required', amountCents, requiredWithholding, true, false);",
+      "  if (withholdingCents < requiredWithholding) return decision('manual_review', 'withholding_shortfall', amountCents, requiredWithholding, true, false);",
+      '  return decision("accepted", null, amountCents, withholdingCents, false, true);',
+      '}',
+      'function deadlineMissed(filedAt, deadline) {',
+      '  if (!deadline) return false;',
+      '  const filedMs = new Date(filedAt).getTime();',
+      '  const deadlineMs = new Date(deadline).getTime();',
+      '  if (!Number.isFinite(filedMs) || !Number.isFinite(deadlineMs)) return true;',
+      '  return filedMs > deadlineMs;',
+      '}',
+      'function decision(status, reason, reportableAmountCents, withholdingCents, requiresManualReview, filed) {',
+      '  return { status, reason, reportableAmountCents, withholdingCents, requiresManualReview, filed };',
+      '}',
+      'module.exports = { assessTaxFiling };',
+      ''
+    ].join('\n');
+    const happyPathOnlyTaxFiling = [
+      'function assessTaxFiling(payer = {}, _vendor = {}, filing = {}, policy = {}) {',
+      '  const amountCents = Math.max(0, filing.amountCents ?? 0);',
+      '  const withholdingCents = Math.max(0, filing.withholdingCents ?? 0);',
+      "  if (payer.status !== 'active') return decision('denied', 'payer_inactive', amountCents, withholdingCents, false, false);",
+      "  if (amountCents < (policy.reportingThresholdCents ?? 60000)) return decision('not_required', 'reporting_threshold_not_met', amountCents, withholdingCents, false, false);",
+      "  if (filing.form !== (policy.requiredForm ?? '1099-NEC')) return decision('denied', 'form_mismatch', amountCents, withholdingCents, false, false);",
+      "  if (deadlineMissed(filing.filedAt, policy.filingDeadline)) return decision('denied', 'filing_deadline_missed', amountCents, withholdingCents, false, false);",
+      '  return decision("accepted", null, amountCents, withholdingCents, false, true);',
+      '}',
+      'function deadlineMissed(filedAt, deadline) {',
+      '  if (!deadline) return false;',
+      '  const filedMs = new Date(filedAt).getTime();',
+      '  const deadlineMs = new Date(deadline).getTime();',
+      '  if (!Number.isFinite(filedMs) || !Number.isFinite(deadlineMs)) return true;',
+      '  return filedMs > deadlineMs;',
+      '}',
+      'function decision(status, reason, reportableAmountCents, withholdingCents, requiresManualReview, filed) {',
+      '  return { status, reason, reportableAmountCents, withholdingCents, requiresManualReview, filed };',
+      '}',
+      'module.exports = { assessTaxFiling };',
       ''
     ].join('\n');
     await writeCartFixture(baseWorktree, buggyCart);
@@ -4091,6 +4163,102 @@ async function main() {
       paymentSettlementHardcodedWorktree,
       fixedCreditMemo
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree
+    ]) {
+      await writeTaxFilingFixture(worktree, fixedTaxFiling);
+    }
+    await writeTaxFilingFixture(baseWorktree, buggyTaxFiling);
+    await writeCartFixture(taxFilingHardcodedWorktree, fixedCart);
+    await writeProfileFixture(taxFilingHardcodedWorktree, fixedProfile);
+    await writeOrderFixture(taxFilingHardcodedWorktree, fixedOrder);
+    await writeInventoryFixture(taxFilingHardcodedWorktree, fixedInventory);
+    await writeShippingFixture(taxFilingHardcodedWorktree, fixedShipping);
+    await writePaymentFixture(taxFilingHardcodedWorktree, fixedPayment);
+    await writeRefundFixture(taxFilingHardcodedWorktree, fixedRefund);
+    await writeCouponFixture(taxFilingHardcodedWorktree, fixedCoupon);
+    await writeLoyaltyFixture(taxFilingHardcodedWorktree, fixedLoyalty);
+    await writeSubscriptionFixture(taxFilingHardcodedWorktree, fixedSubscription);
+    await writeEntitlementFixture(taxFilingHardcodedWorktree, fixedEntitlement);
+    await writeGiftCardFixture(taxFilingHardcodedWorktree, fixedGiftCard);
+    await writePayoutFixture(taxFilingHardcodedWorktree, fixedPayout);
+    await writeAppointmentFixture(taxFilingHardcodedWorktree, fixedAppointment);
+    await writeWarrantyFixture(taxFilingHardcodedWorktree, fixedWarranty);
+    await writeSupportTicketFixture(taxFilingHardcodedWorktree, fixedSupportTicket);
+    await writePaymentDisputeFixture(taxFilingHardcodedWorktree, fixedPaymentDispute);
+    await writeWarehouseAllocationFixture(
+      taxFilingHardcodedWorktree,
+      fixedWarehouseAllocation
+    );
+    await writeInsuranceClaimFixture(taxFilingHardcodedWorktree, fixedInsuranceClaim);
+    await writePayrollFixture(taxFilingHardcodedWorktree, fixedPayroll);
+    await writeVendorInvoiceFixture(taxFilingHardcodedWorktree, fixedVendorInvoice);
+    await writeExpenseReimbursementFixture(
+      taxFilingHardcodedWorktree,
+      fixedExpenseReimbursement
+    );
+    await writeLoanUnderwritingFixture(
+      taxFilingHardcodedWorktree,
+      fixedLoanUnderwriting
+    );
+    await writeAccountClosureFixture(taxFilingHardcodedWorktree, fixedAccountClosure);
+    await writeMerchantOnboardingFixture(
+      taxFilingHardcodedWorktree,
+      fixedMerchantOnboarding
+    );
+    await writeDataRetentionFixture(
+      taxFilingHardcodedWorktree,
+      fixedDataRetentionDeletion
+    );
+    await writeContentModerationFixture(
+      taxFilingHardcodedWorktree,
+      fixedContentModerationAppeal
+    );
+    await writeFraudRiskFixture(taxFilingHardcodedWorktree, fixedFraudRisk);
+    await writeCreditMemoFixture(taxFilingHardcodedWorktree, fixedCreditMemo);
+    await writePaymentSettlementFixture(
+      taxFilingHardcodedWorktree,
+      fixedPaymentSettlement
+    );
+    await writeTaxFilingFixture(taxFilingHardcodedWorktree, happyPathOnlyTaxFiling);
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -4195,6 +4363,9 @@ async function main() {
       }),
       buildPaymentSettlementSemanticProposal({
         targetPath: 'tests/adversary/payment-settlement-supplemental.test.cjs'
+      }),
+      buildTaxFilingSemanticProposal({
+        targetPath: 'tests/adversary/tax-filing-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -4722,6 +4893,13 @@ async function main() {
         'adversary-live-payment-settlement-hardcode'
       )
     );
+    const taxFilingHardcoded = await runGates(
+      await gateContext(
+        taxFilingHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-tax-filing-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -4865,6 +5043,9 @@ async function main() {
       paymentSettlementHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const taxFilingHardcodedGate = taxFilingHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -4903,7 +5084,8 @@ async function main() {
       contentModerationAppealHardcodedGate?.status !== 'fail' ||
       fraudRiskHardcodedGate?.status !== 'fail' ||
       creditMemoApprovalHardcodedGate?.status !== 'fail' ||
-      paymentSettlementHardcodedGate?.status !== 'fail'
+      paymentSettlementHardcodedGate?.status !== 'fail' ||
+      taxFilingHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -4946,7 +5128,8 @@ async function main() {
             contentModerationAppealHardcodedGate,
           fraudRiskHardcoded: fraudRiskHardcodedGate,
           creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate,
-          paymentSettlementHardcoded: paymentSettlementHardcodedGate
+          paymentSettlementHardcoded: paymentSettlementHardcodedGate,
+          taxFilingHardcoded: taxFilingHardcodedGate
         })}`
       );
     }
@@ -4999,7 +5182,8 @@ async function main() {
           contentModerationAppealHardcodedGate.status,
         fraudRiskHardcoded: fraudRiskHardcodedGate.status,
         creditMemoApprovalHardcoded: creditMemoApprovalHardcodedGate.status,
-        paymentSettlementHardcoded: paymentSettlementHardcodedGate.status
+        paymentSettlementHardcoded: paymentSettlementHardcodedGate.status,
+        taxFilingHardcoded: taxFilingHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -5133,6 +5317,7 @@ async function main() {
           creditMemoApprovalHardcodedGate.status,
         payment_settlement_hardcoded_gate_status:
           paymentSettlementHardcodedGate.status,
+        tax_filing_hardcoded_gate_status: taxFilingHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -5201,7 +5386,9 @@ async function main() {
         credit_memo_approval_hardcode_rejected:
           creditMemoApprovalHardcodedGate.status === 'fail',
         payment_settlement_hardcode_rejected:
-          paymentSettlementHardcodedGate.status === 'fail'
+          paymentSettlementHardcodedGate.status === 'fail',
+        tax_filing_hardcode_rejected:
+          taxFilingHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
