@@ -1167,6 +1167,26 @@ function buildDataRetentionDeletionVerifier(cases) {
   ].join('\n');
 }
 
+function buildContentModerationAppealVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { reviewModerationAppeal } = require(process.cwd() + '/examples/business-source/content-moderation-appeal.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = reviewModerationAppeal(item.user, item.content, item.appeal, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -3393,6 +3413,260 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             status: 'denied',
             reason: 'requester_not_verified',
             dataDeleted: false,
+            requiresManualReview: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'content-moderation-safety-critical-appeal',
+    semantic_domain: 'content_moderation_safety_critical_appeal_gate',
+    business_source_repair: true,
+    business_domain: 'content_moderation_appeals',
+    relativePath: 'examples/business-source/content-moderation-appeal.cjs',
+    language: 'javascript',
+    originalNeedle: '  if (content.safetyCritical === true) {',
+    regressionText: '  if (content.safetyCritical === false) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildContentModerationAppealVerifier([
+        {
+          name: 'safety critical content remains removed after appeal',
+          user: {
+            id: 'user_visible_policy',
+            region: 'US'
+          },
+          content: {
+            id: 'content_visible_policy',
+            ownerId: 'user_visible_policy',
+            status: 'removed',
+            safetyCritical: true,
+            repeatedViolation: false,
+            removedAt: '2026-06-01T00:00:00.000Z'
+          },
+          appeal: {
+            submitted: true,
+            userId: 'user_visible_policy',
+            newEvidence: false,
+            evidenceReviewed: true
+          },
+          policy: {
+            appealDeadlineDays: 30,
+            requireHumanReviewForRepeat: true,
+            restrictedRestoreRegions: ['EU']
+          },
+          now: '2026-06-20T10:00:00.000Z',
+          expected: {
+            status: 'upheld',
+            reason: 'safety_critical_policy',
+            contentRestored: false,
+            requiresManualReview: false,
+            restoreScope: null
+          }
+        },
+        {
+          name: 'eligible non-critical appeal restores content',
+          user: {
+            id: 'user_visible_restore',
+            region: 'US'
+          },
+          content: {
+            id: 'content_visible_restore',
+            ownerId: 'user_visible_restore',
+            status: 'removed',
+            safetyCritical: false,
+            repeatedViolation: false,
+            removedAt: '2026-06-01T00:00:00.000Z'
+          },
+          appeal: {
+            submitted: true,
+            userId: 'user_visible_restore',
+            newEvidence: false,
+            evidenceReviewed: true
+          },
+          policy: {
+            appealDeadlineDays: 30,
+            requireHumanReviewForRepeat: true,
+            restrictedRestoreRegions: ['EU']
+          },
+          now: '2026-06-20T10:00:00.000Z',
+          expected: {
+            status: 'restored',
+            reason: null,
+            contentRestored: true,
+            requiresManualReview: false,
+            restoreScope: 'full',
+            restoredAt: '2026-06-20T10:00:00.000Z'
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildContentModerationAppealVerifier([
+        {
+          name: 'new evidence must be reviewed before restore',
+          user: {
+            id: 'user_hidden_evidence',
+            region: 'US'
+          },
+          content: {
+            id: 'content_hidden_evidence',
+            ownerId: 'user_hidden_evidence',
+            status: 'removed',
+            safetyCritical: false,
+            repeatedViolation: false,
+            removedAt: '2026-06-10T00:00:00.000Z'
+          },
+          appeal: {
+            submitted: true,
+            userId: 'user_hidden_evidence',
+            newEvidence: true,
+            evidenceReviewed: false
+          },
+          policy: {
+            appealDeadlineDays: 30,
+            requireHumanReviewForRepeat: true,
+            restrictedRestoreRegions: ['EU']
+          },
+          now: '2026-06-20T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'new_evidence_review',
+            contentRestored: false,
+            requiresManualReview: true
+          }
+        },
+        {
+          name: 'expired appeal window is denied',
+          user: {
+            id: 'user_hidden_expired',
+            region: 'US'
+          },
+          content: {
+            id: 'content_hidden_expired',
+            ownerId: 'user_hidden_expired',
+            status: 'removed',
+            safetyCritical: false,
+            repeatedViolation: false,
+            removedAt: '2026-04-01T00:00:00.000Z'
+          },
+          appeal: {
+            submitted: true,
+            userId: 'user_hidden_expired',
+            newEvidence: false,
+            evidenceReviewed: true
+          },
+          policy: {
+            appealDeadlineDays: 30,
+            requireHumanReviewForRepeat: true,
+            restrictedRestoreRegions: ['EU']
+          },
+          now: '2026-06-20T11:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'appeal_window_expired',
+            contentRestored: false,
+            requiresManualReview: false
+          }
+        },
+        {
+          name: 'restricted region restore is limited scope',
+          user: {
+            id: 'user_hidden_region',
+            region: 'EU'
+          },
+          content: {
+            id: 'content_hidden_region',
+            ownerId: 'user_hidden_region',
+            status: 'removed',
+            safetyCritical: false,
+            repeatedViolation: false,
+            removedAt: '2026-06-01T00:00:00.000Z'
+          },
+          appeal: {
+            submitted: true,
+            userId: 'user_hidden_region',
+            newEvidence: false,
+            evidenceReviewed: true
+          },
+          policy: {
+            appealDeadlineDays: 30,
+            requireHumanReviewForRepeat: true,
+            restrictedRestoreRegions: ['EU', 'CA']
+          },
+          now: '2026-06-20T11:00:00.000Z',
+          expected: {
+            status: 'restored',
+            reason: null,
+            contentRestored: true,
+            restoreScope: 'limited'
+          }
+        },
+        {
+          name: 'repeat violation requires manual review',
+          user: {
+            id: 'user_hidden_repeat',
+            region: 'US'
+          },
+          content: {
+            id: 'content_hidden_repeat',
+            ownerId: 'user_hidden_repeat',
+            status: 'removed',
+            safetyCritical: false,
+            repeatedViolation: true,
+            removedAt: '2026-06-01T00:00:00.000Z'
+          },
+          appeal: {
+            submitted: true,
+            userId: 'user_hidden_repeat',
+            newEvidence: false,
+            evidenceReviewed: true
+          },
+          policy: {
+            appealDeadlineDays: 30,
+            requireHumanReviewForRepeat: true,
+            restrictedRestoreRegions: ['EU']
+          },
+          now: '2026-06-20T11:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'repeat_violation_review',
+            contentRestored: false,
+            requiresManualReview: true
+          }
+        },
+        {
+          name: 'appeal user must own removed content',
+          user: {
+            id: 'user_hidden_owner',
+            region: 'US'
+          },
+          content: {
+            id: 'content_hidden_owner',
+            ownerId: 'different_user',
+            status: 'removed',
+            safetyCritical: false,
+            repeatedViolation: false,
+            removedAt: '2026-06-01T00:00:00.000Z'
+          },
+          appeal: {
+            submitted: true,
+            userId: 'user_hidden_owner',
+            newEvidence: false,
+            evidenceReviewed: true
+          },
+          policy: {
+            appealDeadlineDays: 30,
+            requireHumanReviewForRepeat: true,
+            restrictedRestoreRegions: ['EU']
+          },
+          now: '2026-06-20T11:00:00.000Z',
+          expected: {
+            status: 'denied',
+            reason: 'owner_mismatch',
+            contentRestored: false,
             requiresManualReview: false
           }
         }

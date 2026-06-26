@@ -2508,9 +2508,9 @@ describe('release evidence audit', () => {
         scenario,
         expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 11,
-          min_pass_count: 11,
-          min_distinct_semantic_target_count: 11,
+          min_cell_count: 12,
+          min_pass_count: 12,
+          min_distinct_semantic_target_count: 12,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_business_source_repair: true,
@@ -2557,8 +2557,8 @@ describe('release evidence audit', () => {
         provider: 'codex',
         model: 'gpt-5.5'
       },
-      cell_count: 11,
-      pass_count: 11,
+      cell_count: 12,
+      pass_count: 12,
       fail_count: 0,
       cells: [
         {
@@ -2802,6 +2802,31 @@ describe('release evidence audit', () => {
             existing_source: true,
             repair_source:
               'examples/business-source/data-retention-deletion.cjs',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'content-moderation-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_source_repair: true,
+            business_bug_repair: true,
+            business_domain: 'content_moderation_appeals',
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain:
+              'content_moderation_safety_critical_appeal_gate',
+            semantic_target_id:
+              'content-moderation-safety-critical-appeal',
+            existing_source: true,
+            repair_source:
+              'examples/business-source/content-moderation-appeal.cjs',
             visible_acceptance: { status: 'pass' },
             hidden_acceptance: { status: 'pass' },
             diff_scope: { status: 'pass' },

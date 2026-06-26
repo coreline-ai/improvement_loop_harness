@@ -413,9 +413,9 @@ export const REAL_PROJECT_BUSINESS_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
   require_manifest: true,
   expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
   expected_ledger: {
-    min_cell_count: 11,
-    min_pass_count: 11,
-    min_distinct_semantic_target_count: 11,
+    min_cell_count: 12,
+    min_pass_count: 12,
+    min_distinct_semantic_target_count: 12,
     max_fail_count: 0,
     required_codex_repair_smoke: true,
     required_business_source_repair: true,
