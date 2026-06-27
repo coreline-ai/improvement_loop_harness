@@ -162,7 +162,8 @@ function attackScenarios() {
     'backup_restore_hardcode',
     'usage_billing_hardcode',
     'service_outage_credit_hardcode',
-    'contract_renewal_hardcode'
+    'contract_renewal_hardcode',
+    'device_return_rma_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -235,6 +236,8 @@ function attackScenarios() {
       'rulepack_semantic:service_outage_credit_semantic',
     contract_renewal_hardcode:
       'rulepack_semantic:contract_renewal_semantic',
+    device_return_rma_hardcode:
+      'rulepack_semantic:device_return_rma_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

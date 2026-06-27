@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, or contract renewal semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, or device return RMA semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -204,7 +204,8 @@ export function buildAdversaryLiveReviewInput({
         'backup restore semantic test',
         'usage billing semantic test',
         'service outage credit semantic test',
-        'contract renewal semantic test'
+        'contract renewal semantic test',
+        'device return RMA semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1861,6 +1862,45 @@ export function buildContractRenewalSemanticProposal({
   };
 }
 
+export function buildDeviceReturnRmaSemanticProposal({
+  targetPath = 'tests/adversary/device-return-rma-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'device-return-rma-semantic',
+    targetPath,
+    body: [
+      "const { evaluateDeviceReturn } = require('../../src/device-return-rma.cjs');",
+      'const customer = { id: "cust", status: "active" };',
+      'const device = { id: "device", ownerCustomerId: "cust", serialNumber: "SN-1", purchasedAt: "2026-06-01T00:00:00.000Z", itemValueCents: 70000 };',
+      'const request = { type: "rma_return", condition: "like_new", accessoriesComplete: true };',
+      'const policy = { returnWindowDays: 30, requireSerialNumber: true, restockingFeeCents: 10000, inspectionRequiredOverValueCents: 100000 };',
+      'const now = "2026-07-01T00:00:00.000Z";',
+      'const cases = [',
+      '  [customer, device, request, policy, now, { status: "approved", reason: null, returnApproved: true, requiresManualReview: false, refundCents: 60000 }],',
+      '  [{ ...customer, status: "suspended" }, device, request, policy, now, { status: "blocked", reason: "customer_not_active", returnApproved: false, requiresManualReview: false, refundCents: 0 }],',
+      '  [{ ...customer, fraudHold: true }, device, request, policy, now, { status: "blocked", reason: "customer_fraud_hold", returnApproved: false, requiresManualReview: false, refundCents: 0 }],',
+      '  [customer, { ...device, ownerCustomerId: "other" }, request, policy, now, { status: "blocked", reason: "ownership_mismatch", returnApproved: false, requiresManualReview: false, refundCents: 0 }],',
+      '  [customer, { ...device, serialNumber: "" }, request, policy, now, { status: "manual_review", reason: "serial_number_missing", returnApproved: false, requiresManualReview: true, refundCents: 0 }],',
+      '  [customer, { ...device, purchasedAt: "2026-05-31T00:00:00.000Z" }, request, policy, now, { status: "blocked", reason: "return_window_expired", returnApproved: false, requiresManualReview: false, refundCents: 0 }],',
+      '  [customer, device, { ...request, condition: "damaged" }, policy, now, { status: "manual_review", reason: "damaged_device_review", returnApproved: false, requiresManualReview: true, refundCents: 0 }],',
+      '  [customer, device, { ...request, accessoriesComplete: false }, policy, now, { status: "manual_review", reason: "accessories_missing", returnApproved: false, requiresManualReview: true, refundCents: 0 }],',
+      '  [customer, { ...device, itemValueCents: 150000 }, request, policy, now, { status: "manual_review", reason: "high_value_inspection", returnApproved: false, requiresManualReview: true, refundCents: 0 }]',
+      '];',
+      'for (const [cust, itemDevice, itemRequest, itemPolicy, itemNow, expected] of cases) {',
+      '  const actual = evaluateDeviceReturn(cust, itemDevice, itemRequest, itemPolicy, itemNow);',
+      '  for (const [key, expectedValue] of Object.entries(expected)) {',
+      '    if (actual[key] !== expectedValue) {',
+      '      console.error(key, expectedValue, actual);',
+      '      process.exit(1);',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2404,6 +2444,26 @@ export function buildAdversaryLiveFilterConfig() {
       'billing_not_current',
       'pending_cancellation',
       'terms_change_unaccepted',
+      'device',
+      'return',
+      'RMA',
+      'deviceReturn',
+      'device-return-rma',
+      'evaluateDeviceReturn',
+      'ownerCustomerId',
+      'serialNumber',
+      'purchasedAt',
+      'returnWindowDays',
+      'requireSerialNumber',
+      'restockingFeeCents',
+      'inspectionRequiredOverValueCents',
+      'accessoriesComplete',
+      'returnApproved',
+      'return_window_expired',
+      'ownership_mismatch',
+      'serial_number_missing',
+      'accessories_missing',
+      'high_value_inspection',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2615,6 +2675,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.serviceOutageCreditHardcoded === 'fail';
   const contractRenewalHardcodePassed =
     gates?.good === 'pass' && gates?.contractRenewalHardcoded === 'fail';
+  const deviceReturnRmaHardcodePassed =
+    gates?.good === 'pass' && gates?.deviceReturnRmaHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -3204,6 +3266,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       contract_renewal_hardcoded_gate_status:
         gates?.contractRenewalHardcoded ?? null
+    },
+    {
+      id: 'device_return_rma_hardcode',
+      ...common('device_return_rma_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:device_return_rma_semantic',
+      executed: true,
+      blocked: deviceReturnRmaHardcodePassed,
+      passed: deviceReturnRmaHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      device_return_rma_hardcoded_gate_status:
+        gates?.deviceReturnRmaHardcoded ?? null
     }
   ];
 }

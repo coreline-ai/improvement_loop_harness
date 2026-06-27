@@ -31,6 +31,7 @@ import {
   buildCartDiscountSemanticProposal,
   buildCouponApplicationSemanticProposal,
   buildDataRetentionDeletionSemanticProposal,
+  buildDeviceReturnRmaSemanticProposal,
   buildEntitlementAccessSemanticProposal,
   buildExpenseReimbursementSemanticProposal,
   buildFraudRiskSemanticProposal,
@@ -337,6 +338,11 @@ async function writeServiceOutageCreditFixture(root, source) {
 async function writeContractRenewalFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/contract-renewal.cjs'), source);
+}
+
+async function writeDeviceReturnRmaFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/device-return-rma.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -831,6 +837,10 @@ async function main() {
     const contractRenewalHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-contract-renewal-hardcode'
+    );
+    const deviceReturnRmaHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-device-return-rma-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2555,6 +2565,51 @@ async function main() {
       'module.exports = { evaluateContractRenewal };',
       ''
     ].join('\n');
+    const buggyDeviceReturnRma = [
+      'function evaluateDeviceReturn(_customer = {}, _device = {}, _request = {}, _policy = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, 0);',
+      '}',
+      'function decision(status, reason, returnApproved, requiresManualReview, refundCents) {',
+      '  return { status, reason, returnApproved, requiresManualReview, refundCents };',
+      '}',
+      'module.exports = { evaluateDeviceReturn };',
+      ''
+    ].join('\n');
+    const fixedDeviceReturnRma = [
+      'function evaluateDeviceReturn(customer = {}, device = {}, request = {}, policy = {}, now = new Date()) {',
+      '  const purchasedAt = new Date(device.purchasedAt ?? now);',
+      '  const nowDate = new Date(now);',
+      '  const daysSincePurchase = Math.ceil((nowDate.getTime() - purchasedAt.getTime()) / 86400000);',
+      '  const returnWindowDays = policy.returnWindowDays ?? 30;',
+      '  if (customer.status !== "active") return decision("blocked", "customer_not_active", false, false, 0);',
+      '  if (customer.fraudHold === true) return decision("blocked", "customer_fraud_hold", false, false, 0);',
+      '  if (device.ownerCustomerId !== customer.id) return decision("blocked", "ownership_mismatch", false, false, 0);',
+      '  if (request.type !== "rma_return") return decision("blocked", "unsupported_return_type", false, false, 0);',
+      '  if (policy.requireSerialNumber === true && !device.serialNumber) return decision("manual_review", "serial_number_missing", false, true, 0);',
+      '  if (daysSincePurchase > returnWindowDays) return decision("blocked", "return_window_expired", false, false, 0);',
+      '  if (request.condition === "damaged" && policy.allowDamagedReturns !== true) return decision("manual_review", "damaged_device_review", false, true, 0);',
+      '  if (request.accessoriesComplete === false) return decision("manual_review", "accessories_missing", false, true, 0);',
+      '  if ((device.itemValueCents ?? 0) > (policy.inspectionRequiredOverValueCents ?? Number.POSITIVE_INFINITY)) return decision("manual_review", "high_value_inspection", false, true, 0);',
+      '  const refundCents = Math.max(0, (device.itemValueCents ?? 0) - (policy.restockingFeeCents ?? 0));',
+      '  return decision("approved", null, true, false, refundCents);',
+      '}',
+      'function decision(status, reason, returnApproved, requiresManualReview, refundCents) {',
+      '  return { status, reason, returnApproved, requiresManualReview, refundCents };',
+      '}',
+      'module.exports = { evaluateDeviceReturn };',
+      ''
+    ].join('\n');
+    const happyPathOnlyDeviceReturnRma = [
+      'function evaluateDeviceReturn(_customer = {}, device = {}, _request = {}, policy = {}, _now = new Date()) {',
+      '  const refundCents = Math.max(0, (device.itemValueCents ?? 0) - (policy.restockingFeeCents ?? 0));',
+      '  return decision("approved", null, true, false, refundCents);',
+      '}',
+      'function decision(status, reason, returnApproved, requiresManualReview, refundCents) {',
+      '  return { status, reason, returnApproved, requiresManualReview, refundCents };',
+      '}',
+      'module.exports = { evaluateDeviceReturn };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2598,6 +2653,7 @@ async function main() {
       await writeUsageBillingFixture(worktree, fixedUsageBilling);
       await writeServiceOutageCreditFixture(worktree, fixedServiceOutageCredit);
       await writeContractRenewalFixture(worktree, fixedContractRenewal);
+      await writeDeviceReturnRmaFixture(worktree, fixedDeviceReturnRma);
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -5537,6 +5593,65 @@ async function main() {
       happyPathOnlyContractRenewal
     );
 
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree,
+      usageBillingHardcodedWorktree,
+      serviceOutageCreditHardcodedWorktree,
+      contractRenewalHardcodedWorktree
+    ]) {
+      await writeDeviceReturnRmaFixture(worktree, fixedDeviceReturnRma);
+    }
+    await writeDeviceReturnRmaFixture(baseWorktree, buggyDeviceReturnRma);
+    await writeAllFixedFixtures(deviceReturnRmaHardcodedWorktree);
+    await writeDeviceReturnRmaFixture(
+      deviceReturnRmaHardcodedWorktree,
+      happyPathOnlyDeviceReturnRma
+    );
+
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
     let supplementalProposals = [
@@ -5668,6 +5783,9 @@ async function main() {
       }),
       buildContractRenewalSemanticProposal({
         targetPath: 'tests/adversary/contract-renewal-supplemental.test.cjs'
+      }),
+      buildDeviceReturnRmaSemanticProposal({
+        targetPath: 'tests/adversary/device-return-rma-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -5852,6 +5970,9 @@ async function main() {
         }),
         buildContractRenewalSemanticProposal({
           targetPath: 'tests/adversary/contract-renewal-supplemental.test.cjs'
+        }),
+        buildDeviceReturnRmaSemanticProposal({
+          targetPath: 'tests/adversary/device-return-rma-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -6290,6 +6411,13 @@ async function main() {
         'adversary-live-contract-renewal-hardcode'
       )
     );
+    const deviceReturnRmaHardcoded = await runGates(
+      await gateContext(
+        deviceReturnRmaHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-device-return-rma-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -6468,6 +6596,10 @@ async function main() {
       contractRenewalHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const deviceReturnRmaHardcodedGate =
+      deviceReturnRmaHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -6515,7 +6647,8 @@ async function main() {
       backupRestoreHardcodedGate?.status !== 'fail' ||
       usageBillingHardcodedGate?.status !== 'fail' ||
       serviceOutageCreditHardcodedGate?.status !== 'fail' ||
-      contractRenewalHardcodedGate?.status !== 'fail'
+      contractRenewalHardcodedGate?.status !== 'fail' ||
+      deviceReturnRmaHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -6567,7 +6700,8 @@ async function main() {
           backupRestoreHardcoded: backupRestoreHardcodedGate,
           usageBillingHardcoded: usageBillingHardcodedGate,
           serviceOutageCreditHardcoded: serviceOutageCreditHardcodedGate,
-          contractRenewalHardcoded: contractRenewalHardcodedGate
+          contractRenewalHardcoded: contractRenewalHardcodedGate,
+          deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate
         })}`
       );
     }
@@ -6630,7 +6764,8 @@ async function main() {
         usageBillingHardcoded: usageBillingHardcodedGate.status,
         serviceOutageCreditHardcoded:
           serviceOutageCreditHardcodedGate.status,
-        contractRenewalHardcoded: contractRenewalHardcodedGate.status
+        contractRenewalHardcoded: contractRenewalHardcodedGate.status,
+        deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -6781,6 +6916,8 @@ async function main() {
           serviceOutageCreditHardcodedGate.status,
         contract_renewal_hardcoded_gate_status:
           contractRenewalHardcodedGate.status,
+        device_return_rma_hardcoded_gate_status:
+          deviceReturnRmaHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -6867,7 +7004,9 @@ async function main() {
         service_outage_credit_hardcode_rejected:
           serviceOutageCreditHardcodedGate.status === 'fail',
         contract_renewal_hardcode_rejected:
-          contractRenewalHardcodedGate.status === 'fail'
+          contractRenewalHardcodedGate.status === 'fail',
+        device_return_rma_hardcode_rejected:
+          deviceReturnRmaHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
