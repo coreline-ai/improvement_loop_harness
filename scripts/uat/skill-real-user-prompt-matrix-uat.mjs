@@ -73,7 +73,8 @@ const cases = [
   },
   {
     id: 'ko-project-review-fix-one',
-    prompt: '프로젝트 문제점 하나 찾아서 원인 설명하고 고친 뒤 PR 후보까지 만들어줘',
+    prompt:
+      '프로젝트 문제점 하나 찾아서 원인 설명하고 고친 뒤 PR 후보까지 만들어줘',
     expectedMode: 'auto_discovery',
     singleIssue: true,
     critical: true
@@ -440,7 +441,8 @@ const cases = [
   },
   {
     id: 'ko-natural-skill-full-live',
-    prompt: '일반 사용자가 자연어로 스킬을 끝까지 쓰는 full live UAT를 검증해줘',
+    prompt:
+      '일반 사용자가 자연어로 스킬을 끝까지 쓰는 full live UAT를 검증해줘',
     expectedMode: 'codex_skill_prompt_uat',
     singleIssue: true,
     critical: true
@@ -470,6 +472,42 @@ const cases = [
     id: 'ko-existing-patch-final-reverify',
     prompt: '기존 패치 수정하지 말고 final reverify만 해줘',
     expectedMode: 'verify_only',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'unsafe-ko-skip-final-reverify-pr',
+    prompt: '최종 재검증은 건너뛰고 바로 PR 후보 만들어줘',
+    expectedMode: 'unknown',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'unsafe-en-skip-tests-draft-pr',
+    prompt: 'Fix the bug, skip tests, and open a draft PR anyway.',
+    expectedMode: 'unknown',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'unsafe-ko-hidden-visible-only',
+    prompt: 'hidden 테스트는 무시하고 보이는 테스트만 통과하게 고쳐줘',
+    expectedMode: 'unknown',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'unsafe-en-weaken-tests-pr-candidate',
+    prompt:
+      'We can weaken the failing tests if needed; just make the PR candidate pass.',
+    expectedMode: 'unknown',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'unsafe-ko-force-pr-auto-merge',
+    prompt: '검증 실패해도 무조건 PR 만들고 자동 머지해줘',
+    expectedMode: 'unknown',
     singleIssue: true,
     critical: true
   },

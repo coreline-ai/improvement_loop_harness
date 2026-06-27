@@ -24,7 +24,10 @@ function parseArgs(argv) {
 }
 
 function normalize(text) {
-  return String(text ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+  return String(text ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
 }
 
 function matchAny(text, patterns) {
@@ -36,9 +39,34 @@ function matchAny(text, patterns) {
 }
 
 const patterns = {
+  unsafeShortcut: [
+    [
+      'skip_final_reverify',
+      /skip[-\s]*final[-\s]*reverify|final\s*reverify.*(?:skip|off|disable)|최종\s*재검증(?:은|을|는)?\s*(?:생략|건너|끄|빼)/i
+    ],
+    [
+      'skip_tests_or_verification',
+      /(?:skip|without|no)\s+(?:tests?|verification|reverify)|테스트\s*(?:생략|건너|없이|빼고)|검증\s*(?:생략|없이|빼고)/i
+    ],
+    [
+      'weaken_tests',
+      /weaken\s+(?:the\s+)?(?:failing\s+)?tests?|테스트\s*약화|visible\s*only|보이는\s*테스트만/i
+    ],
+    [
+      'hidden_bypass',
+      /ignore\s+hidden|hidden\s*(?:무시|bypass)|hidden\s*test\s*(?:ignore|bypass)|hidden\s*테스트(?:는|를)?\s*무시|숨겨진\s*테스트(?:는|를)?\s*무시/i
+    ],
+    [
+      'force_pr_or_merge',
+      /force.*(?:pr|merge)|무조건.*(?:pr|머지)|auto[-\s]*merge|자동\s*머지/i
+    ]
+  ],
   adversarialUat: [
     ['adversarial', /\badversar(?:y|ial)\b|적대적|깨보기|공격/i],
-    ['failure_cases', /실패\s*케이스|failure\s*case|negative\s*uat|false\s*pass/i],
+    [
+      'failure_cases',
+      /실패\s*케이스|failure\s*case|negative\s*uat|false\s*pass/i
+    ],
     ['leak_or_tamper', /hidden\s*leak|context\s*leak|누설|tamper|변조/i]
   ],
   codexLiveUat: [
@@ -66,7 +94,10 @@ const patterns = {
     ['challenger_selection', /challenger|도전자|더\s*나은\s*후보|최고\s*수정/i]
   ],
   verifyOnly: [
-    ['verify_only', /verify[-\s]*only|검증만|검증\s*해|테스트만|patch\s*검증|패치\s*검증/i],
+    [
+      'verify_only',
+      /verify[-\s]*only|검증만|검증\s*해|테스트만|patch\s*검증|패치\s*검증/i
+    ],
     ['existing_patch', /existing\s*patch|기존\s*패치|수정된\s*내용/i]
   ],
   autoDiscovery: [
@@ -82,12 +113,16 @@ const patterns = {
   ],
   userIssue: [
     ['fix_request', /고쳐|고치|수정|fix|repair|버그|bug|개선/i],
-    ['specific_path', /(?:src|lib|app|packages|tests)\/[\w./-]+|\b[\w.-]+\.(?:js|ts|tsx|py|rb|go|rs|java|cjs|mjs)\b/i],
-    ['specific_symptom', /quantity|cart|sku|login|auth|timeout|장바구니|총액|수량|에러|오류|실패|깨짐/i]
+    [
+      'specific_path',
+      /(?:src|lib|app|packages|tests)\/[\w./-]+|\b[\w.-]+\.(?:js|ts|tsx|py|rb|go|rs|java|cjs|mjs)\b/i
+    ],
+    [
+      'specific_symptom',
+      /quantity|cart|sku|login|auth|timeout|장바구니|총액|수량|에러|오류|실패|깨짐/i
+    ]
   ],
-  report: [
-    ['report', /report|eval-report|리포트|보고서|요약|summar/i]
-  ]
+  report: [['report', /report|eval-report|리포트|보고서|요약|summar/i]]
 };
 
 const modeSpecs = {
@@ -100,7 +135,8 @@ const modeSpecs = {
     ]
   },
   codex_live_uat: {
-    command_hint: 'pnpm uat:skill-loop:codex-live or pnpm uat:skill-loop:codex-live:multi',
+    command_hint:
+      'pnpm uat:skill-loop:codex-live or pnpm uat:skill-loop:codex-live:multi',
     task_eval_required: true,
     single_issue_policy: true,
     limitations: [
@@ -120,7 +156,9 @@ const modeSpecs = {
     command_hint: 'pnpm uat:skill-loop:full',
     task_eval_required: false,
     single_issue_policy: false,
-    limitations: ['FULL_UAT_PASS is fixture baseline only, not live Codex/GitHub proof']
+    limitations: [
+      'FULL_UAT_PASS is fixture baseline only, not live Codex/GitHub proof'
+    ]
   },
   self_improvement_uat: {
     command_hint: 'pnpm uat:skill-loop:self-improvement',
@@ -129,13 +167,15 @@ const modeSpecs = {
     limitations: ['hermetic proof lane unless VIBELOOP_UAT_GITHUB=1 is set']
   },
   verify_only: {
-    command_hint: 'vibeloop run --eval-only-patch <patch> or retry eval-only path',
+    command_hint:
+      'vibeloop run --eval-only-patch <patch> or retry eval-only path',
     task_eval_required: true,
     single_issue_policy: true,
     limitations: ['does not ask a builder agent to edit again']
   },
   auto_discovery: {
-    command_hint: 'vibeloop orchestrate --repo <repo> --eval <eval.yaml> ...; use --generate-eval only for minimal visible-test eval',
+    command_hint:
+      'vibeloop orchestrate --repo <repo> --eval <eval.yaml> ...; use --generate-eval only for minimal visible-test eval',
     task_eval_required: false,
     single_issue_policy: true,
     limitations: [
@@ -143,22 +183,27 @@ const modeSpecs = {
     ]
   },
   user_issue: {
-    command_hint: 'create task/eval, then vibeloop improve --repo <repo> --task <task.yaml> --eval <eval.yaml> ...',
+    command_hint:
+      'create task/eval, then vibeloop improve --repo <repo> --task <task.yaml> --eval <eval.yaml> ...',
     task_eval_required: true,
     single_issue_policy: true,
     limitations: ['create exactly one task/eval pair for the specified issue']
   },
   report: {
-    command_hint: 'node skills/vibeloop-harness/scripts/summarize-report.mjs --report <eval-report.json>',
+    command_hint:
+      'node skills/vibeloop-harness/scripts/summarize-report.mjs --report <eval-report.json>',
     task_eval_required: false,
     single_issue_policy: false,
     limitations: ['summarize only from deterministic reports']
   },
   unknown: {
-    command_hint: 'ask for repo path, one issue or auto-discovery mode, and acceptance command',
+    command_hint:
+      'ask for repo path, one issue or auto-discovery mode, and acceptance command',
     task_eval_required: true,
     single_issue_policy: true,
-    limitations: ['do not run a builder until intent and acceptance command are known']
+    limitations: [
+      'do not run a builder until intent and acceptance command are known'
+    ]
   }
 };
 
@@ -172,9 +217,20 @@ function classify(prompt) {
     Object.entries(patterns).map(([key, value]) => [key, matchAny(text, value)])
   );
 
+  if (matches.unsafeShortcut.length >= 1) {
+    return {
+      mode: 'unknown',
+      confidence: 0.94,
+      reason_codes: ['unsafe_shortcut', ...matches.unsafeShortcut]
+    };
+  }
+
   // UAT/report/verify requests are explicit operational modes and should win over
   // generic words like "fix" or "test".
-  if (matches.adversarialUat.length >= 1 && /uat|테스트|case|케이스|검증/i.test(text)) {
+  if (
+    matches.adversarialUat.length >= 1 &&
+    /uat|테스트|case|케이스|검증/i.test(text)
+  ) {
     return {
       mode: 'adversarial_uat',
       confidence: 0.9,
@@ -203,14 +259,20 @@ function classify(prompt) {
       reason_codes: matches.codexLiveUat
     };
   }
-  if (matches.selfImprovementUat.length >= 1 && /uat|테스트|검증|loop|루프/i.test(text)) {
+  if (
+    matches.selfImprovementUat.length >= 1 &&
+    /uat|테스트|검증|loop|루프/i.test(text)
+  ) {
     return {
       mode: 'self_improvement_uat',
       confidence: 0.86,
       reason_codes: matches.selfImprovementUat
     };
   }
-  if (matches.fixtureFullUat.length >= 1 && /uat|테스트|검증|baseline|fixture/i.test(text)) {
+  if (
+    matches.fixtureFullUat.length >= 1 &&
+    /uat|테스트|검증|baseline|fixture/i.test(text)
+  ) {
     return {
       mode: 'fixture_full_uat',
       confidence: 0.82,
@@ -224,7 +286,10 @@ function classify(prompt) {
       reason_codes: matches.verifyOnly
     };
   }
-  if (matches.report.length >= 1 && !matches.userIssue.includes('fix_request')) {
+  if (
+    matches.report.length >= 1 &&
+    !matches.userIssue.includes('fix_request')
+  ) {
     return { mode: 'report', confidence: 0.8, reason_codes: matches.report };
   }
   if (matches.autoDiscovery.length >= 1) {
