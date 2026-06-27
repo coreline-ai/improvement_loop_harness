@@ -645,8 +645,8 @@ function skillPromptLiveLedger(overrides = {}) {
 }
 
 function skillPromptCorpusLiveLedger(overrides = {}) {
-  const userIssueCount = overrides.userIssueCount ?? 24;
-  const autoDiscoveryCount = overrides.autoDiscoveryCount ?? 24;
+  const userIssueCount = overrides.userIssueCount ?? 28;
+  const autoDiscoveryCount = overrides.autoDiscoveryCount ?? 28;
   const githubDraftPr = overrides.githubDraftPr === true;
   const variants = [
     ...Array.from({ length: userIssueCount }, (_, index) => ({
@@ -1307,9 +1307,9 @@ describe('release evidence audit', () => {
           status: 'SKILL_PROMPT_CORPUS_LIVE_UAT_PASS',
           proof_scope: 'natural_language_skill_prompt_live_corpus',
           prompt_corpus: expect.objectContaining({
-            requested_variant_count: 48,
-            executed_variant_count: 48,
-            passed_variant_count: 48,
+            requested_variant_count: 56,
+            executed_variant_count: 56,
+            passed_variant_count: 56,
             failed_variant_count: 0,
             blocked_variant_count: 0
           }),
@@ -1351,8 +1351,8 @@ describe('release evidence audit', () => {
           draft_pr: true,
           prompt_corpus: expect.objectContaining({
             github_draft_pr_requested: true,
-            requested_variant_count: 48,
-            passed_variant_count: 48
+            requested_variant_count: 56,
+            passed_variant_count: 56
           })
         })
       })
@@ -1384,8 +1384,8 @@ describe('release evidence audit', () => {
         ok: true,
         live_pr_state_audit: expect.objectContaining({
           ok: true,
-          checked_count: 48,
-          expected_count: 48,
+          checked_count: 56,
+          expected_count: 56,
           failures: []
         })
       })
@@ -1414,7 +1414,7 @@ describe('release evidence audit', () => {
         ]),
         live_pr_state_audit: expect.objectContaining({
           ok: false,
-          checked_count: 48,
+          checked_count: 56,
           failures: expect.arrayContaining(['user-4:live_pr_state'])
         })
       })

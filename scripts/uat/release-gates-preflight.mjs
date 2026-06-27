@@ -298,9 +298,9 @@ export const SKILL_PROMPT_CORPUS_LIVE_EVIDENCE_SCENARIO = {
   expected_status: 'SKILL_PROMPT_CORPUS_LIVE_UAT_PASS',
   expected_ledger: {
     required_skill_prompt_corpus_live: true,
-    min_skill_prompt_corpus_variant_count: 48,
-    min_skill_prompt_corpus_user_issue_count: 24,
-    min_skill_prompt_corpus_auto_discovery_count: 24
+    min_skill_prompt_corpus_variant_count: 56,
+    min_skill_prompt_corpus_user_issue_count: 28,
+    min_skill_prompt_corpus_auto_discovery_count: 28
   }
 };
 
