@@ -14,6 +14,20 @@
 - 🚫 **아직 선언 불가**: 제품 전체가 임의 사용자 repo에서 100% 안전 — 운영 안전장치(P1)·trust boundary(P2)·adversary semantic gate(P4)·broad corpus evidence(P5)가 더 필요하다.
 - 표기 규율: fixture PASS ≠ live PASS, controlled PASS ≠ 일반 배포 PASS. PASS는 항상 증거(매트릭스 셀·ledger 행·보존 경로)와 함께만.
 
+## 정직하게 남은 제품급 후속
+
+아래 항목은 현재 코드/문서 패치 완료 여부와 별개로, "제품 전체 100% 실사용자 PASS"를 주장하려면 추가로 닫아야 하는 증거 범위다.
+
+| 우선 | 남은 항목 | 상태 | 의미 |
+| ---- | --------- | ---- | ---- |
+| P1 | 전체 자연어 Skill UX full/live UAT | 후속 | clean smoke와 bounded 56-variant evidence는 있지만, 일반 사용자가 자연어로 끝까지 쓰는 Skill 제품성은 더 넓은 heavy lane으로 검증해야 한다. |
+| P1 | 임의/대형 사용자 repo 전체 PASS 선언 | 불가 | 현재 증거는 controlled/bounded corpus PASS이며, 모든 사용자 repo에서 안전하다는 주장으로 승격할 수 없다. |
+| P2 | 기존 앱 업무 source의 임의 bug repair corpus 확대 | 후속 | fixture, syntactic regression, curated semantic repair, targeted business-source repair는 됐지만 임의 업무 버그 일반화는 아직이다. |
+| P2 | project-specific semantic/M4 domain 확대 | 후속 | login email change 이후에도 다양한 업무 도메인 semantic/M4 corpus와 real reviewer/credentialed artifact 재현성이 더 필요하다. |
+| P2 | 장기 evidence/audit 재현성 | 후속 | 제품 신뢰 보강용 장기 감사 산출물 보존성 문제이며, 루프 동작 자체 완료 조건과는 분리한다. |
+
+요약: 이번에 정한 개발/패치/검증/커밋/push 목표는 완료됐다. 남은 것은 "제품 전체 100% 실사용자 PASS"라고 말하기 위한 더 넓은 실사용 corpus와 Skill full UX 검증이다.
+
 ## 게이트 진행 현황 (남은 항목 · 2026-06-28)
 
 각 계획의 체크박스 직접 집계 기준. **코드와 핵심 capable-environment evidence는 상당 부분 닫혔다.** 현재 active work queue는 "제품 전체 100% 실사용자 PASS"라고 말하기 위해 부족한 증거를 정직하게 좁히는 후속이다. 아래 P1/P4/P5 항목은 보조 증거로 유지하되, controlled/local/bounded evidence를 임의 repo 전체 PASS로 승격하지 않는다.
