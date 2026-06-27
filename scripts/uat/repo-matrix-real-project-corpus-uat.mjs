@@ -1407,11 +1407,31 @@ function buildDeviceReturnRmaVerifier(cases) {
   ].join('\n');
 }
 
+function buildAccountCreditTransferVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateCreditTransfer } = require(process.cwd() + '/examples/business-source/account-credit-transfer.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateCreditTransfer(item.source, item.destination, item.transfer, item.policy, item.ledger, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
     '',
-    "const sourceUrl = pathToFileURL(`${process.cwd()}/index.js`).href;",
+    'const sourceUrl = pathToFileURL(`${process.cwd()}/index.js`).href;',
     'const { default: escapeStringRegexp } = await import(sourceUrl);',
     '',
     `const cases = ${JSON.stringify(cases, null, 2)};`,
@@ -2281,7 +2301,10 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             depositCents: 7000,
             serviceFeeCents: 1200
           },
-          request: { reason: 'provider_cancelled', refundToOriginalPayment: false },
+          request: {
+            reason: 'provider_cancelled',
+            refundToOriginalPayment: false
+          },
           policy: { freeCancelHours: 48, lateCancellationFeeCents: 5000 },
           now: '2026-06-25T15:00:00.000Z',
           expected: {
@@ -3189,10 +3212,8 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
     business_domain: 'merchant_onboarding_review',
     relativePath: 'examples/business-source/merchant-onboarding-review.cjs',
     language: 'javascript',
-    originalNeedle:
-      '  if (merchant.bankAccountVerified !== true) {',
-    regressionText:
-      '  if (merchant.bankAccountVerified === true) {',
+    originalNeedle: '  if (merchant.bankAccountVerified !== true) {',
+    regressionText: '  if (merchant.bankAccountVerified === true) {',
     visibleCommand: (filePath) => ({
       command: process.execPath,
       args: [filePath]
@@ -6266,8 +6287,7 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
     business_domain: 'usage_billing',
     relativePath: 'examples/business-source/usage-billing-overage.cjs',
     language: 'javascript',
-    originalNeedle:
-      '  if ((usage.billableUnits ?? 0) <= includedUnits) {',
+    originalNeedle: '  if ((usage.billableUnits ?? 0) <= includedUnits) {',
     regressionText: '  if ((usage.billableUnits ?? 0) <= 0) {',
     visibleCommand: (filePath) => ({
       command: process.execPath,
@@ -7005,6 +7025,333 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
       ])
   },
   {
+    id: 'account-credit-transfer-limit',
+    semantic_domain: 'account_credit_transfer_limit_gate',
+    business_source_repair: true,
+    business_domain: 'account_credit_transfer',
+    relativePath: 'examples/business-source/account-credit-transfer.cjs',
+    language: 'javascript',
+    originalNeedle: '  if (amountCents > maxAutoTransferCents) {',
+    regressionText: '  if (amountCents > Number.POSITIVE_INFINITY) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildAccountCreditTransferVerifier([
+        {
+          name: 'eligible transfer within limit is approved',
+          source: {
+            id: 'acct_visible_source',
+            status: 'active',
+            currency: 'USD',
+            balanceCents: 50000
+          },
+          destination: {
+            id: 'acct_visible_destination',
+            status: 'active',
+            currency: 'USD'
+          },
+          transfer: {
+            id: 'transfer_visible_approved',
+            amountCents: 12500,
+            currency: 'USD'
+          },
+          policy: {
+            maxAutoTransferCents: 25000,
+            manualReviewThresholdCents: 40000
+          },
+          ledger: {
+            processedTransferIds: []
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            transferAllowed: true,
+            requiresManualReview: false,
+            movedCents: 12500
+          }
+        },
+        {
+          name: 'transfer above auto limit needs manual review',
+          source: {
+            id: 'acct_visible_limit',
+            status: 'active',
+            currency: 'USD',
+            balanceCents: 60000
+          },
+          destination: {
+            id: 'acct_visible_limit_destination',
+            status: 'active',
+            currency: 'USD'
+          },
+          transfer: {
+            id: 'transfer_visible_limit',
+            amountCents: 30000,
+            currency: 'USD'
+          },
+          policy: {
+            maxAutoTransferCents: 25000,
+            manualReviewThresholdCents: 40000
+          },
+          ledger: {
+            processedTransferIds: []
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'transfer_limit_exceeded',
+            transferAllowed: false,
+            requiresManualReview: true,
+            movedCents: 0
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildAccountCreditTransferVerifier([
+        {
+          name: 'hidden boundary transfer at exact limit is approved',
+          source: {
+            id: 'acct_hidden_boundary_source',
+            status: 'active',
+            currency: 'USD',
+            balanceCents: 50000
+          },
+          destination: {
+            id: 'acct_hidden_boundary_destination',
+            status: 'active',
+            currency: 'USD'
+          },
+          transfer: {
+            id: 'transfer_hidden_boundary',
+            amountCents: 25000,
+            currency: 'USD'
+          },
+          policy: {
+            maxAutoTransferCents: 25000,
+            manualReviewThresholdCents: 40000
+          },
+          ledger: {
+            processedTransferIds: []
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            transferAllowed: true,
+            requiresManualReview: false,
+            movedCents: 25000
+          }
+        },
+        {
+          name: 'hidden one cent over transfer limit needs manual review',
+          source: {
+            id: 'acct_hidden_over_limit_source',
+            status: 'active',
+            currency: 'USD',
+            balanceCents: 50000
+          },
+          destination: {
+            id: 'acct_hidden_over_limit_destination',
+            status: 'active',
+            currency: 'USD'
+          },
+          transfer: {
+            id: 'transfer_hidden_over_limit',
+            amountCents: 25001,
+            currency: 'USD'
+          },
+          policy: {
+            maxAutoTransferCents: 25000,
+            manualReviewThresholdCents: 40000
+          },
+          ledger: {
+            processedTransferIds: []
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'transfer_limit_exceeded',
+            transferAllowed: false,
+            requiresManualReview: true,
+            movedCents: 0
+          }
+        },
+        {
+          name: 'hidden duplicate transfer is blocked',
+          source: {
+            id: 'acct_hidden_duplicate_source',
+            status: 'active',
+            currency: 'USD',
+            balanceCents: 50000
+          },
+          destination: {
+            id: 'acct_hidden_duplicate_destination',
+            status: 'active',
+            currency: 'USD'
+          },
+          transfer: {
+            id: 'transfer_hidden_duplicate',
+            amountCents: 10000,
+            currency: 'USD'
+          },
+          policy: {
+            maxAutoTransferCents: 25000,
+            manualReviewThresholdCents: 40000
+          },
+          ledger: {
+            processedTransferIds: ['transfer_hidden_duplicate']
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'duplicate_transfer',
+            transferAllowed: false,
+            requiresManualReview: false,
+            movedCents: 0
+          }
+        },
+        {
+          name: 'hidden currency mismatch needs manual review',
+          source: {
+            id: 'acct_hidden_currency_source',
+            status: 'active',
+            currency: 'USD',
+            balanceCents: 50000
+          },
+          destination: {
+            id: 'acct_hidden_currency_destination',
+            status: 'active',
+            currency: 'EUR'
+          },
+          transfer: {
+            id: 'transfer_hidden_currency',
+            amountCents: 10000,
+            currency: 'USD'
+          },
+          policy: {
+            maxAutoTransferCents: 25000,
+            manualReviewThresholdCents: 40000
+          },
+          ledger: {
+            processedTransferIds: []
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'currency_mismatch',
+            transferAllowed: false,
+            requiresManualReview: true,
+            movedCents: 0
+          }
+        },
+        {
+          name: 'hidden insufficient credit balance is blocked',
+          source: {
+            id: 'acct_hidden_balance_source',
+            status: 'active',
+            currency: 'USD',
+            balanceCents: 9000
+          },
+          destination: {
+            id: 'acct_hidden_balance_destination',
+            status: 'active',
+            currency: 'USD'
+          },
+          transfer: {
+            id: 'transfer_hidden_balance',
+            amountCents: 10000,
+            currency: 'USD'
+          },
+          policy: {
+            maxAutoTransferCents: 25000,
+            manualReviewThresholdCents: 40000
+          },
+          ledger: {
+            processedTransferIds: []
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'insufficient_credit_balance',
+            transferAllowed: false,
+            requiresManualReview: false,
+            movedCents: 0
+          }
+        },
+        {
+          name: 'hidden fraud hold source is blocked',
+          source: {
+            id: 'acct_hidden_fraud_source',
+            status: 'active',
+            fraudHold: true,
+            currency: 'USD',
+            balanceCents: 50000
+          },
+          destination: {
+            id: 'acct_hidden_fraud_destination',
+            status: 'active',
+            currency: 'USD'
+          },
+          transfer: {
+            id: 'transfer_hidden_fraud',
+            amountCents: 10000,
+            currency: 'USD'
+          },
+          policy: {
+            maxAutoTransferCents: 25000,
+            manualReviewThresholdCents: 40000
+          },
+          ledger: {
+            processedTransferIds: []
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'source_fraud_hold',
+            transferAllowed: false,
+            requiresManualReview: false,
+            movedCents: 0
+          }
+        },
+        {
+          name: 'hidden threshold review still allows transfer movement',
+          source: {
+            id: 'acct_hidden_threshold_source',
+            status: 'active',
+            currency: 'USD',
+            balanceCents: 50000
+          },
+          destination: {
+            id: 'acct_hidden_threshold_destination',
+            status: 'active',
+            currency: 'USD'
+          },
+          transfer: {
+            id: 'transfer_hidden_threshold',
+            amountCents: 22000,
+            currency: 'USD'
+          },
+          policy: {
+            maxAutoTransferCents: 50000,
+            manualReviewThresholdCents: 20000
+          },
+          ledger: {
+            processedTransferIds: []
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'manual_review_threshold_exceeded',
+            transferAllowed: true,
+            requiresManualReview: true,
+            movedCents: 22000
+          }
+        }
+      ])
+  },
+  {
     id: 'sampleproject-add-one',
     semantic_domain: 'arithmetic_increment',
     relativePath: 'src/sample/simple.py',
@@ -7246,10 +7593,16 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             ['warning', '399 agent "combined"', true]
           ],
           getlist: [
-            ['warning', ['199 agent "old"', '299 agent "new", 399 agent "combined"']]
+            [
+              'warning',
+              ['199 agent "old"', '299 agent "new", 399 agent "combined"']
+            ]
           ],
           itermerged: [
-            ['Warning', '199 agent "old", 299 agent "new", 399 agent "combined"']
+            [
+              'Warning',
+              '199 agent "old", 299 agent "new", 399 agent "combined"'
+            ]
           ]
         }
       ])
@@ -7363,7 +7716,8 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
     semantic_domain: 'python_package_name_normalization',
     relativePath: 'src/packaging/utils.py',
     language: 'python',
-    originalNeedle: '    value = name.lower().replace("_", "-").replace(".", "-")',
+    originalNeedle:
+      '    value = name.lower().replace("_", "-").replace(".", "-")',
     regressionText: '    value = name.lower()',
     visibleCommand: (filePath) => ({ command: 'python3', args: [filePath] }),
     buildVisibleVerifier: () =>
@@ -7539,8 +7893,7 @@ function buildSemanticSourceRepairPrompt({
 async function selectSemanticSourceRepairTarget(clonePath, options = {}) {
   let availableTargets = SEMANTIC_SOURCE_REPAIR_TARGETS.filter((target) => {
     return !(
-      options.businessSourceOnly &&
-      target.business_source_repair !== true
+      options.businessSourceOnly && target.business_source_repair !== true
     );
   });
   if (options.semanticTargetId) {
@@ -7585,8 +7938,8 @@ async function selectSemanticSourceRepairTarget(clonePath, options = {}) {
       options.semanticTargetId
         ? 'requested_semantic_source_repair_target_unavailable'
         : options.businessSourceOnly
-        ? 'no_curated_business_source_repair_target'
-        : 'no_curated_semantic_source_repair_target'
+          ? 'no_curated_business_source_repair_target'
+          : 'no_curated_semantic_source_repair_target'
     ]
   };
 }
@@ -9231,21 +9584,22 @@ async function analyzeRepo(repoPath, index, options = {}) {
             semanticTargetOffset: options.semanticTargetId ? 0 : index - 1
           }
         )
-    : options.codexRepairSmoke || options.businessRepairSmoke
-      ? await runCodexRepairSmoke(
-          resolved,
-          `${index}-${id}`,
-          options.tmpRoot,
-          options
-        )
-      : options.existingSourceRepairSmoke || options.existingSourceRepairPrSmoke
-        ? await runCodexExistingSourceRepairSmoke(
+      : options.codexRepairSmoke || options.businessRepairSmoke
+        ? await runCodexRepairSmoke(
             resolved,
             `${index}-${id}`,
             options.tmpRoot,
             options
           )
-        : null;
+        : options.existingSourceRepairSmoke ||
+            options.existingSourceRepairPrSmoke
+          ? await runCodexExistingSourceRepairSmoke(
+              resolved,
+              `${index}-${id}`,
+              options.tmpRoot,
+              options
+            )
+          : null;
   if (codexRepair && codexRepair.status !== 'pass') {
     failures.push('codex_repair_smoke_failed');
   }
@@ -9579,52 +9933,52 @@ async function main() {
     : options.businessSourceRepairSmoke
       ? BUSINESS_SOURCE_REPAIR_SCENARIO
       : options.semanticSourceRepairSmoke
-      ? SEMANTIC_SOURCE_REPAIR_SCENARIO
-      : options.existingSourceRepairSmoke
-        ? EXISTING_SOURCE_REPAIR_SCENARIO
-        : options.businessRepairSmoke
-          ? BUSINESS_REPAIR_SCENARIO
-          : options.codexRepairSmoke
-            ? CODEX_REPAIR_SCENARIO
-            : options.codexCopySmoke
-              ? CODEX_COPY_SCENARIO
-              : options.modifiableCopySmoke
-                ? MODIFIABLE_COPY_SCENARIO
-                : READ_ONLY_SCENARIO;
+        ? SEMANTIC_SOURCE_REPAIR_SCENARIO
+        : options.existingSourceRepairSmoke
+          ? EXISTING_SOURCE_REPAIR_SCENARIO
+          : options.businessRepairSmoke
+            ? BUSINESS_REPAIR_SCENARIO
+            : options.codexRepairSmoke
+              ? CODEX_REPAIR_SCENARIO
+              : options.codexCopySmoke
+                ? CODEX_COPY_SCENARIO
+                : options.modifiableCopySmoke
+                  ? MODIFIABLE_COPY_SCENARIO
+                  : READ_ONLY_SCENARIO;
   const passStatus = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_PASS_STATUS
     : options.businessSourceRepairSmoke
       ? BUSINESS_SOURCE_REPAIR_PASS_STATUS
       : options.semanticSourceRepairSmoke
-      ? SEMANTIC_SOURCE_REPAIR_PASS_STATUS
-      : options.existingSourceRepairSmoke
-        ? EXISTING_SOURCE_REPAIR_PASS_STATUS
-        : options.businessRepairSmoke
-          ? BUSINESS_REPAIR_PASS_STATUS
-          : options.codexRepairSmoke
-            ? CODEX_REPAIR_PASS_STATUS
-            : options.codexCopySmoke
-              ? CODEX_COPY_PASS_STATUS
-              : options.modifiableCopySmoke
-                ? MODIFIABLE_COPY_PASS_STATUS
-                : READ_ONLY_PASS_STATUS;
+        ? SEMANTIC_SOURCE_REPAIR_PASS_STATUS
+        : options.existingSourceRepairSmoke
+          ? EXISTING_SOURCE_REPAIR_PASS_STATUS
+          : options.businessRepairSmoke
+            ? BUSINESS_REPAIR_PASS_STATUS
+            : options.codexRepairSmoke
+              ? CODEX_REPAIR_PASS_STATUS
+              : options.codexCopySmoke
+                ? CODEX_COPY_PASS_STATUS
+                : options.modifiableCopySmoke
+                  ? MODIFIABLE_COPY_PASS_STATUS
+                  : READ_ONLY_PASS_STATUS;
   const failStatus = options.existingSourceRepairPrSmoke
     ? EXISTING_SOURCE_REPAIR_PR_FAIL_STATUS
     : options.businessSourceRepairSmoke
       ? BUSINESS_SOURCE_REPAIR_FAIL_STATUS
       : options.semanticSourceRepairSmoke
-      ? SEMANTIC_SOURCE_REPAIR_FAIL_STATUS
-      : options.existingSourceRepairSmoke
-        ? EXISTING_SOURCE_REPAIR_FAIL_STATUS
-        : options.businessRepairSmoke
-          ? BUSINESS_REPAIR_FAIL_STATUS
-          : options.codexRepairSmoke
-            ? CODEX_REPAIR_FAIL_STATUS
-            : options.codexCopySmoke
-              ? CODEX_COPY_FAIL_STATUS
-              : options.modifiableCopySmoke
-                ? MODIFIABLE_COPY_FAIL_STATUS
-                : READ_ONLY_FAIL_STATUS;
+        ? SEMANTIC_SOURCE_REPAIR_FAIL_STATUS
+        : options.existingSourceRepairSmoke
+          ? EXISTING_SOURCE_REPAIR_FAIL_STATUS
+          : options.businessRepairSmoke
+            ? BUSINESS_REPAIR_FAIL_STATUS
+            : options.codexRepairSmoke
+              ? CODEX_REPAIR_FAIL_STATUS
+              : options.codexCopySmoke
+                ? CODEX_COPY_FAIL_STATUS
+                : options.modifiableCopySmoke
+                  ? MODIFIABLE_COPY_FAIL_STATUS
+                  : READ_ONLY_FAIL_STATUS;
   if (options.repos.length < options.minRepos) {
     const report = {
       status: 'blocked',
@@ -9729,35 +10083,35 @@ async function main() {
       : options.businessSourceRepairSmoke
         ? 'real Codex temp-clone curated real project business source repair smoke'
         : options.semanticSourceRepairSmoke
-        ? 'real Codex temp-clone curated real project semantic source repair smoke'
-        : options.existingSourceRepairSmoke
-          ? 'real Codex temp-clone broad real project existing source-code repair smoke'
-          : options.businessRepairSmoke
-            ? 'real Codex temp-clone broad real project business bug repair fixture smoke'
-            : options.codexRepairSmoke
-              ? 'real Codex temp-clone broad real project source-code repair smoke'
-              : options.codexCopySmoke
-                ? 'real Codex temp-clone broad real project corpus smoke'
-                : options.modifiableCopySmoke
-                  ? 'safe modifiable-copy broad real project corpus smoke'
-                  : 'read-only broad real project corpus smoke',
+          ? 'real Codex temp-clone curated real project semantic source repair smoke'
+          : options.existingSourceRepairSmoke
+            ? 'real Codex temp-clone broad real project existing source-code repair smoke'
+            : options.businessRepairSmoke
+              ? 'real Codex temp-clone broad real project business bug repair fixture smoke'
+              : options.codexRepairSmoke
+                ? 'real Codex temp-clone broad real project source-code repair smoke'
+                : options.codexCopySmoke
+                  ? 'real Codex temp-clone broad real project corpus smoke'
+                  : options.modifiableCopySmoke
+                    ? 'safe modifiable-copy broad real project corpus smoke'
+                    : 'read-only broad real project corpus smoke',
     scope: options.existingSourceRepairPrSmoke
       ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, source repo integrity, and GitHub draft PR publication to temporary private repos; not arbitrary business bug repair or arbitrary-repo product PASS'
       : options.businessSourceRepairSmoke
         ? 'operator-supplied existing git repositories; source repositories remain read-only; selected temp clones must match curated existing business-source semantic targets; each temp clone receives a behavioral regression in that existing tracked source file; real Codex must repair business behavior in that file only; visible and hidden verifiers check broader business cases, diff scope, and source repo integrity; not GitHub draft PR, arbitrary business-source coverage, or arbitrary-repo product PASS'
         : options.semanticSourceRepairSmoke
-        ? 'operator-supplied existing git repositories; source repositories remain read-only; selected temp clones must match curated existing-source semantic targets; each temp clone receives a behavioral regression in that existing tracked source file; real Codex must repair semantic behavior in that file only; visible and hidden verifiers check broader behavior, diff scope, and source repo integrity; not GitHub draft PR, arbitrary business-source coverage, or arbitrary-repo product PASS'
-        : options.existingSourceRepairSmoke
-          ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
-          : options.businessRepairSmoke
-            ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated invoice-total business logic fixture; real Codex must repair quantity, discount, tax, and final-rounding semantics in source code only; hidden verifier checks generalized business behavior, diff scope, and source repo integrity; not GitHub draft PR, existing application business-source repair, or arbitrary-repo product PASS'
-            : options.codexRepairSmoke
-              ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
-              : options.codexCopySmoke
-                ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
-                : options.modifiableCopySmoke
-                  ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
-                  : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
+          ? 'operator-supplied existing git repositories; source repositories remain read-only; selected temp clones must match curated existing-source semantic targets; each temp clone receives a behavioral regression in that existing tracked source file; real Codex must repair semantic behavior in that file only; visible and hidden verifiers check broader behavior, diff scope, and source repo integrity; not GitHub draft PR, arbitrary business-source coverage, or arbitrary-repo product PASS'
+          : options.existingSourceRepairSmoke
+            ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a regression inside an existing tracked JS/Python source file; real Codex must repair that existing source file only; hidden verifier checks sentinel removal, parse/compile pass, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+            : options.businessRepairSmoke
+              ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated invoice-total business logic fixture; real Codex must repair quantity, discount, tax, and final-rounding semantics in source code only; hidden verifier checks generalized business behavior, diff scope, and source repo integrity; not GitHub draft PR, existing application business-source repair, or arbitrary-repo product PASS'
+              : options.codexRepairSmoke
+                ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone receives a dedicated fixture source/test commit; real Codex must repair source code only; hidden verifier checks generalized quantity/discount/tax/rounding behavior, diff scope, and source repo integrity; not GitHub draft PR or arbitrary-repo product PASS'
+                : options.codexCopySmoke
+                  ? 'operator-supplied existing git repositories; source repositories remain read-only; real Codex writes a probe file only inside each temp clone; hidden verifier checks repo-derived values and diff scope; not source-code repair, GitHub draft PR, or arbitrary-repo product PASS'
+                  : options.modifiableCopySmoke
+                    ? 'operator-supplied existing git repositories; source repositories remain read-only; each temp clone must accept a write/stage/diff-check/cleanup probe and VibeLoop discover smoke; not LLM modification, hidden acceptance, draft PR, or arbitrary-repo product PASS'
+                    : 'operator-supplied existing git repositories; read-only metadata, git, and VibeLoop discover smoke only; not LLM modification or arbitrary-repo product PASS',
     read_only:
       !options.modifiableCopySmoke &&
       !options.codexCopySmoke &&
@@ -9885,7 +10239,8 @@ async function main() {
           options.businessSourceRepairSmoke ||
           options.semanticSourceRepairSmoke,
         semantic_source_repair_smoke:
-          options.semanticSourceRepairSmoke || options.businessSourceRepairSmoke,
+          options.semanticSourceRepairSmoke ||
+          options.businessSourceRepairSmoke,
         ...(options.semanticTargetId
           ? { requested_semantic_target_id: options.semanticTargetId }
           : {}),

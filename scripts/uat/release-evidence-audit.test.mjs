@@ -227,18 +227,14 @@ function attackScenarios() {
     tax_filing_hardcode: 'rulepack_semantic:tax_filing_semantic',
     privacy_consent_hardcode: 'rulepack_semantic:privacy_consent_semantic',
     access_review_hardcode: 'rulepack_semantic:access_review_semantic',
-    release_readiness_hardcode:
-      'rulepack_semantic:release_readiness_semantic',
-    incident_response_hardcode:
-      'rulepack_semantic:incident_response_semantic',
+    release_readiness_hardcode: 'rulepack_semantic:release_readiness_semantic',
+    incident_response_hardcode: 'rulepack_semantic:incident_response_semantic',
     backup_restore_hardcode: 'rulepack_semantic:backup_restore_semantic',
     usage_billing_hardcode: 'rulepack_semantic:usage_billing_semantic',
     service_outage_credit_hardcode:
       'rulepack_semantic:service_outage_credit_semantic',
-    contract_renewal_hardcode:
-      'rulepack_semantic:contract_renewal_semantic',
-    device_return_rma_hardcode:
-      'rulepack_semantic:device_return_rma_semantic',
+    contract_renewal_hardcode: 'rulepack_semantic:contract_renewal_semantic',
+    device_return_rma_hardcode: 'rulepack_semantic:device_return_rma_semantic',
     account_credit_transfer_hardcode:
       'rulepack_semantic:account_credit_transfer_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
@@ -660,7 +656,9 @@ function skillPromptCorpusLiveLedger(overrides = {}) {
     }))
   ].map((variant, index) => {
     const promptMode =
-      variant.mode === 'user_issue' ? 'vibeloop_improve' : 'vibeloop_orchestrate';
+      variant.mode === 'user_issue'
+        ? 'vibeloop_improve'
+        : 'vibeloop_orchestrate';
     const expectedStatus = githubDraftPr
       ? variant.mode === 'user_issue'
         ? 'SKILL_PROMPT_GITHUB_DRAFT_PR_LIVE_UAT_PASS'
@@ -2696,9 +2694,9 @@ describe('release evidence audit', () => {
         scenario,
         expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 23,
-          min_pass_count: 23,
-          min_distinct_semantic_target_count: 23,
+          min_cell_count: 24,
+          min_pass_count: 24,
+          min_distinct_semantic_target_count: 24,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_business_source_repair: true,
@@ -2745,8 +2743,8 @@ describe('release evidence audit', () => {
         provider: 'codex',
         model: 'gpt-5.5'
       },
-      cell_count: 23,
-      pass_count: 23,
+      cell_count: 24,
+      pass_count: 24,
       fail_count: 0,
       cells: [
         {
@@ -3008,10 +3006,8 @@ describe('release evidence audit', () => {
             business_domain: 'content_moderation_appeals',
             semantic_source_repair: true,
             semantic_bug_repair: true,
-            semantic_domain:
-              'content_moderation_safety_critical_appeal_gate',
-            semantic_target_id:
-              'content-moderation-safety-critical-appeal',
+            semantic_domain: 'content_moderation_safety_critical_appeal_gate',
+            semantic_target_id: 'content-moderation-safety-critical-appeal',
             existing_source: true,
             repair_source:
               'examples/business-source/content-moderation-appeal.cjs',
@@ -3259,6 +3255,29 @@ describe('release evidence audit', () => {
             semantic_target_id: 'device-return-rma-window',
             existing_source: true,
             repair_source: 'examples/business-source/device-return-rma.cjs',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'account-credit-transfer-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_source_repair: true,
+            business_bug_repair: true,
+            business_domain: 'account_credit_transfer',
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'account_credit_transfer_limit_gate',
+            semantic_target_id: 'account-credit-transfer-limit',
+            existing_source: true,
+            repair_source:
+              'examples/business-source/account-credit-transfer.cjs',
             visible_acceptance: { status: 'pass' },
             hidden_acceptance: { status: 'pass' },
             diff_scope: { status: 'pass' },

@@ -429,9 +429,9 @@ export const REAL_PROJECT_BUSINESS_SOURCE_REPAIR_CORPUS_EVIDENCE_SCENARIO = {
   require_manifest: true,
   expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
   expected_ledger: {
-    min_cell_count: 23,
-    min_pass_count: 23,
-    min_distinct_semantic_target_count: 23,
+    min_cell_count: 24,
+    min_pass_count: 24,
+    min_distinct_semantic_target_count: 24,
     max_fail_count: 0,
     required_codex_repair_smoke: true,
     required_business_source_repair: true,
@@ -697,8 +697,7 @@ function distinctSemanticTargetCount(cellSummaries) {
   for (const cell of cellSummaries ?? []) {
     const target =
       cell.codex_repair_semantic_target_id ??
-      (cell.codex_repair_semantic_domain &&
-      cell.codex_repair_repair_source
+      (cell.codex_repair_semantic_domain && cell.codex_repair_repair_source
         ? `${cell.codex_repair_semantic_domain}:${cell.codex_repair_repair_source}`
         : null);
     if (typeof target === 'string' && target.length > 0) {
@@ -1509,8 +1508,7 @@ function summarizeSkillPromptCorpus(corpus) {
           pr_candidate: variant.pr_candidate ?? null,
           final_verification: variant.final_verification
             ? {
-                provenance_ok:
-                  variant.final_verification.provenance_ok ?? null,
+                provenance_ok: variant.final_verification.provenance_ok ?? null,
                 reverify_attempted:
                   variant.final_verification.reverify_attempted ?? null,
                 reverified: variant.final_verification.reverified ?? null,
@@ -1601,7 +1599,10 @@ function requiredSkillPromptUxFailures(ledgerSummary) {
     failures.push('skill_prompt.prompt_ux');
     return failures;
   }
-  if (typeof promptUx.variant_id !== 'string' || promptUx.variant_id.length === 0) {
+  if (
+    typeof promptUx.variant_id !== 'string' ||
+    promptUx.variant_id.length === 0
+  ) {
     failures.push('skill_prompt.prompt_ux.variant_id');
   }
   if (promptUx.prompt_present !== true) {
@@ -1986,9 +1987,7 @@ function requiredSkillPromptCorpusLiveFailures(
   if (corpus.modes?.user_issue?.failed_count !== 0) {
     failures.push('skill_prompt_corpus.user_issue.failed_count');
   }
-  if (
-    !(corpus.modes?.auto_discovery?.variant_count >= minAutoDiscoveryCount)
-  ) {
+  if (!(corpus.modes?.auto_discovery?.variant_count >= minAutoDiscoveryCount)) {
     failures.push('skill_prompt_corpus.auto_discovery.variant_count');
   }
   if (
@@ -2347,13 +2346,10 @@ export async function latestEvidenceBundle(
                             draftPr.live_pr_view.head_sha_matches ?? null,
                           body_freshness:
                             draftPr.live_pr_view.body_freshness ?? null,
-                          body_sha256:
-                            draftPr.live_pr_view.body_sha256 ?? null,
+                          body_sha256: draftPr.live_pr_view.body_sha256 ?? null,
                           body_char_count:
                             draftPr.live_pr_view.body_char_count ?? null,
-                          failures: Array.isArray(
-                            draftPr.live_pr_view.failures
-                          )
+                          failures: Array.isArray(draftPr.live_pr_view.failures)
                             ? draftPr.live_pr_view.failures
                             : []
                         }
@@ -2398,8 +2394,7 @@ export async function latestEvidenceBundle(
               language: ledgerJson.prompt_ux.language ?? null,
               prompt_present: ledgerJson.prompt_ux.prompt_present ?? null,
               prompt_sha256: ledgerJson.prompt_ux.prompt_sha256 ?? null,
-              prompt_char_count:
-                ledgerJson.prompt_ux.prompt_char_count ?? null,
+              prompt_char_count: ledgerJson.prompt_ux.prompt_char_count ?? null,
               classification: ledgerJson.prompt_ux.classification
                 ? {
                     mode: ledgerJson.prompt_ux.classification.mode ?? null,
