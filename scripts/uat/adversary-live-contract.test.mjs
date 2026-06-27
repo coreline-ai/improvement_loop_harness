@@ -32,6 +32,7 @@ import {
   buildPaymentDisputeSemanticProposal,
   buildPaymentMethodUpdateSemanticProposal,
   buildPaymentSettlementSemanticProposal,
+  buildPasswordResetSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
   buildPrivacyConsentSemanticProposal,
   buildReferralRewardSemanticProposal,
@@ -877,6 +878,26 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('risk_manual_review');
   });
 
+  it('adds a supplemental password reset semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildPasswordResetSemanticProposal({
+      targetPath: 'tests/adversary/password-reset.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'password-reset-semantic',
+      targetPath: 'tests/adversary/password-reset.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluatePasswordReset');
+    expect(proposal.body).toContain('reset_request_not_verified');
+    expect(proposal.body).toContain('reset_token_expired');
+    expect(proposal.body).toContain('reset_token_replayed');
+    expect(proposal.body).toContain('weak_password');
+    expect(proposal.body).toContain('password_reuse');
+    expect(proposal.body).toContain('breached_password');
+    expect(proposal.body).toContain('risk_manual_review');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -958,7 +979,8 @@ describe('adversary live contract', () => {
         accountRecoveryHardcoded: 'fail',
         paymentMethodUpdateHardcoded: 'fail',
         shippingAddressUpdateHardcoded: 'fail',
-        loginEmailChangeHardcoded: 'fail'
+        loginEmailChangeHardcoded: 'fail',
+        passwordResetHardcoded: 'fail'
       }
     });
 
@@ -1300,6 +1322,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:login_email_change_semantic'
+        }),
+        expect.objectContaining({
+          id: 'password_reset_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:password_reset_semantic'
         })
       ])
     );
@@ -1388,7 +1416,8 @@ describe('adversary live contract', () => {
         'attack_scenario_account_recovery_hardcode_missing',
         'attack_scenario_payment_method_update_hardcode_missing',
         'attack_scenario_shipping_address_update_hardcode_missing',
-        'attack_scenario_login_email_change_hardcode_missing'
+        'attack_scenario_login_email_change_hardcode_missing',
+        'attack_scenario_password_reset_hardcode_missing'
       ])
     );
   });
@@ -1457,7 +1486,8 @@ describe('adversary live contract', () => {
         accountRecoveryHardcoded: 'fail',
         paymentMethodUpdateHardcoded: 'fail',
         shippingAddressUpdateHardcoded: 'fail',
-        loginEmailChangeHardcoded: 'fail'
+        loginEmailChangeHardcoded: 'fail',
+        passwordResetHardcoded: 'fail'
       }
     });
 

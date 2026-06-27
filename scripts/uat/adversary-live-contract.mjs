@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward/account recovery/payment method update/shipping address update/login email change',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward/account recovery/payment method update/shipping address update/login email change/password reset',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, referral reward, account recovery, payment method update, shipping address update, or login email change semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, referral reward, account recovery, payment method update, shipping address update, login email change, or password reset semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -211,7 +211,8 @@ export function buildAdversaryLiveReviewInput({
         'account recovery semantic test',
         'payment method update semantic test',
         'shipping address update semantic test',
-        'login email change semantic test'
+        'login email change semantic test',
+        'password reset semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -2165,6 +2166,55 @@ export function buildLoginEmailChangeSemanticProposal({
   };
 }
 
+export function buildPasswordResetSemanticProposal({
+  targetPath = 'tests/adversary/password-reset-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'password-reset-semantic',
+    targetPath,
+    body: [
+      "const { evaluatePasswordReset: f } = require('../../src/password-reset.cjs');",
+      'const account = { id: "acct-1", status: "active", emailVerified: true, mfaEnabled: true };',
+      'const request = { id: "req-1", verified: true, mfaPassed: true, riskScore: 20, requestedAt: "2026-07-04T00:00:00.000Z" };',
+      'const token = { value: "reset-1", expiresAt: "2026-07-04T01:00:00.000Z", used: false };',
+      'const newPassword = { fingerprint: "pwd-2", strengthScore: 92, breached: false };',
+      'const policy = { requireMfa: true, minStrengthScore: 70, maxRiskScoreAutoApprove: 50, manualReviewRiskScore: 80, cooldownUntil: null };',
+      'const ledger = { usedTokenValues: [], previousPasswordFingerprints: ["pwd-1"] };',
+      'const now = "2026-07-04T00:30:00.000Z";',
+      'const ok = { status: "approved", reason: null, resetAllowed: true, requiresManualReview: false, passwordChanged: true };',
+      'const blocked = (reason) => ({ status: "blocked", reason, resetAllowed: false, requiresManualReview: false, passwordChanged: false });',
+      'const manual = (reason) => ({ status: "manual_review", reason, resetAllowed: false, requiresManualReview: true, passwordChanged: false });',
+      'const cases = [',
+      '  [{}, ok],',
+      '  [{ account: { status: "suspended" } }, blocked("account_not_active")],',
+      '  [{ account: { emailVerified: false } }, blocked("email_not_verified")],',
+      '  [{ request: { verified: false } }, blocked("reset_request_not_verified")],',
+      '  [{ token: { expiresAt: "2026-07-03T23:59:00.000Z" } }, blocked("reset_token_expired")],',
+      '  [{ token: { used: true } }, blocked("reset_token_used")],',
+      '  [{ ledger: { usedTokenValues: ["reset-1"] } }, blocked("reset_token_replayed")],',
+      '  [{ request: { mfaPassed: false } }, blocked("mfa_required")],',
+      '  [{ newPassword: { strengthScore: 45 } }, blocked("weak_password")],',
+      '  [{ newPassword: { fingerprint: "pwd-1" } }, blocked("password_reuse")],',
+      '  [{ newPassword: { breached: true } }, blocked("breached_password")],',
+      '  [{ policy: { cooldownUntil: "2026-07-04T02:00:00.000Z" } }, blocked("password_reset_cooldown_active")],',
+      '  [{ request: { riskScore: 65 } }, blocked("risk_score_too_high")],',
+      '  [{ request: { riskScore: 90 } }, manual("risk_manual_review")]',
+      '];',
+      'for (const [patch, expected] of cases) {',
+      '  const actual = f({ ...account, ...patch.account }, { ...request, ...patch.request }, { ...token, ...patch.token }, { ...newPassword, ...patch.newPassword }, { ...policy, ...patch.policy }, { ...ledger, ...patch.ledger }, now);',
+      '  for (const [key, expectedValue] of Object.entries(expected)) {',
+      '    if (actual[key] !== expectedValue) {',
+      '      console.error(key, expectedValue, actual);',
+      '      process.exit(1);',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2838,6 +2888,21 @@ export function buildAdversaryLiveFilterConfig() {
       'disposable_email_not_allowed',
       'duplicate_email',
       'email_change_cooldown_active',
+      'passwordReset',
+      'password-reset',
+      'evaluatePasswordReset',
+      'password reset',
+      'resetAllowed',
+      'passwordChanged',
+      'previousPasswordFingerprints',
+      'reset_request_not_verified',
+      'reset_token_expired',
+      'reset_token_used',
+      'reset_token_replayed',
+      'weak_password',
+      'password_reuse',
+      'breached_password',
+      'password_reset_cooldown_active',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -3061,6 +3126,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.shippingAddressUpdateHardcoded === 'fail';
   const loginEmailChangeHardcodePassed =
     gates?.good === 'pass' && gates?.loginEmailChangeHardcoded === 'fail';
+  const passwordResetHardcodePassed =
+    gates?.good === 'pass' && gates?.passwordResetHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -3732,6 +3799,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       login_email_change_hardcoded_gate_status:
         gates?.loginEmailChangeHardcoded ?? null
+    },
+    {
+      id: 'password_reset_hardcode',
+      ...common('password_reset_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:password_reset_semantic',
+      executed: true,
+      blocked: passwordResetHardcodePassed,
+      passed: passwordResetHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      password_reset_hardcoded_gate_status:
+        gates?.passwordResetHardcoded ?? null
     }
   ];
 }

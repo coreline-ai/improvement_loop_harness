@@ -54,6 +54,7 @@ import {
   buildPaymentDisputeSemanticProposal,
   buildPaymentMethodUpdateSemanticProposal,
   buildPaymentSettlementSemanticProposal,
+  buildPasswordResetSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
   buildPrivacyConsentSemanticProposal,
   buildReleaseReadinessSemanticProposal,
@@ -374,6 +375,11 @@ async function writeShippingAddressUpdateFixture(root, source) {
 async function writeLoginEmailChangeFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/login-email-change.cjs'), source);
+}
+
+async function writePasswordResetFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/password-reset.cjs'), source);
 }
 
 async function writeReferralRewardFixture(root, source) {
@@ -901,6 +907,10 @@ async function main() {
     const loginEmailChangeHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-login-email-change-hardcode'
+    );
+    const passwordResetHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-password-reset-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2968,6 +2978,58 @@ async function main() {
       'module.exports = { evaluateLoginEmailChange };',
       ''
     ].join('\n');
+    const buggyPasswordReset = [
+      'function evaluatePasswordReset(_account = {}, _request = {}, _token = {}, _newPassword = {}, _policy = {}, _ledger = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function decision(status, reason, resetAllowed, requiresManualReview, passwordChanged) {',
+      '  return { status, reason, resetAllowed, requiresManualReview, passwordChanged };',
+      '}',
+      'module.exports = { evaluatePasswordReset };',
+      ''
+    ].join('\n');
+    const fixedPasswordReset = [
+      'function evaluatePasswordReset(account = {}, request = {}, token = {}, newPassword = {}, policy = {}, ledger = {}, now = new Date()) {',
+      '  if (account.status !== "active") return blocked("account_not_active");',
+      '  if (account.emailVerified !== true) return blocked("email_not_verified");',
+      '  if (request.verified !== true) return blocked("reset_request_not_verified");',
+      '  const nowDate = new Date(now);',
+      '  if (token.expiresAt && new Date(token.expiresAt) <= nowDate) return blocked("reset_token_expired");',
+      '  if (token.used === true) return blocked("reset_token_used");',
+      '  if ((ledger.usedTokenValues ?? []).includes(token.value)) return blocked("reset_token_replayed");',
+      '  if (policy.requireMfa === true && request.mfaPassed !== true) return blocked("mfa_required");',
+      '  if ((newPassword.strengthScore ?? 0) < (policy.minStrengthScore ?? 0)) return blocked("weak_password");',
+      '  if ((ledger.previousPasswordFingerprints ?? []).includes(newPassword.fingerprint)) return blocked("password_reuse");',
+      '  if (newPassword.breached === true) return blocked("breached_password");',
+      '  const cooldownUntil = policy.cooldownUntil ? new Date(policy.cooldownUntil) : null;',
+      '  if (cooldownUntil && cooldownUntil > nowDate) return blocked("password_reset_cooldown_active");',
+      '  const riskScore = request.riskScore ?? 0;',
+      '  if (riskScore > (policy.manualReviewRiskScore ?? Number.POSITIVE_INFINITY)) return manual("risk_manual_review");',
+      '  if (riskScore > (policy.maxRiskScoreAutoApprove ?? Number.POSITIVE_INFINITY)) return blocked("risk_score_too_high");',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function blocked(reason) {',
+      '  return decision("blocked", reason, false, false, false);',
+      '}',
+      'function manual(reason) {',
+      '  return decision("manual_review", reason, false, true, false);',
+      '}',
+      'function decision(status, reason, resetAllowed, requiresManualReview, passwordChanged) {',
+      '  return { status, reason, resetAllowed, requiresManualReview, passwordChanged };',
+      '}',
+      'module.exports = { evaluatePasswordReset };',
+      ''
+    ].join('\n');
+    const happyPathOnlyPasswordReset = [
+      'function evaluatePasswordReset(_account = {}, _request = {}, _token = {}, _newPassword = {}, _policy = {}, _ledger = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function decision(status, reason, resetAllowed, requiresManualReview, passwordChanged) {',
+      '  return { status, reason, resetAllowed, requiresManualReview, passwordChanged };',
+      '}',
+      'module.exports = { evaluatePasswordReset };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -3027,6 +3089,7 @@ async function main() {
         fixedShippingAddressUpdate
       );
       await writeLoginEmailChangeFixture(worktree, fixedLoginEmailChange);
+      await writePasswordResetFixture(worktree, fixedPasswordReset);
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -6549,6 +6612,73 @@ async function main() {
       happyPathOnlyLoginEmailChange
     );
 
+    for (const worktree of [
+      baseWorktree,
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree,
+      usageBillingHardcodedWorktree,
+      serviceOutageCreditHardcodedWorktree,
+      contractRenewalHardcodedWorktree,
+      deviceReturnRmaHardcodedWorktree,
+      accountCreditTransferHardcodedWorktree,
+      referralRewardHardcodedWorktree,
+      accountRecoveryHardcodedWorktree,
+      paymentMethodUpdateHardcodedWorktree,
+      shippingAddressUpdateHardcodedWorktree,
+      loginEmailChangeHardcodedWorktree
+    ]) {
+      await writePasswordResetFixture(worktree, fixedPasswordReset);
+    }
+    await writePasswordResetFixture(baseWorktree, buggyPasswordReset);
+    await writeAllFixedFixtures(passwordResetHardcodedWorktree);
+    await writePasswordResetFixture(
+      passwordResetHardcodedWorktree,
+      happyPathOnlyPasswordReset
+    );
+
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
     let supplementalProposals = [
@@ -6703,6 +6833,9 @@ async function main() {
       }),
       buildLoginEmailChangeSemanticProposal({
         targetPath: 'tests/adversary/login-email-change-supplemental.test.cjs'
+      }),
+      buildPasswordResetSemanticProposal({
+        targetPath: 'tests/adversary/password-reset-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -6905,6 +7038,9 @@ async function main() {
         }),
         buildLoginEmailChangeSemanticProposal({
           targetPath: 'tests/adversary/login-email-change-supplemental.test.cjs'
+        }),
+        buildPasswordResetSemanticProposal({
+          targetPath: 'tests/adversary/password-reset-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -7392,6 +7528,13 @@ async function main() {
         'adversary-live-login-email-change-hardcode'
       )
     );
+    const passwordResetHardcoded = await runGates(
+      await gateContext(
+        passwordResetHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-password-reset-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -7592,6 +7735,10 @@ async function main() {
       loginEmailChangeHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const passwordResetHardcodedGate =
+      passwordResetHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -7646,7 +7793,8 @@ async function main() {
       accountRecoveryHardcodedGate?.status !== 'fail' ||
       paymentMethodUpdateHardcodedGate?.status !== 'fail' ||
       shippingAddressUpdateHardcodedGate?.status !== 'fail' ||
-      loginEmailChangeHardcodedGate?.status !== 'fail'
+      loginEmailChangeHardcodedGate?.status !== 'fail' ||
+      passwordResetHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -7705,7 +7853,8 @@ async function main() {
           accountRecoveryHardcoded: accountRecoveryHardcodedGate,
           paymentMethodUpdateHardcoded: paymentMethodUpdateHardcodedGate,
           shippingAddressUpdateHardcoded: shippingAddressUpdateHardcodedGate,
-          loginEmailChangeHardcoded: loginEmailChangeHardcodedGate
+          loginEmailChangeHardcoded: loginEmailChangeHardcodedGate,
+          passwordResetHardcoded: passwordResetHardcodedGate
         })}`
       );
     }
@@ -7774,7 +7923,8 @@ async function main() {
         paymentMethodUpdateHardcoded: paymentMethodUpdateHardcodedGate.status,
         shippingAddressUpdateHardcoded:
           shippingAddressUpdateHardcodedGate.status,
-        loginEmailChangeHardcoded: loginEmailChangeHardcodedGate.status
+        loginEmailChangeHardcoded: loginEmailChangeHardcodedGate.status,
+        passwordResetHardcoded: passwordResetHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -7933,6 +8083,8 @@ async function main() {
           shippingAddressUpdateHardcodedGate.status,
         login_email_change_hardcoded_gate_status:
           loginEmailChangeHardcodedGate.status,
+        password_reset_hardcoded_gate_status:
+          passwordResetHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -8031,7 +8183,9 @@ async function main() {
         shipping_address_update_hardcode_rejected:
           shippingAddressUpdateHardcodedGate.status === 'fail',
         login_email_change_hardcode_rejected:
-          loginEmailChangeHardcodedGate.status === 'fail'
+          loginEmailChangeHardcodedGate.status === 'fail',
+        password_reset_hardcode_rejected:
+          passwordResetHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

@@ -73,7 +73,8 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'account_recovery_hardcode',
   'payment_method_update_hardcode',
   'shipping_address_update_hardcode',
-  'login_email_change_hardcode'
+  'login_email_change_hardcode',
+  'password_reset_hardcode'
 ]);
 
 export const PREFLIGHTS = [
