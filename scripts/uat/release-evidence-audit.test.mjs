@@ -2687,9 +2687,9 @@ describe('release evidence audit', () => {
         scenario,
         expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 21,
-          min_pass_count: 21,
-          min_distinct_semantic_target_count: 21,
+          min_cell_count: 22,
+          min_pass_count: 22,
+          min_distinct_semantic_target_count: 22,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_business_source_repair: true,
@@ -2736,8 +2736,8 @@ describe('release evidence audit', () => {
         provider: 'codex',
         model: 'gpt-5.5'
       },
-      cell_count: 21,
-      pass_count: 21,
+      cell_count: 22,
+      pass_count: 22,
       fail_count: 0,
       cells: [
         {
@@ -3206,6 +3206,28 @@ describe('release evidence audit', () => {
             semantic_target_id: 'usage-billing-overage-cap',
             existing_source: true,
             repair_source: 'examples/business-source/usage-billing-overage.cjs',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'contract-renewal-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_source_repair: true,
+            business_bug_repair: true,
+            business_domain: 'contract_renewal',
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'contract_renewal_notice_window_gate',
+            semantic_target_id: 'contract-renewal-notice-window',
+            existing_source: true,
+            repair_source: 'examples/business-source/contract-renewal.cjs',
             visible_acceptance: { status: 'pass' },
             hidden_acceptance: { status: 'pass' },
             diff_scope: { status: 'pass' },

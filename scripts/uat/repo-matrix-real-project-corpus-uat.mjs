@@ -1367,6 +1367,26 @@ function buildUsageBillingOverageVerifier(cases) {
   ].join('\n');
 }
 
+function buildContractRenewalVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateContractRenewal } = require(process.cwd() + '/examples/business-source/contract-renewal.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateContractRenewal(item.account, item.contract, item.notice, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -6439,6 +6459,276 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             overageBillable: false,
             requiresManualReview: false,
             invoiceCents: 0
+          }
+        }
+      ])
+  },
+  {
+    id: 'contract-renewal-notice-window',
+    semantic_domain: 'contract_renewal_notice_window_gate',
+    business_source_repair: true,
+    business_domain: 'contract_renewal',
+    relativePath: 'examples/business-source/contract-renewal.cjs',
+    language: 'javascript',
+    originalNeedle: '  if (daysUntilRenewal < minNoticeDays) {',
+    regressionText: '  if (daysUntilRenewal < 0) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildContractRenewalVerifier([
+        {
+          name: 'eligible renewal outside notice window is approved',
+          account: {
+            id: 'acct_visible_approved',
+            status: 'active',
+            billingCurrent: true
+          },
+          contract: {
+            id: 'contract_visible_approved',
+            status: 'active',
+            autoRenew: true,
+            renewalAt: '2026-08-16T00:00:00.000Z',
+            renewalAmountCents: 50000
+          },
+          notice: {
+            sent: true,
+            termsAccepted: true
+          },
+          policy: {
+            minNoticeDays: 30,
+            requireBillingCurrent: true
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            renewalApproved: true,
+            requiresManualReview: false,
+            renewalAmountCents: 50000
+          }
+        },
+        {
+          name: 'late renewal notice needs manual review',
+          account: {
+            id: 'acct_visible_late_notice',
+            status: 'active',
+            billingCurrent: true
+          },
+          contract: {
+            id: 'contract_visible_late_notice',
+            status: 'active',
+            autoRenew: true,
+            renewalAt: '2026-07-11T00:00:00.000Z',
+            renewalAmountCents: 25000
+          },
+          notice: {
+            sent: true,
+            termsAccepted: true
+          },
+          policy: {
+            minNoticeDays: 30,
+            requireBillingCurrent: true
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'renewal_notice_window_missed',
+            renewalApproved: false,
+            requiresManualReview: true,
+            renewalAmountCents: 0
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildContractRenewalVerifier([
+        {
+          name: 'hidden boundary notice at minimum days is approved',
+          account: {
+            id: 'acct_hidden_boundary',
+            status: 'active',
+            billingCurrent: true
+          },
+          contract: {
+            id: 'contract_hidden_boundary',
+            status: 'active',
+            autoRenew: true,
+            renewalAt: '2026-07-31T00:00:00.000Z',
+            renewalAmountCents: 40000
+          },
+          notice: {
+            sent: true,
+            termsAccepted: true
+          },
+          policy: {
+            minNoticeDays: 30,
+            requireBillingCurrent: true
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            renewalApproved: true,
+            requiresManualReview: false,
+            renewalAmountCents: 40000
+          }
+        },
+        {
+          name: 'hidden one day short of notice window is manual review',
+          account: {
+            id: 'acct_hidden_late',
+            status: 'active',
+            billingCurrent: true
+          },
+          contract: {
+            id: 'contract_hidden_late',
+            status: 'active',
+            autoRenew: true,
+            renewalAt: '2026-07-30T00:00:00.000Z',
+            renewalAmountCents: 40000
+          },
+          notice: {
+            sent: true,
+            termsAccepted: true
+          },
+          policy: {
+            minNoticeDays: 30,
+            requireBillingCurrent: true
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'renewal_notice_window_missed',
+            renewalApproved: false,
+            requiresManualReview: true,
+            renewalAmountCents: 0
+          }
+        },
+        {
+          name: 'hidden missing notice is manual review',
+          account: {
+            id: 'acct_hidden_missing_notice',
+            status: 'active',
+            billingCurrent: true
+          },
+          contract: {
+            id: 'contract_hidden_missing_notice',
+            status: 'active',
+            autoRenew: true,
+            renewalAt: '2026-09-01T00:00:00.000Z',
+            renewalAmountCents: 50000
+          },
+          notice: {
+            sent: false,
+            termsAccepted: true
+          },
+          policy: {
+            minNoticeDays: 30,
+            requireBillingCurrent: true
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'renewal_notice_not_sent',
+            renewalApproved: false,
+            requiresManualReview: true,
+            renewalAmountCents: 0
+          }
+        },
+        {
+          name: 'hidden stale billing is manual review',
+          account: {
+            id: 'acct_hidden_billing',
+            status: 'active',
+            billingCurrent: false
+          },
+          contract: {
+            id: 'contract_hidden_billing',
+            status: 'active',
+            autoRenew: true,
+            renewalAt: '2026-09-01T00:00:00.000Z',
+            renewalAmountCents: 50000
+          },
+          notice: {
+            sent: true,
+            termsAccepted: true
+          },
+          policy: {
+            minNoticeDays: 30,
+            requireBillingCurrent: true
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'billing_not_current',
+            renewalApproved: false,
+            requiresManualReview: true,
+            renewalAmountCents: 0
+          }
+        },
+        {
+          name: 'hidden pending cancellation blocks auto renewal',
+          account: {
+            id: 'acct_hidden_cancel',
+            status: 'active',
+            billingCurrent: true
+          },
+          contract: {
+            id: 'contract_hidden_cancel',
+            status: 'active',
+            autoRenew: true,
+            renewalAt: '2026-09-01T00:00:00.000Z',
+            renewalAmountCents: 50000,
+            pendingCancellation: true
+          },
+          notice: {
+            sent: true,
+            termsAccepted: true
+          },
+          policy: {
+            minNoticeDays: 30,
+            requireBillingCurrent: true
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'pending_cancellation',
+            renewalApproved: false,
+            requiresManualReview: false,
+            renewalAmountCents: 0
+          }
+        },
+        {
+          name: 'hidden changed terms require acceptance',
+          account: {
+            id: 'acct_hidden_terms',
+            status: 'active',
+            billingCurrent: true
+          },
+          contract: {
+            id: 'contract_hidden_terms',
+            status: 'active',
+            autoRenew: true,
+            renewalAt: '2026-09-01T00:00:00.000Z',
+            renewalAmountCents: 50000,
+            termsChanged: true
+          },
+          notice: {
+            sent: true,
+            termsAccepted: false
+          },
+          policy: {
+            minNoticeDays: 30,
+            requireBillingCurrent: true
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'terms_change_unaccepted',
+            renewalApproved: false,
+            requiresManualReview: true,
+            renewalAmountCents: 0
           }
         }
       ])
