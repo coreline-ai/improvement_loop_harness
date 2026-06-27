@@ -142,6 +142,22 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-product-owner-one-total-bug',
+    prompt:
+      '제품 담당자 관점으로 프로젝트를 스캔해서 사용자 결제 총액 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-support-audit-one-cart-regression',
+    prompt:
+      'Run a support-style audit of this repo, find one reproducible cart total regression, fix it, verify it, and prepare a PR-ready result.',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
     expectedMode: 'user_issue',
@@ -232,6 +248,22 @@ const cases = [
     id: 'en-retail-cart-three-unit-undercharge',
     prompt:
       'A retail cart with three units still charges one unit. Fix the quantity-aware subtotal and add regression coverage.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-pos-multi-quantity-total',
+    prompt:
+      'POS 장바구니에서 같은 SKU를 여러 개 담아도 합계가 한 개 가격만 나와. 수량 기반 총액 계산을 고치고 회귀 테스트를 남겨줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-invoice-cart-quantity-total',
+    prompt:
+      'Invoice preview totals ignore cart line quantities for multi-unit purchases. Fix the quantity-aware cart total and verify it.',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true

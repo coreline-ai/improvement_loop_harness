@@ -454,8 +454,8 @@ function skillPromptMatrixLedger(overrides = {}) {
         'CODEX_HOME/skills/vibeloop-harness/scripts/classify-intent.mjs',
       ...(overrides.actual_user_environment ?? {})
     },
-    total_cases: 46,
-    passed_cases: 46,
+    total_cases: 50,
+    passed_cases: 50,
     failed_cases: 0,
     critical_failures: 0,
     unexpected_unknown: 0,
@@ -628,8 +628,8 @@ function skillPromptLiveLedger(overrides = {}) {
 }
 
 function skillPromptCorpusLiveLedger(overrides = {}) {
-  const userIssueCount = overrides.userIssueCount ?? 18;
-  const autoDiscoveryCount = overrides.autoDiscoveryCount ?? 18;
+  const userIssueCount = overrides.userIssueCount ?? 20;
+  const autoDiscoveryCount = overrides.autoDiscoveryCount ?? 20;
   const githubDraftPr = overrides.githubDraftPr === true;
   const variants = [
     ...Array.from({ length: userIssueCount }, (_, index) => ({
@@ -1206,8 +1206,8 @@ describe('release evidence audit', () => {
         ledger_summary: expect.objectContaining({
           status: 'SKILL_PROMPT_MATRIX_UAT_PASS',
           proof_scope: 'copied_skill_prompt_routing_matrix',
-          total_cases: 46,
-          passed_cases: 46,
+          total_cases: 50,
+          passed_cases: 50,
           failed_cases: 0,
           unexpected_unknown: 0
         })
@@ -1288,9 +1288,9 @@ describe('release evidence audit', () => {
           status: 'SKILL_PROMPT_CORPUS_LIVE_UAT_PASS',
           proof_scope: 'natural_language_skill_prompt_live_corpus',
           prompt_corpus: expect.objectContaining({
-            requested_variant_count: 36,
-            executed_variant_count: 36,
-            passed_variant_count: 36,
+            requested_variant_count: 40,
+            executed_variant_count: 40,
+            passed_variant_count: 40,
             failed_variant_count: 0,
             blocked_variant_count: 0
           }),
@@ -1332,8 +1332,8 @@ describe('release evidence audit', () => {
           draft_pr: true,
           prompt_corpus: expect.objectContaining({
             github_draft_pr_requested: true,
-            requested_variant_count: 36,
-            passed_variant_count: 36
+            requested_variant_count: 40,
+            passed_variant_count: 40
           })
         })
       })
@@ -1365,8 +1365,8 @@ describe('release evidence audit', () => {
         ok: true,
         live_pr_state_audit: expect.objectContaining({
           ok: true,
-          checked_count: 36,
-          expected_count: 36,
+          checked_count: 40,
+          expected_count: 40,
           failures: []
         })
       })
@@ -1395,7 +1395,7 @@ describe('release evidence audit', () => {
         ]),
         live_pr_state_audit: expect.objectContaining({
           ok: false,
-          checked_count: 36,
+          checked_count: 40,
           failures: expect.arrayContaining(['user-4:live_pr_state'])
         })
       })

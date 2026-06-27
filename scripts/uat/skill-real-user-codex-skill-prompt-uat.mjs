@@ -272,6 +272,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'A retail cart with three units still charges one unit. Fix the quantity-aware subtotal and add regression coverage.'
+    },
+    {
+      id: 'ko-pos-multi-quantity-total',
+      language: 'ko',
+      prompt:
+        'POS 장바구니에서 같은 SKU를 여러 개 담아도 합계가 한 개 가격만 나와. 수량 기반 총액 계산을 고치고 회귀 테스트를 남겨줘'
+    },
+    {
+      id: 'en-invoice-cart-quantity-total',
+      language: 'en',
+      prompt:
+        'Invoice preview totals ignore cart line quantities for multi-unit purchases. Fix the quantity-aware cart total and verify it.'
     }
   ],
   auto_discovery: [
@@ -379,6 +391,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Audit this repo like an operator, discover one reproducible undercharge bug, fix it, verify it, and prepare a PR-ready result.'
+    },
+    {
+      id: 'auto-ko-product-owner-one-total-bug',
+      language: 'ko',
+      prompt:
+        '제품 담당자 관점으로 프로젝트를 스캔해서 사용자 결제 총액 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'auto-en-support-audit-one-cart-regression',
+      language: 'en',
+      prompt:
+        'Run a support-style audit of this repo, find one reproducible cart total regression, fix it, verify it, and prepare a PR-ready result.'
     }
   ]
 };

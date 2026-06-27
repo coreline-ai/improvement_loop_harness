@@ -138,6 +138,18 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-pos-multi-quantity-total',
+    mode: 'user_issue',
+    variant: 'ko-pos-multi-quantity-total',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-invoice-cart-quantity-total',
+    mode: 'user_issue',
+    variant: 'en-invoice-cart-quantity-total',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -243,6 +255,18 @@ const defaultCorpus = [
     id: 'auto-en-operator-audit-one-undercharge',
     mode: 'auto_discovery',
     variant: 'en-operator-audit-one-undercharge',
+    language: 'en'
+  },
+  {
+    id: 'auto-ko-product-owner-one-total-bug',
+    mode: 'auto_discovery',
+    variant: 'auto-ko-product-owner-one-total-bug',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-support-audit-one-cart-regression',
+    mode: 'auto_discovery',
+    variant: 'auto-en-support-audit-one-cart-regression',
     language: 'en'
   }
 ];

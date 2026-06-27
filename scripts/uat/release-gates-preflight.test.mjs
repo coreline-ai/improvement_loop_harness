@@ -253,8 +253,8 @@ function skillPromptMatrixLedger(overrides = {}) {
         'CODEX_HOME/skills/vibeloop-harness/scripts/classify-intent.mjs',
       ...(overrides.actual_user_environment ?? {})
     },
-    total_cases: 46,
-    passed_cases: 46,
+    total_cases: 50,
+    passed_cases: 50,
     failed_cases: 0,
     critical_failures: 0,
     unexpected_unknown: 0,
@@ -2697,8 +2697,8 @@ ELIFECYCLE Command failed with exit code 20.`);
       ok: true,
       ledger_summary: expect.objectContaining({
         proof_scope: 'copied_skill_prompt_routing_matrix',
-        total_cases: 46,
-        passed_cases: 46,
+        total_cases: 50,
+        passed_cases: 50,
         failed_cases: 0,
         unexpected_unknown: 0
       })
