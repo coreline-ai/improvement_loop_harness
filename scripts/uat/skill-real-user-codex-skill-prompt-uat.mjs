@@ -296,6 +296,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Warehouse order preview undercharges multi-unit cart lines. Fix the quantity-aware cart total and leave regression coverage.'
+    },
+    {
+      id: 'ko-mobile-checkout-quantity-total',
+      language: 'ko',
+      prompt:
+        '모바일 결제 장바구니에서 수량 2개인데 합계가 한 개 가격만 나와. cart quantity 총액 고치고 회귀 테스트 남겨줘'
+    },
+    {
+      id: 'en-marketplace-cart-quantity-undercharge',
+      language: 'en',
+      prompt:
+        'Marketplace cart checkout undercharges quantity 6 as one unit. Fix the quantity-aware cart total and add regression coverage.'
     }
   ],
   auto_discovery: [
@@ -427,6 +439,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Review this repo like a finance audit, find one reproducible undercharge issue, fix it, verify it, and prepare a PR-ready result.'
+    },
+    {
+      id: 'auto-ko-revenue-audit-one-cart-regression',
+      language: 'ko',
+      prompt:
+        '매출 감사 관점으로 프로젝트를 스캔해서 재현 가능한 장바구니 과소청구 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'auto-en-marketplace-audit-one-quantity-regression',
+      language: 'en',
+      prompt:
+        'Scan this marketplace repo, discover one reproducible quantity-total regression, fix it, verify it, and prepare a PR-ready result.'
     }
   ]
 };

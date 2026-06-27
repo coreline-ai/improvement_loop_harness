@@ -162,6 +162,18 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-mobile-checkout-quantity-total',
+    mode: 'user_issue',
+    variant: 'ko-mobile-checkout-quantity-total',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-marketplace-cart-quantity-undercharge',
+    mode: 'user_issue',
+    variant: 'en-marketplace-cart-quantity-undercharge',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -292,6 +304,18 @@ const defaultCorpus = [
     mode: 'auto_discovery',
     variant: 'auto-en-finance-review-one-undercharge',
     language: 'en'
+  },
+  {
+    id: 'auto-ko-revenue-audit-one-cart-regression',
+    mode: 'auto_discovery',
+    variant: 'auto-ko-revenue-audit-one-cart-regression',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-marketplace-audit-one-quantity-regression',
+    mode: 'auto_discovery',
+    variant: 'auto-en-marketplace-audit-one-quantity-regression',
+    language: 'en'
   }
 ];
 
@@ -305,6 +329,16 @@ const childTimeoutMs = Number(
     process.env.VIBELOOP_SKILL_PROMPT_UAT_TIMEOUT_MS ??
     12 * 60 * 1000
 );
+const corpusConcurrency = positiveInteger(
+  process.env.VIBELOOP_SKILL_PROMPT_CORPUS_CONCURRENCY,
+  1
+);
+
+function positiveInteger(raw, fallback) {
+  const value = Number(raw ?? fallback);
+  if (!Number.isInteger(value) || value < 1) return fallback;
+  return value;
+}
 
 function redact(text) {
   return String(text)
@@ -595,6 +629,22 @@ async function runCase(testCase, index, logDir) {
   };
 }
 
+async function runCorpusCases(corpus, logDir) {
+  const results = new Array(corpus.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(corpusConcurrency, corpus.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < corpus.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        results[index] = await runCase(corpus[index], index + 1, logDir);
+      }
+    })
+  );
+  return results;
+}
+
 async function main() {
   if (!existsSync(childScript)) {
     console.log(
@@ -642,10 +692,7 @@ async function main() {
   await mkdir(logDir, { recursive: true });
   let pass = false;
   try {
-    const results = [];
-    for (const [index, testCase] of corpus.entries()) {
-      results.push(await runCase(testCase, index + 1, logDir));
-    }
+    const results = await runCorpusCases(corpus, logDir);
     const failed = results.filter((result) => !result.pass);
     const blocked = results.filter((result) => result.exit_code === 20);
     pass = failed.length === 0;
@@ -655,6 +702,7 @@ async function main() {
       proof_scope: 'natural_language_skill_prompt_live_corpus',
       builder_mode: builderMode,
       github_draft_pr_requested: githubDraftPrRequested,
+      concurrency: corpusConcurrency,
       requested_variant_count: corpus.length,
       executed_variant_count: results.length,
       passed_variant_count: results.length - failed.length,
@@ -685,6 +733,7 @@ async function main() {
         via: builderMode === 'codex' ? 'chatgpt-oauth-proxy' : 'command fixture',
         model: builderMode === 'codex' ? process.env.VIBELOOP_UAT_MODEL || 'gpt-5.5' : null
       },
+      concurrency: corpusConcurrency,
       github_draft_pr: githubDraftPrRequested,
       github_draft_pr_verified:
         githubDraftPrRequested &&

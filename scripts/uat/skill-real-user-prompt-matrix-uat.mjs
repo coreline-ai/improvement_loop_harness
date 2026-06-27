@@ -174,6 +174,22 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-revenue-audit-one-cart-regression',
+    prompt:
+      '매출 감사 관점으로 프로젝트를 스캔해서 재현 가능한 장바구니 과소청구 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-marketplace-audit-one-quantity-regression',
+    prompt:
+      'Scan this marketplace repo, discover one reproducible quantity-total regression, fix it, verify it, and prepare a PR-ready result.',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
     expectedMode: 'user_issue',
@@ -296,6 +312,22 @@ const cases = [
     id: 'en-warehouse-cart-quantity-audit',
     prompt:
       'Warehouse order preview undercharges multi-unit cart lines. Fix the quantity-aware cart total and leave regression coverage.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-mobile-checkout-quantity-total',
+    prompt:
+      '모바일 결제 장바구니에서 수량 2개인데 합계가 한 개 가격만 나와. cart quantity 총액 고치고 회귀 테스트 남겨줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-marketplace-cart-quantity-undercharge',
+    prompt:
+      'Marketplace cart checkout undercharges quantity 6 as one unit. Fix the quantity-aware cart total and add regression coverage.',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true
