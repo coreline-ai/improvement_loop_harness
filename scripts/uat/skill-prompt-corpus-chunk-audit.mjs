@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import process from 'node:process';
+import {
+  defaultUatEvidenceDir,
+  writeUatEvidenceBundle,
+  writeUatEvidenceLedger
+} from './evidence-bundle.mjs';
 import { auditSkillPromptCorpusLivePrState } from './release-evidence-audit.mjs';
 
 const sourceScenario = 'skill-real-user-prompt-corpus-live-uat';
@@ -258,6 +264,7 @@ export async function buildSkillPromptCorpusChunkAggregateAudit(options = {}) {
 
   const pass = failures.length === 0;
   return {
+    run_id: options.runId ?? null,
     status: pass
       ? chunkAggregateAuditPassStatus
       : chunkAggregateAuditFailStatus,
@@ -284,6 +291,45 @@ export async function buildSkillPromptCorpusChunkAggregateAudit(options = {}) {
   };
 }
 
+export async function writeSkillPromptCorpusChunkAggregateAuditEvidence(
+  report,
+  options = {}
+) {
+  const runId =
+    options.runId ??
+    report.run_id ??
+    `skill-prompt-corpus-chunk-audit-${process.pid}-${Date.now()}`;
+  const ledgerPaths = options.ledgerPaths ?? [];
+  const bundle = await writeUatEvidenceBundle({
+    scenario: chunkAggregateAuditScenario,
+    runId,
+    tmpRoot: null,
+    dataDir: null,
+    output: report,
+    extraFiles: ledgerPaths.map((ledgerPath, index) => ({
+      kind: 'source_ledger',
+      label: `source-ledger-${index + 1}`,
+      path: ledgerPath
+    })),
+    extraJson: {
+      source_ledgers: ledgerPaths.map((ledgerPath) => path.resolve(ledgerPath)),
+      requirements: report.requirements,
+      aggregate: report.aggregate
+    },
+    evidenceDir: options.evidenceDir ?? defaultUatEvidenceDir()
+  });
+  const ledger = {
+    ...report,
+    run_id: runId,
+    evidence_bundle: bundle.bundle_dir,
+    evidence_manifest: bundle.manifest_path,
+    evidence_copied_count: bundle.copied_count + 1,
+    evidence_missing_count: bundle.missing_count
+  };
+  const ledgerFile = await writeUatEvidenceLedger(bundle, ledger);
+  return { ledger, ledgerFile, bundle };
+}
+
 export function skillPromptCorpusChunkAggregateAuditExitCode(report) {
   return report.failures.length > 0 ? 1 : 0;
 }
@@ -295,6 +341,8 @@ function parseArgs(argv) {
   let requireLivePrState = false;
   let requireRealBuilder = false;
   let requireSkillRead = false;
+  let writeEvidence = true;
+  let evidenceDir = null;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--') continue;
@@ -343,6 +391,21 @@ function parseArgs(argv) {
       requireSkillRead = true;
       continue;
     }
+    if (arg === '--write-evidence') {
+      writeEvidence = true;
+      continue;
+    }
+    if (arg === '--no-write-evidence') {
+      writeEvidence = false;
+      continue;
+    }
+    if (arg === '--evidence-dir') {
+      const value = argv[index + 1];
+      if (!value) throw new Error('--evidence-dir requires a path');
+      evidenceDir = value;
+      index += 1;
+      continue;
+    }
     if (!arg.startsWith('-')) {
       ledgerPaths.push(arg);
       continue;
@@ -355,15 +418,35 @@ function parseArgs(argv) {
     requireGithubPr,
     requireLivePrState,
     requireRealBuilder,
-    requireSkillRead
+    requireSkillRead,
+    writeEvidence,
+    evidenceDir
   };
 }
 
 async function main() {
-  const report = await buildSkillPromptCorpusChunkAggregateAudit(
-    parseArgs(process.argv.slice(2))
-  );
-  console.log(JSON.stringify(report, null, 2));
+  const options = parseArgs(process.argv.slice(2));
+  const runId = `skill-prompt-corpus-chunk-audit-${process.pid}-${Date.now()}`;
+  const report = await buildSkillPromptCorpusChunkAggregateAudit({
+    ...options,
+    runId
+  });
+  let output = report;
+  if (options.writeEvidence) {
+    const evidence = await writeSkillPromptCorpusChunkAggregateAuditEvidence(
+      report,
+      {
+        runId,
+        ledgerPaths: options.ledgerPaths,
+        evidenceDir: options.evidenceDir
+      }
+    );
+    output = {
+      ...evidence.ledger,
+      evidence_ledger: evidence.ledgerFile
+    };
+  }
+  console.log(JSON.stringify(output, null, 2));
   process.exit(skillPromptCorpusChunkAggregateAuditExitCode(report));
 }
 

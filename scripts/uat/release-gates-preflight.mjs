@@ -304,6 +304,24 @@ export const SKILL_PROMPT_CORPUS_LIVE_EVIDENCE_SCENARIO = {
   }
 };
 
+export const SKILL_PROMPT_CORPUS_CHUNK_AGGREGATE_AUDIT_EVIDENCE_SCENARIO = {
+  gate: 'P1',
+  name: 'Skill natural-language prompt corpus GitHub PR chunk aggregate audit evidence',
+  scenario: 'skill-prompt-corpus-chunk-aggregate-audit',
+  require_manifest: true,
+  expected_status: 'SKILL_PROMPT_CORPUS_CHUNK_AGGREGATE_AUDIT_PASS',
+  expected_ledger: {
+    required_skill_prompt_corpus_chunk_aggregate: true,
+    min_skill_prompt_corpus_chunk_variant_count: 56,
+    min_skill_prompt_corpus_chunk_user_issue_count: 28,
+    min_skill_prompt_corpus_chunk_auto_discovery_count: 28,
+    required_skill_prompt_corpus_chunk_github_pr: true,
+    required_skill_prompt_corpus_chunk_live_pr_state: true,
+    required_skill_prompt_corpus_chunk_real_builder: true,
+    required_skill_prompt_corpus_chunk_skill_read: true
+  }
+};
+
 export const SKILL_FULL_UAT_EVIDENCE_SCENARIO = {
   gate: 'P1',
   name: 'Skill full fixture UAT evidence',
@@ -2080,6 +2098,96 @@ function requiredSkillPromptCorpusLiveFailures(
   return failures;
 }
 
+function requiredSkillPromptCorpusChunkAggregateFailures(
+  ledgerSummary,
+  expectedLedger = {}
+) {
+  const failures = [];
+  const aggregate = ledgerSummary.chunk_aggregate?.aggregate;
+  const requirements = ledgerSummary.chunk_aggregate?.requirements;
+  const minVariantCount =
+    expectedLedger.min_skill_prompt_corpus_chunk_variant_count ?? 1;
+  const minUserIssueCount =
+    expectedLedger.min_skill_prompt_corpus_chunk_user_issue_count ?? 1;
+  const minAutoDiscoveryCount =
+    expectedLedger.min_skill_prompt_corpus_chunk_auto_discovery_count ?? 1;
+
+  if (
+    ledgerSummary.proof_scope !==
+    'natural_language_skill_prompt_live_corpus_chunk_aggregate'
+  ) {
+    failures.push('skill_prompt_corpus_chunk.proof_scope');
+  }
+  if (!aggregate) {
+    failures.push('skill_prompt_corpus_chunk.aggregate');
+    return failures;
+  }
+  if (!(aggregate.ledger_count >= 1)) {
+    failures.push('skill_prompt_corpus_chunk.ledger_count');
+  }
+  if (!(aggregate.variant_count >= minVariantCount)) {
+    failures.push('skill_prompt_corpus_chunk.variant_count');
+  }
+  if (aggregate.passed_variant_count !== aggregate.variant_count) {
+    failures.push('skill_prompt_corpus_chunk.passed_variant_count');
+  }
+  if (!((aggregate.mode_counts?.user_issue ?? 0) >= minUserIssueCount)) {
+    failures.push('skill_prompt_corpus_chunk.user_issue');
+  }
+  if (
+    !((aggregate.mode_counts?.auto_discovery ?? 0) >= minAutoDiscoveryCount)
+  ) {
+    failures.push('skill_prompt_corpus_chunk.auto_discovery');
+  }
+  if (ledgerSummary.chunk_aggregate?.failures_count !== 0) {
+    failures.push('skill_prompt_corpus_chunk.failures');
+  }
+  if (
+    !Array.isArray(ledgerSummary.chunk_aggregate?.ledger_results) ||
+    ledgerSummary.chunk_aggregate.ledger_results.some(
+      (result) => result?.ok !== true || !(result?.variant_count >= 1)
+    )
+  ) {
+    failures.push('skill_prompt_corpus_chunk.ledger_results');
+  }
+  if (
+    expectedLedger.required_skill_prompt_corpus_chunk_github_pr &&
+    requirements?.require_github_pr !== true
+  ) {
+    failures.push('skill_prompt_corpus_chunk.require_github_pr');
+  }
+  if (expectedLedger.required_skill_prompt_corpus_chunk_live_pr_state) {
+    if (requirements?.require_live_pr_state !== true) {
+      failures.push('skill_prompt_corpus_chunk.require_live_pr_state');
+    }
+    const liveAudits = ledgerSummary.chunk_aggregate?.live_pr_state_audits;
+    if (
+      !Array.isArray(liveAudits) ||
+      liveAudits.length === 0 ||
+      liveAudits.some((audit) => audit?.ok !== true) ||
+      liveAudits.reduce(
+        (total, audit) => total + (audit?.checked_count ?? 0),
+        0
+      ) !== aggregate.variant_count
+    ) {
+      failures.push('skill_prompt_corpus_chunk.live_pr_state_audits');
+    }
+  }
+  if (
+    expectedLedger.required_skill_prompt_corpus_chunk_real_builder &&
+    requirements?.require_real_builder !== true
+  ) {
+    failures.push('skill_prompt_corpus_chunk.require_real_builder');
+  }
+  if (
+    expectedLedger.required_skill_prompt_corpus_chunk_skill_read &&
+    requirements?.require_skill_read !== true
+  ) {
+    failures.push('skill_prompt_corpus_chunk.require_skill_read');
+  }
+  return failures;
+}
+
 async function validateRequiredStatusEvidence({
   scenario,
   scenarioDir,
@@ -2461,6 +2569,19 @@ export async function latestEvidenceBundle(
         actual_user_environment: ledgerJson.actual_user_environment ?? null,
         prompt_journey: ledgerJson.prompt_journey ?? null,
         prompt_corpus: summarizeSkillPromptCorpus(ledgerJson.prompt_corpus),
+        chunk_aggregate:
+          ledgerJson.scenario === 'skill-prompt-corpus-chunk-aggregate-audit'
+            ? {
+                proof_scope: ledgerJson.proof_scope ?? null,
+                requirements: ledgerJson.requirements ?? null,
+                aggregate: ledgerJson.aggregate ?? null,
+                ledger_results: ledgerJson.ledger_results ?? null,
+                live_pr_state_audits: ledgerJson.live_pr_state_audits ?? null,
+                failures_count: Array.isArray(ledgerJson.failures)
+                  ? ledgerJson.failures.length
+                  : null
+              }
+            : null,
         required_cases: ledgerJson.required_cases ?? null,
         total_cases: ledgerJson.total_cases ?? null,
         passed_cases: ledgerJson.passed_cases ?? null,
@@ -2629,6 +2750,14 @@ export async function latestEvidenceBundle(
     if (options.expectedLedger?.required_skill_prompt_corpus_live) {
       ledgerFailures.push(
         ...requiredSkillPromptCorpusLiveFailures(
+          ledgerSummary,
+          options.expectedLedger
+        )
+      );
+    }
+    if (options.expectedLedger?.required_skill_prompt_corpus_chunk_aggregate) {
+      ledgerFailures.push(
+        ...requiredSkillPromptCorpusChunkAggregateFailures(
           ledgerSummary,
           options.expectedLedger
         )

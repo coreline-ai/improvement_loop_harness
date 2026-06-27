@@ -862,6 +862,63 @@ async function writeSkillPromptCorpusGithubPrEvidence(root, options = {}) {
   };
 }
 
+function skillPromptCorpusChunkAggregateLedger(overrides = {}) {
+  const chunkCounts = [2, 4, 4, 10, 10, 10, 16];
+  return {
+    status: 'SKILL_PROMPT_CORPUS_CHUNK_AGGREGATE_AUDIT_PASS',
+    scenario: 'skill-prompt-corpus-chunk-aggregate-audit',
+    proof_scope: 'natural_language_skill_prompt_live_corpus_chunk_aggregate',
+    source_scenario: 'skill-real-user-prompt-corpus-live-uat',
+    requirements: {
+      require_github_pr: true,
+      require_live_pr_state: true,
+      require_real_builder: true,
+      require_skill_read: true,
+      expected_total: 56,
+      expected_modes: {
+        user_issue: 28,
+        auto_discovery: 28
+      },
+      ...(overrides.requirements ?? {})
+    },
+    aggregate: {
+      ledger_count: 7,
+      variant_count: 56,
+      passed_variant_count: 56,
+      mode_counts: {
+        user_issue: 28,
+        auto_discovery: 28
+      },
+      ...(overrides.aggregate ?? {})
+    },
+    ledger_results:
+      overrides.ledger_results ??
+      chunkCounts.map((variantCount, index) => ({
+        ledger: `/tmp/chunk-${index + 1}/ledger.json`,
+        ok: true,
+        variant_count: variantCount,
+        failures: []
+      })),
+    live_pr_state_audits:
+      overrides.live_pr_state_audits ??
+      chunkCounts.map((variantCount, index) => ({
+        ledger: `/tmp/chunk-${index + 1}/ledger.json`,
+        ok: true,
+        checked_count: variantCount,
+        failures: []
+      })),
+    failures: overrides.failures ?? [],
+    limitations: [
+      'audits existing chunk ledgers; it does not execute missing prompt variants',
+      'aggregate PASS is only as broad as the supplied ledger set and requested expectations',
+      'does not prove arbitrary-repo full autonomous improvement PASS'
+    ],
+    evidence_missing_count: 0,
+    evidence_copied_count: 15,
+    ...overrides.ledger
+  };
+}
+
 async function writeValidCiEvidence(root) {
   await writeLedger(
     root,
@@ -1388,6 +1445,102 @@ describe('release evidence audit', () => {
           expected_count: 56,
           failures: []
         })
+      })
+    );
+  });
+
+  it('can audit durable Skill prompt corpus GitHub PR chunk aggregate evidence', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-prompt-corpus-chunk-aggregate-audit';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-chunk-audit-run',
+      skillPromptCorpusChunkAggregateLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-chunk-audit-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P1',
+        scenario,
+        expected_status: 'SKILL_PROMPT_CORPUS_CHUNK_AGGREGATE_AUDIT_PASS'
+      })
+    ]);
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: true,
+        scenario,
+        ledger_summary: expect.objectContaining({
+          status: 'SKILL_PROMPT_CORPUS_CHUNK_AGGREGATE_AUDIT_PASS',
+          proof_scope:
+            'natural_language_skill_prompt_live_corpus_chunk_aggregate',
+          chunk_aggregate: expect.objectContaining({
+            aggregate: expect.objectContaining({
+              ledger_count: 7,
+              variant_count: 56,
+              passed_variant_count: 56,
+              mode_counts: {
+                user_issue: 28,
+                auto_discovery: 28
+              }
+            }),
+            failures_count: 0
+          })
+        })
+      })
+    );
+  });
+
+  it('fails weak Skill prompt corpus chunk aggregate evidence', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-prompt-corpus-chunk-aggregate-audit';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-chunk-audit-run',
+      skillPromptCorpusChunkAggregateLedger({
+        aggregate: {
+          variant_count: 40,
+          passed_variant_count: 40,
+          mode_counts: {
+            user_issue: 20,
+            auto_discovery: 20
+          }
+        },
+        live_pr_state_audits: [
+          {
+            ledger: '/tmp/chunk-1/ledger.json',
+            ok: true,
+            checked_count: 40,
+            failures: []
+          }
+        ]
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-chunk-audit-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        status: 'invalid_ledger',
+        ledger_failures: expect.arrayContaining([
+          'skill_prompt_corpus_chunk.variant_count',
+          'skill_prompt_corpus_chunk.user_issue',
+          'skill_prompt_corpus_chunk.auto_discovery'
+        ])
       })
     );
   });

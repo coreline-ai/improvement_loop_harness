@@ -1,8 +1,12 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   buildSkillPromptCorpusChunkAggregateAudit,
   chunkAggregateAuditFailStatus,
-  chunkAggregateAuditPassStatus
+  chunkAggregateAuditPassStatus,
+  writeSkillPromptCorpusChunkAggregateAuditEvidence
 } from './skill-prompt-corpus-chunk-audit.mjs';
 
 function variant({ mode, id, github = true }) {
@@ -166,5 +170,65 @@ describe('skill prompt corpus chunk aggregate audit', () => {
     expect(report.failures).toContain(
       'ledger:1:auto_discovery:ko-auto:github_draft_pr_verified'
     );
+  });
+
+  it('writes durable evidence with source ledger copies', async () => {
+    const root = await mkdtemp(
+      path.join(os.tmpdir(), 'vibeloop-chunk-audit-test-')
+    );
+    try {
+      const sourceDir = path.join(root, 'source');
+      await mkdir(sourceDir, { recursive: true });
+      const sourceLedger = path.join(sourceDir, 'ledger.json');
+      await writeFile(
+        sourceLedger,
+        `${JSON.stringify(
+          ledger([
+            variant({ mode: 'user_issue', id: 'ko-cart' }),
+            variant({ mode: 'auto_discovery', id: 'ko-auto' })
+          ]),
+          null,
+          2
+        )}\n`
+      );
+      const report = await buildSkillPromptCorpusChunkAggregateAudit({
+        ledgerPaths: [sourceLedger],
+        expected: {
+          total: 2,
+          modes: {
+            user_issue: 1,
+            auto_discovery: 1
+          }
+        },
+        requireGithubPr: true,
+        requireRealBuilder: true,
+        requireSkillRead: true,
+        runId: 'chunk-audit-run'
+      });
+
+      const evidence = await writeSkillPromptCorpusChunkAggregateAuditEvidence(
+        report,
+        {
+          runId: 'chunk-audit-run',
+          ledgerPaths: [sourceLedger],
+          evidenceDir: path.join(root, 'evidence')
+        }
+      );
+
+      expect(evidence.ledger.status).toBe(chunkAggregateAuditPassStatus);
+      expect(evidence.ledger.evidence_missing_count).toBe(0);
+      const manifest = JSON.parse(
+        await readFile(evidence.bundle.manifest_path, 'utf8')
+      );
+      expect(manifest.scenario).toBe(
+        'skill-prompt-corpus-chunk-aggregate-audit'
+      );
+      expect(manifest.ledger_ref).toBe('ledger.json');
+      expect(
+        manifest.copied.some((entry) => entry.kind === 'source_ledger')
+      ).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
