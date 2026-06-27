@@ -1877,11 +1877,14 @@ function requiredSkillPromptJourneyFailures(ledgerSummary) {
   if (journey?.deterministic_command_agent !== true) {
     failures.push('skill_prompt_journey.deterministic_command_agent');
   }
-  if (!(journey?.step_count >= 3)) {
+  if (!(journey?.step_count >= 4)) {
     failures.push('skill_prompt_journey.step_count');
   }
-  if (journey?.executed_step_count !== journey?.step_count) {
+  if (!(journey?.executed_step_count >= 3)) {
     failures.push('skill_prompt_journey.executed_step_count');
+  }
+  if (!(journey?.blocked_step_count >= 1)) {
+    failures.push('skill_prompt_journey.blocked_step_count');
   }
   if (journey?.passed_step_count !== journey?.step_count) {
     failures.push('skill_prompt_journey.passed_step_count');
@@ -1925,6 +1928,18 @@ function requiredSkillPromptJourneyFailures(ledgerSummary) {
     journey?.report_summary?.next_action !== 'prepare_pr_candidate'
   ) {
     failures.push('skill_prompt_journey.report_summary');
+  }
+  if (
+    journey?.unsafe_refusal?.mode !== 'unknown' ||
+    journey?.unsafe_refusal?.command_kind !== null ||
+    journey?.unsafe_refusal?.execute_requested !== true ||
+    journey?.unsafe_refusal?.executed !== false ||
+    journey?.unsafe_refusal?.execution_code !== 20 ||
+    journey?.unsafe_refusal?.blocked !== true ||
+    journey?.unsafe_refusal?.block_reason !== 'unsupported_execute_mode' ||
+    journey?.unsafe_refusal?.pr_candidate !== false
+  ) {
+    failures.push('skill_prompt_journey.unsafe_refusal');
   }
   if (ledgerSummary.passed_cases !== ledgerSummary.total_cases) {
     failures.push('skill_prompt_journey.passed_cases');

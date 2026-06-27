@@ -502,10 +502,11 @@ function skillPromptJourneyLedger(overrides = {}) {
     },
     prompt_journey: {
       deterministic_command_agent: true,
-      step_count: 3,
+      step_count: 4,
       executed_step_count: 3,
-      passed_step_count: 3,
-      pr_candidate_steps: 2,
+      blocked_step_count: 1,
+      passed_step_count: 4,
+      pr_candidate_steps: 3,
       final_reverify_passed_steps: 2,
       promotion_branch_count: 2,
       generated_task_eval_count: 1,
@@ -529,10 +530,20 @@ function skillPromptJourneyLedger(overrides = {}) {
         command_kind: 'summarize_report',
         next_action: 'prepare_pr_candidate'
       },
+      unsafe_refusal: {
+        mode: 'unknown',
+        command_kind: null,
+        execute_requested: true,
+        executed: false,
+        execution_code: 20,
+        blocked: true,
+        block_reason: 'unsupported_execute_mode',
+        pr_candidate: false
+      },
       ...(overrides.prompt_journey ?? {})
     },
-    total_cases: 3,
-    passed_cases: 3,
+    total_cases: 4,
+    passed_cases: 4,
     failed_cases: 0,
     false_pass: 0,
     leak: 0,
@@ -1323,9 +1334,16 @@ describe('release evidence audit', () => {
           status: 'SKILL_PROMPT_JOURNEY_UAT_PASS',
           proof_scope: 'copied_skill_prompt_runner_end_to_end_journey',
           prompt_journey: expect.objectContaining({
-            step_count: 3,
-            pr_candidate_steps: 2,
-            report_summary_steps: 1
+            step_count: 4,
+            executed_step_count: 3,
+            blocked_step_count: 1,
+            pr_candidate_steps: 3,
+            report_summary_steps: 1,
+            unsafe_refusal: expect.objectContaining({
+              mode: 'unknown',
+              blocked: true,
+              block_reason: 'unsupported_execute_mode'
+            })
           })
         })
       })

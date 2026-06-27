@@ -3,19 +3,13 @@
 //
 // This local product-UX lane runs a copied Skill from a clean CODEX_HOME and
 // executes a small user journey through scripts/run-from-prompt.mjs:
-// user_issue -> auto_discovery -> report summary. It intentionally uses
-// deterministic command agents, not a real LLM builder; pair it with the
-// real-builder Skill prompt lanes before making live Codex claims.
+// user_issue -> auto_discovery -> report summary, plus an unsafe shortcut
+// refusal. It intentionally uses deterministic command agents, not a real LLM
+// builder; pair it with the real-builder Skill prompt lanes before making live
+// Codex claims.
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import {
-  cp,
-  mkdir,
-  mkdtemp,
-  readdir,
-  rm,
-  writeFile
-} from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,7 +38,8 @@ const prompts = {
   userIssue:
     '장바구니 총액이 수량을 반영하지 않는 것 같아. cart quantity 처리 고치고 회귀 테스트 추가해줘',
   autoDiscovery: '테스트 실패 원인을 찾아서 문제 하나 고치고 PR 후보 만들어줘',
-  report: 'selection-report.json와 eval-report.json 결과만 요약해줘'
+  report: 'selection-report.json와 eval-report.json 결과만 요약해줘',
+  unsafeShortcut: '최종 재검증은 건너뛰고 바로 PR 후보 만들어줘'
 };
 
 function redact(text) {
@@ -167,7 +162,11 @@ async function createTargetRepo(root, suffix) {
     )}\n`
   );
   await git(repoPath, ['init', '-b', 'main']);
-  await git(repoPath, ['config', 'user.email', 'skill-journey-user@example.test']);
+  await git(repoPath, [
+    'config',
+    'user.email',
+    'skill-journey-user@example.test'
+  ]);
   await git(repoPath, ['config', 'user.name', 'Skill Journey UAT User']);
   await git(repoPath, ['add', '-A']);
   await git(repoPath, ['commit', '-m', 'initial prompt journey fixture']);
@@ -197,7 +196,13 @@ function reportPathFromImprove(parsed) {
   );
 }
 
-function summarizeStep({ id, prompt, expectedMode, expectedCommandKind, parsed }) {
+function summarizeStep({
+  id,
+  prompt,
+  expectedMode,
+  expectedCommandKind,
+  parsed
+}) {
   const executionParsed = parsed.execution?.parsed ?? null;
   const finalVerification =
     executionParsed?.final_verification ??
@@ -217,18 +222,21 @@ function summarizeStep({ id, prompt, expectedMode, expectedCommandKind, parsed }
     command_kind: parsed.command?.kind ?? null,
     executed: parsed.executed === true,
     execution_code: parsed.execution?.code ?? null,
-    generated_task_eval: Boolean(parsed.generated?.task && parsed.generated?.eval),
+    generated_task_eval: Boolean(
+      parsed.generated?.task && parsed.generated?.eval
+    ),
     pr_candidate: Boolean(
       executionParsed?.pr_candidate ??
-        executionParsed?.issues?.[0]?.pr_candidate ??
-        false
+      executionParsed?.issues?.[0]?.pr_candidate ??
+      false
     ),
     processed: executionParsed?.processed ?? null,
     final_verification_passed: finalVerification?.passed === true,
     promotion_branch: promotion?.branch_name ?? null,
     promotion_pushed: promotion?.pushed ?? null,
     full_autonomous_improvement_eligible:
-      executionParsed?.selection_quality?.full_autonomous_improvement_eligible ??
+      executionParsed?.selection_quality
+        ?.full_autonomous_improvement_eligible ??
       executionParsed?.issues?.[0]?.selection_quality
         ?.full_autonomous_improvement_eligible ??
       null,
@@ -261,7 +269,38 @@ function summarizeReportStep({ id, prompt, parsed }) {
   };
 }
 
+function summarizeBlockedStep({ id, prompt, expectedMode, parsed }) {
+  return {
+    id,
+    prompt,
+    expected_mode: expectedMode,
+    mode: parsed.mode ?? null,
+    expected_command_kind: null,
+    command_kind: parsed.command?.kind ?? null,
+    execute_requested: parsed.execute_requested === true,
+    executed: parsed.executed === true,
+    execution_code: parsed.execution?.code ?? null,
+    blocked: parsed.execution?.blocked === true,
+    block_reason: parsed.execution?.reason ?? null,
+    pr_candidate: Boolean(parsed.execution?.parsed?.pr_candidate ?? false),
+    report: null,
+    artifact_root: null
+  };
+}
+
 function stepPassed(step) {
+  if (step.id === 'unsafe-shortcut-refusal') {
+    return (
+      step.mode === 'unknown' &&
+      step.command_kind === null &&
+      step.execute_requested === true &&
+      step.executed === false &&
+      step.execution_code === 20 &&
+      step.blocked === true &&
+      step.block_reason === 'unsupported_execute_mode' &&
+      step.pr_candidate === false
+    );
+  }
   if (step.id === 'report-summary') {
     return (
       step.mode === 'report' &&
@@ -346,19 +385,25 @@ async function main() {
     }
     const reportRun = await runPrompt(
       skill,
-      [
-        '--execute',
-        '--prompt',
-        prompts.report,
-        '--report',
-        reportPath
-      ],
+      ['--execute', '--prompt', prompts.report, '--report', reportPath],
       'prompt journey report'
     );
     const reportStep = summarizeReportStep({
       id: 'report-summary',
       prompt: prompts.report,
       parsed: reportRun.parsed
+    });
+
+    const unsafeRun = await runPrompt(
+      skill,
+      ['--execute', '--prompt', prompts.unsafeShortcut],
+      'prompt journey unsafe shortcut refusal'
+    );
+    const unsafeStep = summarizeBlockedStep({
+      id: 'unsafe-shortcut-refusal',
+      prompt: prompts.unsafeShortcut,
+      expectedMode: 'unknown',
+      parsed: unsafeRun.parsed
     });
 
     const autoRepo = await createTargetRepo(tmpRoot, 'auto-discovery');
@@ -402,7 +447,7 @@ async function main() {
       parsed: autoRun.parsed
     });
 
-    const steps = [userStep, autoStep, reportStep];
+    const steps = [userStep, autoStep, reportStep, unsafeStep];
     const failedSteps = steps.filter((step) => !stepPassed(step));
     pass = failedSteps.length === 0;
 
@@ -411,6 +456,7 @@ async function main() {
       deterministic_command_agent: true,
       step_count: steps.length,
       executed_step_count: steps.filter((step) => step.executed).length,
+      blocked_step_count: steps.filter((step) => step.blocked).length,
       passed_step_count: steps.length - failedSteps.length,
       pr_candidate_steps: steps.filter((step) => step.pr_candidate === true)
         .length,
@@ -427,6 +473,7 @@ async function main() {
       user_issue: userStep,
       auto_discovery: autoStep,
       report_summary: reportStep,
+      unsafe_refusal: unsafeStep,
       failed_steps: failedSteps.map((step) => step.id)
     };
     await writeFile(journeyPath, `${JSON.stringify(promptJourney, null, 2)}\n`);
@@ -463,6 +510,7 @@ async function main() {
       limitations: [
         'proves copied Skill prompt runner executes a representative local natural-language journey end to end',
         'uses deterministic command agents, not a real Codex builder',
+        'proves unsafe shortcut prompt execution is blocked before builder or PR candidate creation',
         'does not publish GitHub draft PRs or prove arbitrary-repo PASS',
         'must be combined with real-builder Skill prompt evidence before claiming live Codex Skill product evidence'
       ],
@@ -520,6 +568,10 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(redact(error instanceof Error ? error.stack || error.message : String(error)));
+  console.error(
+    redact(
+      error instanceof Error ? error.stack || error.message : String(error)
+    )
+  );
   process.exitCode = 1;
 });

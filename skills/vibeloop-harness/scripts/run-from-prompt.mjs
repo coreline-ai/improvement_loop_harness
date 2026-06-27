@@ -484,24 +484,30 @@ if (classification.mode === 'user_issue') {
 
 if (bool(args, 'execute')) {
   if (!executeWith) {
-    throw new Error(
-      `--execute is not supported for mode ${classification.mode}`
-    );
+    execution = {
+      code: 20,
+      blocked: true,
+      reason: 'unsupported_execute_mode',
+      mode: classification.mode,
+      message: `--execute is not supported for mode ${classification.mode}`
+    };
+    process.exitCode = 20;
+  } else {
+    const result = await runProcess(executeWith.runner, executeWith.argv);
+    let parsed = null;
+    try {
+      parsed = JSON.parse(result.stdout);
+    } catch {
+      parsed = null;
+    }
+    execution = {
+      code: result.code,
+      parsed,
+      stdout: parsed ? undefined : result.stdout,
+      stderr: result.stderr
+    };
+    process.exitCode = result.code ?? 1;
   }
-  const result = await runProcess(executeWith.runner, executeWith.argv);
-  let parsed = null;
-  try {
-    parsed = JSON.parse(result.stdout);
-  } catch {
-    parsed = null;
-  }
-  execution = {
-    code: result.code,
-    parsed,
-    stdout: parsed ? undefined : result.stdout,
-    stderr: result.stderr
-  };
-  process.exitCode = result.code ?? 1;
 }
 
 console.log(
@@ -515,7 +521,8 @@ console.log(
       accept_authority: 'deterministic_harness_only',
       generated,
       command,
-      executed: bool(args, 'execute'),
+      execute_requested: bool(args, 'execute'),
+      executed: bool(args, 'execute') && execution?.blocked !== true,
       execution
     },
     null,

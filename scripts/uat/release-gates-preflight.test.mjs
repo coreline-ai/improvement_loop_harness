@@ -284,10 +284,11 @@ function skillPromptJourneyLedger(overrides = {}) {
     },
     prompt_journey: {
       deterministic_command_agent: true,
-      step_count: 3,
+      step_count: 4,
       executed_step_count: 3,
-      passed_step_count: 3,
-      pr_candidate_steps: 2,
+      blocked_step_count: 1,
+      passed_step_count: 4,
+      pr_candidate_steps: 3,
       final_reverify_passed_steps: 2,
       promotion_branch_count: 2,
       generated_task_eval_count: 1,
@@ -311,10 +312,20 @@ function skillPromptJourneyLedger(overrides = {}) {
         command_kind: 'summarize_report',
         next_action: 'prepare_pr_candidate'
       },
+      unsafe_refusal: {
+        mode: 'unknown',
+        command_kind: null,
+        execute_requested: true,
+        executed: false,
+        execution_code: 20,
+        blocked: true,
+        block_reason: 'unsupported_execute_mode',
+        pr_candidate: false
+      },
       ...(overrides.prompt_journey ?? {})
     },
-    total_cases: 3,
-    passed_cases: 3,
+    total_cases: 4,
+    passed_cases: 4,
     failed_cases: 0,
     false_pass: 0,
     leak: 0,
@@ -457,18 +468,14 @@ function validAttackScenarios() {
     tax_filing_hardcode: 'rulepack_semantic:tax_filing_semantic',
     privacy_consent_hardcode: 'rulepack_semantic:privacy_consent_semantic',
     access_review_hardcode: 'rulepack_semantic:access_review_semantic',
-    release_readiness_hardcode:
-      'rulepack_semantic:release_readiness_semantic',
-    incident_response_hardcode:
-      'rulepack_semantic:incident_response_semantic',
+    release_readiness_hardcode: 'rulepack_semantic:release_readiness_semantic',
+    incident_response_hardcode: 'rulepack_semantic:incident_response_semantic',
     backup_restore_hardcode: 'rulepack_semantic:backup_restore_semantic',
     usage_billing_hardcode: 'rulepack_semantic:usage_billing_semantic',
     service_outage_credit_hardcode:
       'rulepack_semantic:service_outage_credit_semantic',
-    contract_renewal_hardcode:
-      'rulepack_semantic:contract_renewal_semantic',
-    device_return_rma_hardcode:
-      'rulepack_semantic:device_return_rma_semantic',
+    contract_renewal_hardcode: 'rulepack_semantic:contract_renewal_semantic',
+    device_return_rma_hardcode: 'rulepack_semantic:device_return_rma_semantic',
     account_credit_transfer_hardcode:
       'rulepack_semantic:account_credit_transfer_semantic',
     referral_reward_hardcode: 'rulepack_semantic:referral_reward_semantic',
@@ -2789,9 +2796,16 @@ ELIFECYCLE Command failed with exit code 20.`);
         proof_scope: 'copied_skill_prompt_runner_end_to_end_journey',
         not_live_codex_or_github_pass: true,
         prompt_journey: expect.objectContaining({
-          step_count: 3,
-          pr_candidate_steps: 2,
-          report_summary_steps: 1
+          step_count: 4,
+          executed_step_count: 3,
+          blocked_step_count: 1,
+          pr_candidate_steps: 3,
+          report_summary_steps: 1,
+          unsafe_refusal: expect.objectContaining({
+            mode: 'unknown',
+            blocked: true,
+            block_reason: 'unsupported_execute_mode'
+          })
         })
       })
     });
@@ -2820,6 +2834,16 @@ ELIFECYCLE Command failed with exit code 20.`);
             mode: 'report',
             command_kind: 'summarize_report',
             next_action: 'inspect_decision_reasons'
+          },
+          unsafe_refusal: {
+            mode: 'unknown',
+            command_kind: null,
+            execute_requested: true,
+            executed: true,
+            execution_code: 0,
+            blocked: false,
+            block_reason: null,
+            pr_candidate: true
           }
         },
         ledger: {
@@ -2845,6 +2869,7 @@ ELIFECYCLE Command failed with exit code 20.`);
         'skill_prompt_journey.passed_step_count',
         'skill_prompt_journey.auto_discovery',
         'skill_prompt_journey.report_summary',
+        'skill_prompt_journey.unsafe_refusal',
         'skill_prompt_journey.passed_cases',
         'skill_prompt_journey.failed_cases',
         'skill_prompt_journey.false_pass'
