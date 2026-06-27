@@ -31,6 +31,7 @@ import {
   buildPaymentSettlementSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
   buildPrivacyConsentSemanticProposal,
+  buildReferralRewardSemanticProposal,
   buildIncidentResponseSemanticProposal,
   buildReleaseReadinessSemanticProposal,
   buildRefundEligibilitySemanticProposal,
@@ -778,6 +779,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('settlement_threshold_review');
   });
 
+  it('adds a supplemental referral reward semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildReferralRewardSemanticProposal({
+      targetPath: 'tests/adversary/referral-reward.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'referral-reward-semantic',
+      targetPath: 'tests/adversary/referral-reward.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateReferralReward');
+    expect(proposal.body).toContain('self_referral');
+    expect(proposal.body).toContain('order_refunded');
+    expect(proposal.body).toContain('minimum_order_not_met');
+    expect(proposal.body).toContain('duplicate_reward');
+    expect(proposal.body).toContain('reward_manual_review_threshold');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -854,7 +873,8 @@ describe('adversary live contract', () => {
         serviceOutageCreditHardcoded: 'fail',
         contractRenewalHardcoded: 'fail',
         deviceReturnRmaHardcoded: 'fail',
-        accountCreditTransferHardcoded: 'fail'
+        accountCreditTransferHardcoded: 'fail',
+        referralRewardHardcoded: 'fail'
       }
     });
 
@@ -1166,6 +1186,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:account_credit_transfer_semantic'
+        }),
+        expect.objectContaining({
+          id: 'referral_reward_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:referral_reward_semantic'
         })
       ])
     );
@@ -1249,7 +1275,8 @@ describe('adversary live contract', () => {
         'attack_scenario_service_outage_credit_hardcode_missing',
         'attack_scenario_contract_renewal_hardcode_missing',
         'attack_scenario_device_return_rma_hardcode_missing',
-        'attack_scenario_account_credit_transfer_hardcode_missing'
+        'attack_scenario_account_credit_transfer_hardcode_missing',
+        'attack_scenario_referral_reward_hardcode_missing'
       ])
     );
   });
@@ -1313,7 +1340,8 @@ describe('adversary live contract', () => {
         serviceOutageCreditHardcoded: 'fail',
         contractRenewalHardcoded: 'fail',
         deviceReturnRmaHardcoded: 'fail',
-        accountCreditTransferHardcoded: 'fail'
+        accountCreditTransferHardcoded: 'fail',
+        referralRewardHardcoded: 'fail'
       }
     });
 

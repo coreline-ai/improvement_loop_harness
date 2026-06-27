@@ -391,7 +391,8 @@ function validAttackScenarios() {
     'service_outage_credit_hardcode',
     'contract_renewal_hardcode',
     'device_return_rma_hardcode',
-    'account_credit_transfer_hardcode'
+    'account_credit_transfer_hardcode',
+    'referral_reward_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -468,6 +469,7 @@ function validAttackScenarios() {
       'rulepack_semantic:device_return_rma_semantic',
     account_credit_transfer_hardcode:
       'rulepack_semantic:account_credit_transfer_semantic',
+    referral_reward_hardcode: 'rulepack_semantic:referral_reward_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

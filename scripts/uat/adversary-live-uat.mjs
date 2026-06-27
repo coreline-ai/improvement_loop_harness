@@ -54,6 +54,7 @@ import {
   buildPayrollOvertimeSemanticProposal,
   buildPrivacyConsentSemanticProposal,
   buildReleaseReadinessSemanticProposal,
+  buildReferralRewardSemanticProposal,
   buildRefundEligibilitySemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildSellerPayoutSemanticProposal,
@@ -349,6 +350,11 @@ async function writeDeviceReturnRmaFixture(root, source) {
 async function writeAccountCreditTransferFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/account-credit-transfer.cjs'), source);
+}
+
+async function writeReferralRewardFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/referral-reward.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -851,6 +857,10 @@ async function main() {
     const accountCreditTransferHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-account-credit-transfer-hardcode'
+    );
+    const referralRewardHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-referral-reward-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2659,6 +2669,60 @@ async function main() {
       'module.exports = { evaluateCreditTransfer };',
       ''
     ].join('\n');
+    const buggyReferralReward = [
+      'function evaluateReferralReward(_referrer = {}, _referee = {}, _order = {}, _campaign = {}, _ledger = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, 0);',
+      '}',
+      'function decision(status, reason, payoutAllowed, requiresManualReview, rewardCents) {',
+      '  return { status, reason, payoutAllowed, requiresManualReview, rewardCents };',
+      '}',
+      'module.exports = { evaluateReferralReward };',
+      ''
+    ].join('\n');
+    const fixedReferralReward = [
+      'function evaluateReferralReward(referrer = {}, referee = {}, order = {}, campaign = {}, ledger = {}, now = new Date()) {',
+      '  if (campaign.status !== "active") return blocked("campaign_inactive");',
+      '  if (referrer.status !== "active") return blocked("referrer_not_active");',
+      '  if (referee.status !== "active") return blocked("referee_not_active");',
+      '  if (referrer.id === referee.id) return blocked("self_referral");',
+      '  if (order.status !== "completed") return blocked("order_not_completed");',
+      '  if (order.refunded === true) return blocked("order_refunded");',
+      '  if (campaign.currency && order.currency !== campaign.currency) return manual("currency_mismatch", 0);',
+      '  const completedAt = new Date(order.completedAt ?? now);',
+      '  const startsAt = campaign.startsAt ? new Date(campaign.startsAt) : null;',
+      '  const endsAt = campaign.endsAt ? new Date(campaign.endsAt) : null;',
+      '  if ((startsAt && completedAt < startsAt) || (endsAt && completedAt > endsAt)) return blocked("order_outside_campaign_window");',
+      '  if ((order.totalCents ?? 0) < (campaign.minEligibleOrderCents ?? 0)) return blocked("minimum_order_not_met");',
+      '  if ((ledger.rewardedOrderIds ?? []).includes(order.id)) return blocked("duplicate_reward");',
+      '  const configuredRewardCents = campaign.rewardCents ?? 0;',
+      '  if (configuredRewardCents <= 0) return manual("reward_not_configured", 0);',
+      '  const rewardCents = Math.min(configuredRewardCents, campaign.maxRewardCents ?? Number.POSITIVE_INFINITY);',
+      '  if (rewardCents > (campaign.manualReviewThresholdCents ?? Number.POSITIVE_INFINITY)) return manual("reward_manual_review_threshold", rewardCents);',
+      '  return decision("approved", null, true, false, rewardCents);',
+      '}',
+      'function blocked(reason) {',
+      '  return decision("blocked", reason, false, false, 0);',
+      '}',
+      'function manual(reason, rewardCents) {',
+      '  return decision("manual_review", reason, false, true, rewardCents);',
+      '}',
+      'function decision(status, reason, payoutAllowed, requiresManualReview, rewardCents) {',
+      '  return { status, reason, payoutAllowed, requiresManualReview, rewardCents };',
+      '}',
+      'module.exports = { evaluateReferralReward };',
+      ''
+    ].join('\n');
+    const happyPathOnlyReferralReward = [
+      'function evaluateReferralReward(_referrer = {}, _referee = {}, _order = {}, campaign = {}, _ledger = {}, _now = new Date()) {',
+      '  const rewardCents = Math.min(campaign.rewardCents ?? 0, campaign.maxRewardCents ?? Number.POSITIVE_INFINITY);',
+      '  return decision("approved", null, true, false, rewardCents);',
+      '}',
+      'function decision(status, reason, payoutAllowed, requiresManualReview, rewardCents) {',
+      '  return { status, reason, payoutAllowed, requiresManualReview, rewardCents };',
+      '}',
+      'module.exports = { evaluateReferralReward };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2707,6 +2771,7 @@ async function main() {
         worktree,
         fixedAccountCreditTransfer
       );
+      await writeReferralRewardFixture(worktree, fixedReferralReward);
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -5754,7 +5819,70 @@ async function main() {
       usageBillingHardcodedWorktree,
       serviceOutageCreditHardcodedWorktree,
       contractRenewalHardcodedWorktree,
-      deviceReturnRmaHardcodedWorktree
+      deviceReturnRmaHardcodedWorktree,
+      accountCreditTransferHardcodedWorktree
+    ]) {
+      await writeReferralRewardFixture(worktree, fixedReferralReward);
+    }
+    await writeReferralRewardFixture(baseWorktree, buggyReferralReward);
+    await writeAllFixedFixtures(referralRewardHardcodedWorktree);
+    await writeReferralRewardFixture(
+      referralRewardHardcodedWorktree,
+      happyPathOnlyReferralReward
+    );
+
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree,
+      usageBillingHardcodedWorktree,
+      serviceOutageCreditHardcodedWorktree,
+      contractRenewalHardcodedWorktree,
+      deviceReturnRmaHardcodedWorktree,
+      accountCreditTransferHardcodedWorktree,
+      referralRewardHardcodedWorktree
     ]) {
       await writeAccountCreditTransferFixture(
         worktree,
@@ -5909,6 +6037,9 @@ async function main() {
       buildAccountCreditTransferSemanticProposal({
         targetPath:
           'tests/adversary/account-credit-transfer-supplemental.test.cjs'
+      }),
+      buildReferralRewardSemanticProposal({
+        targetPath: 'tests/adversary/referral-reward-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -6100,6 +6231,9 @@ async function main() {
         buildAccountCreditTransferSemanticProposal({
           targetPath:
             'tests/adversary/account-credit-transfer-supplemental.test.cjs'
+        }),
+        buildReferralRewardSemanticProposal({
+          targetPath: 'tests/adversary/referral-reward-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -6552,6 +6686,13 @@ async function main() {
         'adversary-live-account-credit-transfer-hardcode'
       )
     );
+    const referralRewardHardcoded = await runGates(
+      await gateContext(
+        referralRewardHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-referral-reward-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -6738,6 +6879,10 @@ async function main() {
       accountCreditTransferHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const referralRewardHardcodedGate =
+      referralRewardHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -6787,7 +6932,8 @@ async function main() {
       serviceOutageCreditHardcodedGate?.status !== 'fail' ||
       contractRenewalHardcodedGate?.status !== 'fail' ||
       deviceReturnRmaHardcodedGate?.status !== 'fail' ||
-      accountCreditTransferHardcodedGate?.status !== 'fail'
+      accountCreditTransferHardcodedGate?.status !== 'fail' ||
+      referralRewardHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -6841,7 +6987,8 @@ async function main() {
           serviceOutageCreditHardcoded: serviceOutageCreditHardcodedGate,
           contractRenewalHardcoded: contractRenewalHardcodedGate,
           deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate,
-          accountCreditTransferHardcoded: accountCreditTransferHardcodedGate
+          accountCreditTransferHardcoded: accountCreditTransferHardcodedGate,
+          referralRewardHardcoded: referralRewardHardcodedGate
         })}`
       );
     }
@@ -6907,7 +7054,8 @@ async function main() {
         contractRenewalHardcoded: contractRenewalHardcodedGate.status,
         deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate.status,
         accountCreditTransferHardcoded:
-          accountCreditTransferHardcodedGate.status
+          accountCreditTransferHardcodedGate.status,
+        referralRewardHardcoded: referralRewardHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -7062,6 +7210,8 @@ async function main() {
           deviceReturnRmaHardcodedGate.status,
         account_credit_transfer_hardcoded_gate_status:
           accountCreditTransferHardcodedGate.status,
+        referral_reward_hardcoded_gate_status:
+          referralRewardHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -7152,7 +7302,9 @@ async function main() {
         device_return_rma_hardcode_rejected:
           deviceReturnRmaHardcodedGate.status === 'fail',
         account_credit_transfer_hardcode_rejected:
-          accountCreditTransferHardcodedGate.status === 'fail'
+          accountCreditTransferHardcodedGate.status === 'fail',
+        referral_reward_hardcode_rejected:
+          referralRewardHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
