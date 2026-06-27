@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward/account recovery',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward/account recovery/payment method update',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, referral reward, or account recovery semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, referral reward, account recovery, or payment method update semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -208,7 +208,8 @@ export function buildAdversaryLiveReviewInput({
         'device return RMA semantic test',
         'account credit transfer semantic test',
         'referral reward semantic test',
-        'account recovery semantic test'
+        'account recovery semantic test',
+        'payment method update semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -2030,6 +2031,50 @@ export function buildAccountRecoverySemanticProposal({
   };
 }
 
+export function buildPaymentMethodUpdateSemanticProposal({
+  targetPath = 'tests/adversary/payment-method-update-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'payment-method-update-semantic',
+    targetPath,
+    body: [
+      "const { evaluatePaymentMethodUpdate } = require('../../src/payment-method-update.cjs');",
+      'const account = { id: "acct-1", status: "active", emailVerified: true };',
+      'const request = { id: "req-1", authenticated: true, mfaPassed: true, billingCountry: "US", riskScore: 20, requestedAt: "2026-07-04T00:00:00.000Z" };',
+      'const method = { fingerprint: "card-1", network: "visa", verified: true, expiresAt: "2027-01-01T00:00:00.000Z" };',
+      'const policy = { requireMfa: true, supportedNetworks: ["visa", "mastercard"], allowedBillingCountries: ["US", "CA"], maxRiskScoreAutoApprove: 50, manualReviewRiskScore: 80, cooldownUntil: null };',
+      'const ledger = { paymentMethodFingerprints: [] };',
+      'const now = "2026-07-04T00:30:00.000Z";',
+      'const cases = [',
+      '  [account, request, method, policy, ledger, now, { status: "approved", reason: null, updateAllowed: true, requiresManualReview: false, paymentMethodUpdated: true }],',
+      '  [{ ...account, status: "suspended" }, request, method, policy, ledger, now, { status: "blocked", reason: "account_not_active", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [{ ...account, emailVerified: false }, request, method, policy, ledger, now, { status: "blocked", reason: "email_not_verified", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, { ...request, authenticated: false }, method, policy, ledger, now, { status: "blocked", reason: "authentication_required", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, { ...request, mfaPassed: false }, method, policy, ledger, now, { status: "blocked", reason: "mfa_required", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, request, { ...method, verified: false }, policy, ledger, now, { status: "blocked", reason: "payment_method_not_verified", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, request, { ...method, expiresAt: "2026-07-03T23:59:00.000Z" }, policy, ledger, now, { status: "blocked", reason: "payment_method_expired", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, request, { ...method, network: "amex" }, policy, ledger, now, { status: "blocked", reason: "unsupported_network", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, { ...request, billingCountry: "BR" }, method, policy, ledger, now, { status: "blocked", reason: "billing_country_not_allowed", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, request, method, policy, { paymentMethodFingerprints: ["card-1"] }, now, { status: "blocked", reason: "duplicate_payment_method", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, request, method, { ...policy, cooldownUntil: "2026-07-04T02:00:00.000Z" }, ledger, now, { status: "blocked", reason: "payment_method_update_cooldown_active", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, { ...request, riskScore: 65 }, method, policy, ledger, now, { status: "blocked", reason: "risk_score_too_high", updateAllowed: false, requiresManualReview: false, paymentMethodUpdated: false }],',
+      '  [account, { ...request, riskScore: 90 }, method, policy, ledger, now, { status: "manual_review", reason: "risk_manual_review", updateAllowed: false, requiresManualReview: true, paymentMethodUpdated: false }]',
+      '];',
+      'for (const [itemAccount, itemRequest, itemMethod, itemPolicy, itemLedger, itemNow, expected] of cases) {',
+      '  const actual = evaluatePaymentMethodUpdate(itemAccount, itemRequest, itemMethod, itemPolicy, itemLedger, itemNow);',
+      '  for (const [key, expectedValue] of Object.entries(expected)) {',
+      '    if (actual[key] !== expectedValue) {',
+      '      console.error(key, expectedValue, actual);',
+      '      process.exit(1);',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2653,6 +2698,24 @@ export function buildAdversaryLiveFilterConfig() {
       'untrusted_device',
       'risk_score_too_high',
       'risk_manual_review',
+      'paymentMethodUpdate',
+      'payment-method-update',
+      'evaluatePaymentMethodUpdate',
+      'payment method update',
+      'paymentMethodUpdated',
+      'updateAllowed',
+      'payment method',
+      'paymentMethodFingerprints',
+      'supportedNetworks',
+      'allowedBillingCountries',
+      'billingCountry',
+      'authentication_required',
+      'payment_method_not_verified',
+      'payment_method_expired',
+      'unsupported_network',
+      'billing_country_not_allowed',
+      'duplicate_payment_method',
+      'payment_method_update_cooldown_active',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2872,6 +2935,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.referralRewardHardcoded === 'fail';
   const accountRecoveryHardcodePassed =
     gates?.good === 'pass' && gates?.accountRecoveryHardcoded === 'fail';
+  const paymentMethodUpdateHardcodePassed =
+    gates?.good === 'pass' && gates?.paymentMethodUpdateHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -3509,6 +3574,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       account_recovery_hardcoded_gate_status:
         gates?.accountRecoveryHardcoded ?? null
+    },
+    {
+      id: 'payment_method_update_hardcode',
+      ...common('payment_method_update_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:payment_method_update_semantic',
+      executed: true,
+      blocked: paymentMethodUpdateHardcodePassed,
+      passed: paymentMethodUpdateHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      payment_method_update_hardcoded_gate_status:
+        gates?.paymentMethodUpdateHardcoded ?? null
     }
   ];
 }

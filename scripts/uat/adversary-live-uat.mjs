@@ -51,6 +51,7 @@ import {
   buildCartTaxSemanticProposal,
   buildPaymentAuthorizationSemanticProposal,
   buildPaymentDisputeSemanticProposal,
+  buildPaymentMethodUpdateSemanticProposal,
   buildPaymentSettlementSemanticProposal,
   buildPayrollOvertimeSemanticProposal,
   buildPrivacyConsentSemanticProposal,
@@ -356,6 +357,11 @@ async function writeAccountCreditTransferFixture(root, source) {
 async function writeAccountRecoveryFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/account-recovery.cjs'), source);
+}
+
+async function writePaymentMethodUpdateFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/payment-method-update.cjs'), source);
 }
 
 async function writeReferralRewardFixture(root, source) {
@@ -871,6 +877,10 @@ async function main() {
     const accountRecoveryHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-account-recovery-hardcode'
+    );
+    const paymentMethodUpdateHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-payment-method-update-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2784,6 +2794,58 @@ async function main() {
       'module.exports = { evaluateAccountRecovery };',
       ''
     ].join('\n');
+    const buggyPaymentMethodUpdate = [
+      'function evaluatePaymentMethodUpdate(_account = {}, _request = {}, _method = {}, _policy = {}, _ledger = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function decision(status, reason, updateAllowed, requiresManualReview, paymentMethodUpdated) {',
+      '  return { status, reason, updateAllowed, requiresManualReview, paymentMethodUpdated };',
+      '}',
+      'module.exports = { evaluatePaymentMethodUpdate };',
+      ''
+    ].join('\n');
+    const fixedPaymentMethodUpdate = [
+      'function evaluatePaymentMethodUpdate(account = {}, request = {}, method = {}, policy = {}, ledger = {}, now = new Date()) {',
+      '  if (account.status !== "active") return blocked("account_not_active");',
+      '  if (account.emailVerified !== true) return blocked("email_not_verified");',
+      '  if (request.authenticated !== true) return blocked("authentication_required");',
+      '  if (policy.requireMfa === true && request.mfaPassed !== true) return blocked("mfa_required");',
+      '  if (method.verified !== true) return blocked("payment_method_not_verified");',
+      '  const nowDate = new Date(now);',
+      '  const expiresAt = method.expiresAt ? new Date(method.expiresAt) : null;',
+      '  if (!expiresAt || expiresAt <= nowDate) return blocked("payment_method_expired");',
+      '  if (Array.isArray(policy.supportedNetworks) && !policy.supportedNetworks.includes(method.network)) return blocked("unsupported_network");',
+      '  if (Array.isArray(policy.allowedBillingCountries) && !policy.allowedBillingCountries.includes(request.billingCountry)) return blocked("billing_country_not_allowed");',
+      '  if ((ledger.paymentMethodFingerprints ?? []).includes(method.fingerprint)) return blocked("duplicate_payment_method");',
+      '  const cooldownUntil = policy.cooldownUntil ? new Date(policy.cooldownUntil) : null;',
+      '  if (cooldownUntil && cooldownUntil > nowDate) return blocked("payment_method_update_cooldown_active");',
+      '  const riskScore = request.riskScore ?? 0;',
+      '  if (riskScore > (policy.manualReviewRiskScore ?? Number.POSITIVE_INFINITY)) return manual("risk_manual_review");',
+      '  if (riskScore > (policy.maxRiskScoreAutoApprove ?? Number.POSITIVE_INFINITY)) return blocked("risk_score_too_high");',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function blocked(reason) {',
+      '  return decision("blocked", reason, false, false, false);',
+      '}',
+      'function manual(reason) {',
+      '  return decision("manual_review", reason, false, true, false);',
+      '}',
+      'function decision(status, reason, updateAllowed, requiresManualReview, paymentMethodUpdated) {',
+      '  return { status, reason, updateAllowed, requiresManualReview, paymentMethodUpdated };',
+      '}',
+      'module.exports = { evaluatePaymentMethodUpdate };',
+      ''
+    ].join('\n');
+    const happyPathOnlyPaymentMethodUpdate = [
+      'function evaluatePaymentMethodUpdate(_account = {}, _request = {}, _method = {}, _policy = {}, _ledger = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function decision(status, reason, updateAllowed, requiresManualReview, paymentMethodUpdated) {',
+      '  return { status, reason, updateAllowed, requiresManualReview, paymentMethodUpdated };',
+      '}',
+      'module.exports = { evaluatePaymentMethodUpdate };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2834,6 +2896,10 @@ async function main() {
       );
       await writeReferralRewardFixture(worktree, fixedReferralReward);
       await writeAccountRecoveryFixture(worktree, fixedAccountRecovery);
+      await writePaymentMethodUpdateFixture(
+        worktree,
+        fixedPaymentMethodUpdate
+      );
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -6025,6 +6091,75 @@ async function main() {
       happyPathOnlyAccountRecovery
     );
 
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree,
+      usageBillingHardcodedWorktree,
+      serviceOutageCreditHardcodedWorktree,
+      contractRenewalHardcodedWorktree,
+      deviceReturnRmaHardcodedWorktree,
+      accountCreditTransferHardcodedWorktree,
+      referralRewardHardcodedWorktree,
+      accountRecoveryHardcodedWorktree
+    ]) {
+      await writePaymentMethodUpdateFixture(
+        worktree,
+        fixedPaymentMethodUpdate
+      );
+    }
+    await writePaymentMethodUpdateFixture(
+      baseWorktree,
+      buggyPaymentMethodUpdate
+    );
+    await writeAllFixedFixtures(paymentMethodUpdateHardcodedWorktree);
+    await writePaymentMethodUpdateFixture(
+      paymentMethodUpdateHardcodedWorktree,
+      happyPathOnlyPaymentMethodUpdate
+    );
+
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
     let supplementalProposals = [
@@ -6169,6 +6304,10 @@ async function main() {
       }),
       buildAccountRecoverySemanticProposal({
         targetPath: 'tests/adversary/account-recovery-supplemental.test.cjs'
+      }),
+      buildPaymentMethodUpdateSemanticProposal({
+        targetPath:
+          'tests/adversary/payment-method-update-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -6366,6 +6505,10 @@ async function main() {
         }),
         buildAccountRecoverySemanticProposal({
           targetPath: 'tests/adversary/account-recovery-supplemental.test.cjs'
+        }),
+        buildPaymentMethodUpdateSemanticProposal({
+          targetPath:
+            'tests/adversary/payment-method-update-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -6832,6 +6975,13 @@ async function main() {
         'adversary-live-account-recovery-hardcode'
       )
     );
+    const paymentMethodUpdateHardcoded = await runGates(
+      await gateContext(
+        paymentMethodUpdateHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-payment-method-update-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -7026,6 +7176,10 @@ async function main() {
       accountRecoveryHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const paymentMethodUpdateHardcodedGate =
+      paymentMethodUpdateHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -7077,7 +7231,8 @@ async function main() {
       deviceReturnRmaHardcodedGate?.status !== 'fail' ||
       accountCreditTransferHardcodedGate?.status !== 'fail' ||
       referralRewardHardcodedGate?.status !== 'fail' ||
-      accountRecoveryHardcodedGate?.status !== 'fail'
+      accountRecoveryHardcodedGate?.status !== 'fail' ||
+      paymentMethodUpdateHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -7133,7 +7288,8 @@ async function main() {
           deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate,
           accountCreditTransferHardcoded: accountCreditTransferHardcodedGate,
           referralRewardHardcoded: referralRewardHardcodedGate,
-          accountRecoveryHardcoded: accountRecoveryHardcodedGate
+          accountRecoveryHardcoded: accountRecoveryHardcodedGate,
+          paymentMethodUpdateHardcoded: paymentMethodUpdateHardcodedGate
         })}`
       );
     }
@@ -7201,7 +7357,9 @@ async function main() {
         accountCreditTransferHardcoded:
           accountCreditTransferHardcodedGate.status,
         referralRewardHardcoded: referralRewardHardcodedGate.status,
-        accountRecoveryHardcoded: accountRecoveryHardcodedGate.status
+        accountRecoveryHardcoded: accountRecoveryHardcodedGate.status,
+        paymentMethodUpdateHardcoded:
+          paymentMethodUpdateHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -7360,6 +7518,8 @@ async function main() {
           referralRewardHardcodedGate.status,
         account_recovery_hardcoded_gate_status:
           accountRecoveryHardcodedGate.status,
+        payment_method_update_hardcoded_gate_status:
+          paymentMethodUpdateHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -7454,7 +7614,9 @@ async function main() {
         referral_reward_hardcode_rejected:
           referralRewardHardcodedGate.status === 'fail',
         account_recovery_hardcode_rejected:
-          accountRecoveryHardcodedGate.status === 'fail'
+          accountRecoveryHardcodedGate.status === 'fail',
+        payment_method_update_hardcode_rejected:
+          paymentMethodUpdateHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
