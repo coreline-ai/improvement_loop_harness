@@ -1347,6 +1347,26 @@ function buildServiceOutageCreditVerifier(cases) {
   ].join('\n');
 }
 
+function buildUsageBillingOverageVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { calculateUsageInvoice } = require(process.cwd() + '/examples/business-source/usage-billing-overage.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = calculateUsageInvoice(item.account, item.usage, item.pricing, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -6195,6 +6215,230 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             creditEligible: false,
             requiresManualReview: true,
             creditCents: 0
+          }
+        }
+      ])
+  },
+  {
+    id: 'usage-billing-overage-cap',
+    semantic_domain: 'usage_billing_overage_included_units_gate',
+    business_source_repair: true,
+    business_domain: 'usage_billing',
+    relativePath: 'examples/business-source/usage-billing-overage.cjs',
+    language: 'javascript',
+    originalNeedle:
+      '  if ((usage.billableUnits ?? 0) <= includedUnits) {',
+    regressionText: '  if ((usage.billableUnits ?? 0) <= 0) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildUsageBillingOverageVerifier([
+        {
+          name: 'included usage does not invoice overage',
+          account: {
+            id: 'acct_visible_included',
+            status: 'active',
+            currency: 'USD',
+            includedUnits: 100
+          },
+          usage: {
+            id: 'usage_visible_included',
+            status: 'finalized',
+            billableUnits: 90
+          },
+          pricing: {
+            currency: 'USD',
+            unitPriceCents: 25
+          },
+          policy: {
+            maxOverageCents: 2000
+          },
+          now: '2026-06-27T14:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            overageBillable: false,
+            requiresManualReview: false,
+            invoiceCents: 0
+          }
+        },
+        {
+          name: 'over included usage invoices overage',
+          account: {
+            id: 'acct_visible_overage',
+            status: 'active',
+            currency: 'USD',
+            includedUnits: 100
+          },
+          usage: {
+            id: 'usage_visible_overage',
+            status: 'finalized',
+            billableUnits: 140
+          },
+          pricing: {
+            currency: 'USD',
+            unitPriceCents: 25
+          },
+          policy: {
+            maxOverageCents: 2000
+          },
+          now: '2026-06-27T14:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            overageBillable: true,
+            requiresManualReview: false,
+            invoiceCents: 1000
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildUsageBillingOverageVerifier([
+        {
+          name: 'hidden boundary usage equal to included units is free',
+          account: {
+            id: 'acct_hidden_boundary',
+            status: 'active',
+            currency: 'USD',
+            includedUnits: 100
+          },
+          usage: {
+            id: 'usage_hidden_boundary',
+            status: 'finalized',
+            billableUnits: 100
+          },
+          pricing: {
+            currency: 'USD',
+            unitPriceCents: 40
+          },
+          policy: {
+            maxOverageCents: 2500
+          },
+          now: '2026-06-27T14:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            overageBillable: false,
+            requiresManualReview: false,
+            invoiceCents: 0
+          }
+        },
+        {
+          name: 'hidden overage above cap needs manual review',
+          account: {
+            id: 'acct_hidden_cap',
+            status: 'active',
+            currency: 'USD',
+            includedUnits: 50
+          },
+          usage: {
+            id: 'usage_hidden_cap',
+            status: 'finalized',
+            billableUnits: 200
+          },
+          pricing: {
+            currency: 'USD',
+            unitPriceCents: 30
+          },
+          policy: {
+            maxOverageCents: 3000
+          },
+          now: '2026-06-27T14:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'overage_cap_exceeded',
+            overageBillable: true,
+            requiresManualReview: true,
+            invoiceCents: 4500
+          }
+        },
+        {
+          name: 'hidden unfinalized usage needs manual review',
+          account: {
+            id: 'acct_hidden_unfinalized',
+            status: 'active',
+            currency: 'USD',
+            includedUnits: 100
+          },
+          usage: {
+            id: 'usage_hidden_unfinalized',
+            status: 'open',
+            billableUnits: 120
+          },
+          pricing: {
+            currency: 'USD',
+            unitPriceCents: 20
+          },
+          policy: {
+            maxOverageCents: 2000
+          },
+          now: '2026-06-27T14:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'usage_not_finalized',
+            overageBillable: false,
+            requiresManualReview: true,
+            invoiceCents: 0
+          }
+        },
+        {
+          name: 'hidden currency mismatch blocks invoice',
+          account: {
+            id: 'acct_hidden_currency',
+            status: 'active',
+            currency: 'USD',
+            includedUnits: 100
+          },
+          usage: {
+            id: 'usage_hidden_currency',
+            status: 'finalized',
+            billableUnits: 150
+          },
+          pricing: {
+            currency: 'EUR',
+            unitPriceCents: 25
+          },
+          policy: {
+            maxOverageCents: 2000
+          },
+          now: '2026-06-27T14:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'currency_mismatch',
+            overageBillable: false,
+            requiresManualReview: false,
+            invoiceCents: 0
+          }
+        },
+        {
+          name: 'hidden inactive account blocks invoice',
+          account: {
+            id: 'acct_hidden_inactive',
+            status: 'suspended',
+            currency: 'USD',
+            includedUnits: 100
+          },
+          usage: {
+            id: 'usage_hidden_inactive',
+            status: 'finalized',
+            billableUnits: 150
+          },
+          pricing: {
+            currency: 'USD',
+            unitPriceCents: 25
+          },
+          policy: {
+            maxOverageCents: 2000
+          },
+          now: '2026-06-27T14:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'account_not_active',
+            overageBillable: false,
+            requiresManualReview: false,
+            invoiceCents: 0
           }
         }
       ])
