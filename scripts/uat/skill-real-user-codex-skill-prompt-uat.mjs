@@ -284,6 +284,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Invoice preview totals ignore cart line quantities for multi-unit purchases. Fix the quantity-aware cart total and verify it.'
+    },
+    {
+      id: 'ko-checkout-duplicate-line-total',
+      language: 'ko',
+      prompt:
+        '결제 미리보기에서 같은 상품 라인이 중복될 때 수량 합계가 틀어져. 장바구니 수량 계산을 고치고 회귀 테스트까지 남겨줘'
+    },
+    {
+      id: 'en-warehouse-cart-quantity-audit',
+      language: 'en',
+      prompt:
+        'Warehouse order preview undercharges multi-unit cart lines. Fix the quantity-aware cart total and leave regression coverage.'
     }
   ],
   auto_discovery: [
@@ -403,6 +415,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Run a support-style audit of this repo, find one reproducible cart total regression, fix it, verify it, and prepare a PR-ready result.'
+    },
+    {
+      id: 'auto-ko-cs-ticket-cart-total-audit',
+      language: 'ko',
+      prompt:
+        '고객센터 티켓을 보는 것처럼 프로젝트 스캔으로 장바구니 총액 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'auto-en-finance-review-one-undercharge',
+      language: 'en',
+      prompt:
+        'Review this repo like a finance audit, find one reproducible undercharge issue, fix it, verify it, and prepare a PR-ready result.'
     }
   ]
 };

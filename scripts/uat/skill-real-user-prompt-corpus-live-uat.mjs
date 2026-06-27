@@ -150,6 +150,18 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-checkout-duplicate-line-total',
+    mode: 'user_issue',
+    variant: 'ko-checkout-duplicate-line-total',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-warehouse-cart-quantity-audit',
+    mode: 'user_issue',
+    variant: 'en-warehouse-cart-quantity-audit',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -267,6 +279,18 @@ const defaultCorpus = [
     id: 'auto-en-support-audit-one-cart-regression',
     mode: 'auto_discovery',
     variant: 'auto-en-support-audit-one-cart-regression',
+    language: 'en'
+  },
+  {
+    id: 'auto-ko-cs-ticket-cart-total-audit',
+    mode: 'auto_discovery',
+    variant: 'auto-ko-cs-ticket-cart-total-audit',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-finance-review-one-undercharge',
+    mode: 'auto_discovery',
+    variant: 'auto-en-finance-review-one-undercharge',
     language: 'en'
   }
 ];

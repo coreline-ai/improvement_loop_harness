@@ -158,6 +158,22 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-cs-ticket-cart-total-audit',
+    prompt:
+      '고객센터 티켓을 보는 것처럼 프로젝트 스캔으로 장바구니 총액 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-finance-review-one-undercharge',
+    prompt:
+      'Review this repo like a finance audit, find one reproducible undercharge issue, fix it, verify it, and prepare a PR-ready result.',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
     expectedMode: 'user_issue',
@@ -264,6 +280,22 @@ const cases = [
     id: 'en-invoice-cart-quantity-total',
     prompt:
       'Invoice preview totals ignore cart line quantities for multi-unit purchases. Fix the quantity-aware cart total and verify it.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-checkout-duplicate-line-total',
+    prompt:
+      '결제 미리보기에서 같은 상품 라인이 중복될 때 수량 합계가 틀어져. 장바구니 수량 계산을 고치고 회귀 테스트까지 남겨줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-warehouse-cart-quantity-audit',
+    prompt:
+      'Warehouse order preview undercharges multi-unit cart lines. Fix the quantity-aware cart total and leave regression coverage.',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true
