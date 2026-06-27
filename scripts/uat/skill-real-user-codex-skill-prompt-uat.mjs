@@ -260,6 +260,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Customer carts with quantity 4 are undercharged as one item. Fix the cart quantity total and leave regression coverage.'
+    },
+    {
+      id: 'ko-subtotal-quantity-mismatch',
+      language: 'ko',
+      prompt:
+        '장바구니 subtotal이 여러 개 담은 상품 수량을 무시해. 수량 반영 버그를 고치고 회귀 테스트와 검증 결과를 남겨줘'
+    },
+    {
+      id: 'en-retail-cart-three-unit-undercharge',
+      language: 'en',
+      prompt:
+        'A retail cart with three units still charges one unit. Fix the quantity-aware subtotal and add regression coverage.'
     }
   ],
   auto_discovery: [
@@ -355,6 +367,18 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Find one reproducible customer-facing regression by scanning this repo, fix it, verify it, and prepare a PR-ready result.'
+    },
+    {
+      id: 'ko-operator-audit-one-undercharge',
+      language: 'ko',
+      prompt:
+        '운영자 감사처럼 프로젝트를 스캔해서 재현 가능한 과소청구 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'en-operator-audit-one-undercharge',
+      language: 'en',
+      prompt:
+        'Audit this repo like an operator, discover one reproducible undercharge bug, fix it, verify it, and prepare a PR-ready result.'
     }
   ]
 };

@@ -126,6 +126,18 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-subtotal-quantity-mismatch',
+    mode: 'user_issue',
+    variant: 'ko-subtotal-quantity-mismatch',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-retail-cart-three-unit-undercharge',
+    mode: 'user_issue',
+    variant: 'en-retail-cart-three-unit-undercharge',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -219,6 +231,18 @@ const defaultCorpus = [
     id: 'auto-en-scan-customer-facing-regression',
     mode: 'auto_discovery',
     variant: 'en-scan-customer-facing-regression',
+    language: 'en'
+  },
+  {
+    id: 'auto-ko-operator-audit-one-undercharge',
+    mode: 'auto_discovery',
+    variant: 'ko-operator-audit-one-undercharge',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-operator-audit-one-undercharge',
+    mode: 'auto_discovery',
+    variant: 'en-operator-audit-one-undercharge',
     language: 'en'
   }
 ];

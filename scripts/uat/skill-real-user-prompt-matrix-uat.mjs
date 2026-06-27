@@ -126,6 +126,22 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-operator-audit-one-undercharge',
+    prompt:
+      '운영자 감사처럼 프로젝트를 스캔해서 재현 가능한 과소청구 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-operator-audit-one-undercharge',
+    prompt:
+      'Audit this repo like an operator, discover one reproducible undercharge bug, fix it, verify it, and prepare a PR-ready result.',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
     expectedMode: 'user_issue',
@@ -200,6 +216,22 @@ const cases = [
     id: 'en-customer-cart-quantity-undercharge',
     prompt:
       'Customer carts with quantity 4 are undercharged as one item. Fix the cart quantity total and leave regression coverage.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-subtotal-quantity-mismatch',
+    prompt:
+      '장바구니 subtotal이 여러 개 담은 상품 수량을 무시해. 수량 반영 버그를 고치고 회귀 테스트와 검증 결과를 남겨줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-retail-cart-three-unit-undercharge',
+    prompt:
+      'A retail cart with three units still charges one unit. Fix the quantity-aware subtotal and add regression coverage.',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true
