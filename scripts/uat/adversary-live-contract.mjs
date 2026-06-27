@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward/account recovery/payment method update/shipping address update',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward/account recovery/payment method update/shipping address update/login email change',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, referral reward, account recovery, payment method update, or shipping address update semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, referral reward, account recovery, payment method update, shipping address update, or login email change semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -210,7 +210,8 @@ export function buildAdversaryLiveReviewInput({
         'referral reward semantic test',
         'account recovery semantic test',
         'payment method update semantic test',
-        'shipping address update semantic test'
+        'shipping address update semantic test',
+        'login email change semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -2120,6 +2121,50 @@ export function buildShippingAddressUpdateSemanticProposal({
   };
 }
 
+export function buildLoginEmailChangeSemanticProposal({
+  targetPath = 'tests/adversary/login-email-change-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'login-email-change-semantic',
+    targetPath,
+    body: [
+      "const { evaluateLoginEmailChange } = require('../../src/login-email-change.cjs');",
+      'const account = { id: "acct-1", status: "active", emailVerified: true };',
+      'const request = { id: "req-1", authenticated: true, mfaPassed: true, riskScore: 20, requestedAt: "2026-07-04T00:00:00.000Z" };',
+      'const newEmail = { fingerprint: "email-1", value: "new@example.com", domain: "example.com", verified: true, disposable: false };',
+      'const policy = { requireMfa: true, allowedDomains: ["example.com", "coreline.ai"], blockedDomains: ["blocked.test"], disallowDisposable: true, maxRiskScoreAutoApprove: 50, manualReviewRiskScore: 80, cooldownUntil: null };',
+      'const ledger = { emailFingerprints: [] };',
+      'const now = "2026-07-04T00:30:00.000Z";',
+      'const cases = [',
+      '  [account, request, newEmail, policy, ledger, now, { status: "approved", reason: null, changeAllowed: true, requiresManualReview: false, emailChanged: true }],',
+      '  [{ ...account, status: "suspended" }, request, newEmail, policy, ledger, now, { status: "blocked", reason: "account_not_active", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [{ ...account, emailVerified: false }, request, newEmail, policy, ledger, now, { status: "blocked", reason: "email_not_verified", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, { ...request, authenticated: false }, newEmail, policy, ledger, now, { status: "blocked", reason: "authentication_required", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, { ...request, mfaPassed: false }, newEmail, policy, ledger, now, { status: "blocked", reason: "mfa_required", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, request, { ...newEmail, verified: false }, policy, ledger, now, { status: "blocked", reason: "new_email_not_verified", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, request, { ...newEmail, domain: "other.example" }, policy, ledger, now, { status: "blocked", reason: "email_domain_not_allowed", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, request, { ...newEmail, domain: "blocked.test" }, policy, ledger, now, { status: "blocked", reason: "email_domain_blocked", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, request, { ...newEmail, disposable: true }, policy, ledger, now, { status: "blocked", reason: "disposable_email_not_allowed", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, request, newEmail, policy, { emailFingerprints: ["email-1"] }, now, { status: "blocked", reason: "duplicate_email", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, request, newEmail, { ...policy, cooldownUntil: "2026-07-04T02:00:00.000Z" }, ledger, now, { status: "blocked", reason: "email_change_cooldown_active", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, { ...request, riskScore: 65 }, newEmail, policy, ledger, now, { status: "blocked", reason: "risk_score_too_high", changeAllowed: false, requiresManualReview: false, emailChanged: false }],',
+      '  [account, { ...request, riskScore: 90 }, newEmail, policy, ledger, now, { status: "manual_review", reason: "risk_manual_review", changeAllowed: false, requiresManualReview: true, emailChanged: false }]',
+      '];',
+      'for (const [itemAccount, itemRequest, itemEmail, itemPolicy, itemLedger, itemNow, expected] of cases) {',
+      '  const actual = evaluateLoginEmailChange(itemAccount, itemRequest, itemEmail, itemPolicy, itemLedger, itemNow);',
+      '  for (const [key, expectedValue] of Object.entries(expected)) {',
+      '    if (actual[key] !== expectedValue) {',
+      '      console.error(key, expectedValue, actual);',
+      '      process.exit(1);',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2777,6 +2822,22 @@ export function buildAdversaryLiveFilterConfig() {
       'po_box_not_allowed',
       'duplicate_address',
       'address_update_cooldown_active',
+      'loginEmailChange',
+      'login-email-change',
+      'evaluateLoginEmailChange',
+      'login email change',
+      'emailChanged',
+      'changeAllowed',
+      'emailFingerprints',
+      'allowedDomains',
+      'blockedDomains',
+      'disallowDisposable',
+      'new_email_not_verified',
+      'email_domain_not_allowed',
+      'email_domain_blocked',
+      'disposable_email_not_allowed',
+      'duplicate_email',
+      'email_change_cooldown_active',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2998,6 +3059,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.paymentMethodUpdateHardcoded === 'fail';
   const shippingAddressUpdateHardcodePassed =
     gates?.good === 'pass' && gates?.shippingAddressUpdateHardcoded === 'fail';
+  const loginEmailChangeHardcodePassed =
+    gates?.good === 'pass' && gates?.loginEmailChangeHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -3657,6 +3720,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       shipping_address_update_hardcoded_gate_status:
         gates?.shippingAddressUpdateHardcoded ?? null
+    },
+    {
+      id: 'login_email_change_hardcode',
+      ...common('login_email_change_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:login_email_change_semantic',
+      executed: true,
+      blocked: loginEmailChangeHardcodePassed,
+      passed: loginEmailChangeHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      login_email_change_hardcoded_gate_status:
+        gates?.loginEmailChangeHardcoded ?? null
     }
   ];
 }

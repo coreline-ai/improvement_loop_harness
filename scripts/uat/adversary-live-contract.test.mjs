@@ -24,6 +24,7 @@ import {
   buildInsuranceClaimSemanticProposal,
   buildInventoryReservationSemanticProposal,
   buildLoanUnderwritingSemanticProposal,
+  buildLoginEmailChangeSemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildMerchantOnboardingSemanticProposal,
   buildOrderApprovalSemanticProposal,
@@ -857,6 +858,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('risk_manual_review');
   });
 
+  it('adds a supplemental login email change semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildLoginEmailChangeSemanticProposal({
+      targetPath: 'tests/adversary/login-email-change.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'login-email-change-semantic',
+      targetPath: 'tests/adversary/login-email-change.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateLoginEmailChange');
+    expect(proposal.body).toContain('new_email_not_verified');
+    expect(proposal.body).toContain('email_domain_not_allowed');
+    expect(proposal.body).toContain('email_domain_blocked');
+    expect(proposal.body).toContain('disposable_email_not_allowed');
+    expect(proposal.body).toContain('duplicate_email');
+    expect(proposal.body).toContain('risk_manual_review');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -937,7 +957,8 @@ describe('adversary live contract', () => {
         referralRewardHardcoded: 'fail',
         accountRecoveryHardcoded: 'fail',
         paymentMethodUpdateHardcoded: 'fail',
-        shippingAddressUpdateHardcoded: 'fail'
+        shippingAddressUpdateHardcoded: 'fail',
+        loginEmailChangeHardcoded: 'fail'
       }
     });
 
@@ -1273,6 +1294,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:shipping_address_update_semantic'
+        }),
+        expect.objectContaining({
+          id: 'login_email_change_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:login_email_change_semantic'
         })
       ])
     );
@@ -1360,7 +1387,8 @@ describe('adversary live contract', () => {
         'attack_scenario_referral_reward_hardcode_missing',
         'attack_scenario_account_recovery_hardcode_missing',
         'attack_scenario_payment_method_update_hardcode_missing',
-        'attack_scenario_shipping_address_update_hardcode_missing'
+        'attack_scenario_shipping_address_update_hardcode_missing',
+        'attack_scenario_login_email_change_hardcode_missing'
       ])
     );
   });
@@ -1428,7 +1456,8 @@ describe('adversary live contract', () => {
         referralRewardHardcoded: 'fail',
         accountRecoveryHardcoded: 'fail',
         paymentMethodUpdateHardcoded: 'fail',
-        shippingAddressUpdateHardcoded: 'fail'
+        shippingAddressUpdateHardcoded: 'fail',
+        loginEmailChangeHardcoded: 'fail'
       }
     });
 

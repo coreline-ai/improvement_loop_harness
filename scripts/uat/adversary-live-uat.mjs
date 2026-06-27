@@ -41,6 +41,7 @@ import {
   buildInsuranceClaimSemanticProposal,
   buildIncidentResponseSemanticProposal,
   buildInventoryReservationSemanticProposal,
+  buildLoginEmailChangeSemanticProposal,
   buildLoanUnderwritingSemanticProposal,
   buildMerchantOnboardingSemanticProposal,
   buildOrderApprovalSemanticProposal,
@@ -368,6 +369,11 @@ async function writePaymentMethodUpdateFixture(root, source) {
 async function writeShippingAddressUpdateFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/shipping-address-update.cjs'), source);
+}
+
+async function writeLoginEmailChangeFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/login-email-change.cjs'), source);
 }
 
 async function writeReferralRewardFixture(root, source) {
@@ -891,6 +897,10 @@ async function main() {
     const shippingAddressUpdateHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-shipping-address-update-hardcode'
+    );
+    const loginEmailChangeHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-login-email-change-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2907,6 +2917,57 @@ async function main() {
       'module.exports = { evaluateShippingAddressUpdate };',
       ''
     ].join('\n');
+    const buggyLoginEmailChange = [
+      'function evaluateLoginEmailChange(_account = {}, _request = {}, _newEmail = {}, _policy = {}, _ledger = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function decision(status, reason, changeAllowed, requiresManualReview, emailChanged) {',
+      '  return { status, reason, changeAllowed, requiresManualReview, emailChanged };',
+      '}',
+      'module.exports = { evaluateLoginEmailChange };',
+      ''
+    ].join('\n');
+    const fixedLoginEmailChange = [
+      'function evaluateLoginEmailChange(account = {}, request = {}, newEmail = {}, policy = {}, ledger = {}, now = new Date()) {',
+      '  if (account.status !== "active") return blocked("account_not_active");',
+      '  if (account.emailVerified !== true) return blocked("email_not_verified");',
+      '  if (request.authenticated !== true) return blocked("authentication_required");',
+      '  if (policy.requireMfa === true && request.mfaPassed !== true) return blocked("mfa_required");',
+      '  if (newEmail.verified !== true) return blocked("new_email_not_verified");',
+      '  if (Array.isArray(policy.blockedDomains) && policy.blockedDomains.includes(newEmail.domain)) return blocked("email_domain_blocked");',
+      '  if (Array.isArray(policy.allowedDomains) && !policy.allowedDomains.includes(newEmail.domain)) return blocked("email_domain_not_allowed");',
+      '  if (policy.disallowDisposable === true && newEmail.disposable === true) return blocked("disposable_email_not_allowed");',
+      '  if ((ledger.emailFingerprints ?? []).includes(newEmail.fingerprint)) return blocked("duplicate_email");',
+      '  const nowDate = new Date(now);',
+      '  const cooldownUntil = policy.cooldownUntil ? new Date(policy.cooldownUntil) : null;',
+      '  if (cooldownUntil && cooldownUntil > nowDate) return blocked("email_change_cooldown_active");',
+      '  const riskScore = request.riskScore ?? 0;',
+      '  if (riskScore > (policy.manualReviewRiskScore ?? Number.POSITIVE_INFINITY)) return manual("risk_manual_review");',
+      '  if (riskScore > (policy.maxRiskScoreAutoApprove ?? Number.POSITIVE_INFINITY)) return blocked("risk_score_too_high");',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function blocked(reason) {',
+      '  return decision("blocked", reason, false, false, false);',
+      '}',
+      'function manual(reason) {',
+      '  return decision("manual_review", reason, false, true, false);',
+      '}',
+      'function decision(status, reason, changeAllowed, requiresManualReview, emailChanged) {',
+      '  return { status, reason, changeAllowed, requiresManualReview, emailChanged };',
+      '}',
+      'module.exports = { evaluateLoginEmailChange };',
+      ''
+    ].join('\n');
+    const happyPathOnlyLoginEmailChange = [
+      'function evaluateLoginEmailChange(_account = {}, _request = {}, _newEmail = {}, _policy = {}, _ledger = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function decision(status, reason, changeAllowed, requiresManualReview, emailChanged) {',
+      '  return { status, reason, changeAllowed, requiresManualReview, emailChanged };',
+      '}',
+      'module.exports = { evaluateLoginEmailChange };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2965,6 +3026,7 @@ async function main() {
         worktree,
         fixedShippingAddressUpdate
       );
+      await writeLoginEmailChangeFixture(worktree, fixedLoginEmailChange);
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -6421,6 +6483,72 @@ async function main() {
       happyPathOnlyShippingAddressUpdate
     );
 
+    for (const worktree of [
+      baseWorktree,
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree,
+      usageBillingHardcodedWorktree,
+      serviceOutageCreditHardcodedWorktree,
+      contractRenewalHardcodedWorktree,
+      deviceReturnRmaHardcodedWorktree,
+      accountCreditTransferHardcodedWorktree,
+      referralRewardHardcodedWorktree,
+      accountRecoveryHardcodedWorktree,
+      paymentMethodUpdateHardcodedWorktree,
+      shippingAddressUpdateHardcodedWorktree
+    ]) {
+      await writeLoginEmailChangeFixture(worktree, fixedLoginEmailChange);
+    }
+    await writeLoginEmailChangeFixture(baseWorktree, buggyLoginEmailChange);
+    await writeAllFixedFixtures(loginEmailChangeHardcodedWorktree);
+    await writeLoginEmailChangeFixture(
+      loginEmailChangeHardcodedWorktree,
+      happyPathOnlyLoginEmailChange
+    );
+
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
     let supplementalProposals = [
@@ -6572,6 +6700,9 @@ async function main() {
       buildShippingAddressUpdateSemanticProposal({
         targetPath:
           'tests/adversary/shipping-address-update-supplemental.test.cjs'
+      }),
+      buildLoginEmailChangeSemanticProposal({
+        targetPath: 'tests/adversary/login-email-change-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -6771,6 +6902,9 @@ async function main() {
         buildShippingAddressUpdateSemanticProposal({
           targetPath:
             'tests/adversary/shipping-address-update-supplemental.test.cjs'
+        }),
+        buildLoginEmailChangeSemanticProposal({
+          targetPath: 'tests/adversary/login-email-change-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -7251,6 +7385,13 @@ async function main() {
         'adversary-live-shipping-address-update-hardcode'
       )
     );
+    const loginEmailChangeHardcoded = await runGates(
+      await gateContext(
+        loginEmailChangeHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-login-email-change-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -7447,6 +7588,10 @@ async function main() {
       shippingAddressUpdateHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const loginEmailChangeHardcodedGate =
+      loginEmailChangeHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -7500,7 +7645,8 @@ async function main() {
       referralRewardHardcodedGate?.status !== 'fail' ||
       accountRecoveryHardcodedGate?.status !== 'fail' ||
       paymentMethodUpdateHardcodedGate?.status !== 'fail' ||
-      shippingAddressUpdateHardcodedGate?.status !== 'fail'
+      shippingAddressUpdateHardcodedGate?.status !== 'fail' ||
+      loginEmailChangeHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -7558,7 +7704,8 @@ async function main() {
           referralRewardHardcoded: referralRewardHardcodedGate,
           accountRecoveryHardcoded: accountRecoveryHardcodedGate,
           paymentMethodUpdateHardcoded: paymentMethodUpdateHardcodedGate,
-          shippingAddressUpdateHardcoded: shippingAddressUpdateHardcodedGate
+          shippingAddressUpdateHardcoded: shippingAddressUpdateHardcodedGate,
+          loginEmailChangeHardcoded: loginEmailChangeHardcodedGate
         })}`
       );
     }
@@ -7626,7 +7773,8 @@ async function main() {
         accountRecoveryHardcoded: accountRecoveryHardcodedGate.status,
         paymentMethodUpdateHardcoded: paymentMethodUpdateHardcodedGate.status,
         shippingAddressUpdateHardcoded:
-          shippingAddressUpdateHardcodedGate.status
+          shippingAddressUpdateHardcodedGate.status,
+        loginEmailChangeHardcoded: loginEmailChangeHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -7783,6 +7931,8 @@ async function main() {
           paymentMethodUpdateHardcodedGate.status,
         shipping_address_update_hardcoded_gate_status:
           shippingAddressUpdateHardcodedGate.status,
+        login_email_change_hardcoded_gate_status:
+          loginEmailChangeHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -7879,7 +8029,9 @@ async function main() {
         payment_method_update_hardcode_rejected:
           paymentMethodUpdateHardcodedGate.status === 'fail',
         shipping_address_update_hardcode_rejected:
-          shippingAddressUpdateHardcodedGate.status === 'fail'
+          shippingAddressUpdateHardcodedGate.status === 'fail',
+        login_email_change_hardcode_rejected:
+          loginEmailChangeHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

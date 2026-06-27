@@ -168,7 +168,8 @@ function attackScenarios() {
     'referral_reward_hardcode',
     'account_recovery_hardcode',
     'payment_method_update_hardcode',
-    'shipping_address_update_hardcode'
+    'shipping_address_update_hardcode',
+    'login_email_change_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -247,6 +248,8 @@ function attackScenarios() {
       'rulepack_semantic:payment_method_update_semantic',
     shipping_address_update_hardcode:
       'rulepack_semantic:shipping_address_update_semantic',
+    login_email_change_hardcode:
+      'rulepack_semantic:login_email_change_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
