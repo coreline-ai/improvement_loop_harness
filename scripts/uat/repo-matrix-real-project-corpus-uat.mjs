@@ -1327,6 +1327,26 @@ function buildBackupRestoreVerifier(cases) {
   ].join('\n');
 }
 
+function buildServiceOutageCreditVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateServiceCredit } = require(process.cwd() + '/examples/business-source/service-outage-credit.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateServiceCredit(item.account, item.incident, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -5882,6 +5902,299 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             restoreAllowed: false,
             requiresManualReview: true,
             emergencyOverrideRequired: false
+          }
+        }
+      ])
+  },
+  {
+    id: 'service-outage-sla-credit',
+    semantic_domain: 'service_outage_sla_credit_threshold_gate',
+    business_source_repair: true,
+    business_domain: 'service_outage_credit',
+    relativePath: 'examples/business-source/service-outage-credit.cjs',
+    language: 'javascript',
+    originalNeedle:
+      '  if ((incident.durationMinutes ?? 0) < minOutageMinutes) {',
+    regressionText: '  if ((incident.durationMinutes ?? 0) < 0) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildServiceOutageCreditVerifier([
+        {
+          name: 'eligible resolved outage earns capped service credit',
+          account: {
+            id: 'acct_visible_approved',
+            status: 'active',
+            plan: 'business',
+            region: 'us-east',
+            monthlyFeeCents: 20000,
+            hasOpenDispute: false
+          },
+          incident: {
+            id: 'inc_visible_approved',
+            status: 'resolved',
+            customerImpacted: true,
+            durationMinutes: 125,
+            region: 'us-east',
+            excludedMaintenance: false
+          },
+          policy: {
+            minOutageMinutes: 60,
+            creditPercent: 25,
+            maxCreditCents: 4000,
+            requireRegionMatch: true,
+            excludedPlans: ['free']
+          },
+          now: '2026-06-27T13:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            creditEligible: true,
+            requiresManualReview: false,
+            creditCents: 4000
+          }
+        },
+        {
+          name: 'short outage below SLA threshold is blocked',
+          account: {
+            id: 'acct_visible_short',
+            status: 'active',
+            plan: 'business',
+            region: 'us-east',
+            monthlyFeeCents: 10000,
+            hasOpenDispute: false
+          },
+          incident: {
+            id: 'inc_visible_short',
+            status: 'resolved',
+            customerImpacted: true,
+            durationMinutes: 30,
+            region: 'us-east',
+            excludedMaintenance: false
+          },
+          policy: {
+            minOutageMinutes: 60,
+            creditPercent: 25,
+            maxCreditCents: 4000,
+            requireRegionMatch: true,
+            excludedPlans: ['free']
+          },
+          now: '2026-06-27T13:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'outage_below_sla_threshold',
+            creditEligible: false,
+            requiresManualReview: false,
+            creditCents: 0
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildServiceOutageCreditVerifier([
+        {
+          name: 'hidden threshold boundary is eligible when equal to SLA',
+          account: {
+            id: 'acct_hidden_boundary',
+            status: 'active',
+            plan: 'enterprise',
+            region: 'eu-west',
+            monthlyFeeCents: 12000,
+            hasOpenDispute: false
+          },
+          incident: {
+            id: 'inc_hidden_boundary',
+            status: 'resolved',
+            customerImpacted: true,
+            durationMinutes: 60,
+            region: 'eu-west',
+            excludedMaintenance: false
+          },
+          policy: {
+            minOutageMinutes: 60,
+            creditPercent: 10,
+            maxCreditCents: 5000,
+            requireRegionMatch: true,
+            excludedPlans: ['free']
+          },
+          now: '2026-06-27T13:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            creditEligible: true,
+            requiresManualReview: false,
+            creditCents: 1200
+          }
+        },
+        {
+          name: 'hidden short outage is blocked',
+          account: {
+            id: 'acct_hidden_short',
+            status: 'active',
+            plan: 'business',
+            region: 'us-west',
+            monthlyFeeCents: 14000,
+            hasOpenDispute: false
+          },
+          incident: {
+            id: 'inc_hidden_short',
+            status: 'resolved',
+            customerImpacted: true,
+            durationMinutes: 59,
+            region: 'us-west',
+            excludedMaintenance: false
+          },
+          policy: {
+            minOutageMinutes: 60,
+            creditPercent: 25,
+            maxCreditCents: 4000,
+            requireRegionMatch: true,
+            excludedPlans: ['free']
+          },
+          now: '2026-06-27T13:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'outage_below_sla_threshold',
+            creditEligible: false,
+            requiresManualReview: false,
+            creditCents: 0
+          }
+        },
+        {
+          name: 'unresolved incident needs manual review',
+          account: {
+            id: 'acct_hidden_unresolved',
+            status: 'active',
+            plan: 'business',
+            region: 'us-east',
+            monthlyFeeCents: 15000,
+            hasOpenDispute: false
+          },
+          incident: {
+            id: 'inc_hidden_unresolved',
+            status: 'investigating',
+            customerImpacted: true,
+            durationMinutes: 120,
+            region: 'us-east',
+            excludedMaintenance: false
+          },
+          policy: {
+            minOutageMinutes: 60,
+            creditPercent: 25,
+            maxCreditCents: 4000,
+            requireRegionMatch: true,
+            excludedPlans: ['free']
+          },
+          now: '2026-06-27T13:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'incident_not_resolved',
+            creditEligible: false,
+            requiresManualReview: true,
+            creditCents: 0
+          }
+        },
+        {
+          name: 'region mismatch is blocked',
+          account: {
+            id: 'acct_hidden_region',
+            status: 'active',
+            plan: 'business',
+            region: 'us-east',
+            monthlyFeeCents: 16000,
+            hasOpenDispute: false
+          },
+          incident: {
+            id: 'inc_hidden_region',
+            status: 'resolved',
+            customerImpacted: true,
+            durationMinutes: 120,
+            region: 'eu-west',
+            excludedMaintenance: false
+          },
+          policy: {
+            minOutageMinutes: 60,
+            creditPercent: 25,
+            maxCreditCents: 4000,
+            requireRegionMatch: true,
+            excludedPlans: ['free']
+          },
+          now: '2026-06-27T13:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'region_mismatch',
+            creditEligible: false,
+            requiresManualReview: false,
+            creditCents: 0
+          }
+        },
+        {
+          name: 'maintenance exclusion is manual review',
+          account: {
+            id: 'acct_hidden_maintenance',
+            status: 'active',
+            plan: 'business',
+            region: 'us-east',
+            monthlyFeeCents: 16000,
+            hasOpenDispute: false
+          },
+          incident: {
+            id: 'inc_hidden_maintenance',
+            status: 'resolved',
+            customerImpacted: true,
+            durationMinutes: 120,
+            region: 'us-east',
+            excludedMaintenance: true
+          },
+          policy: {
+            minOutageMinutes: 60,
+            creditPercent: 25,
+            maxCreditCents: 4000,
+            requireRegionMatch: true,
+            excludedPlans: ['free']
+          },
+          now: '2026-06-27T13:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'maintenance_exclusion_review',
+            creditEligible: false,
+            requiresManualReview: true,
+            creditCents: 0
+          }
+        },
+        {
+          name: 'open account dispute is manual review',
+          account: {
+            id: 'acct_hidden_dispute',
+            status: 'active',
+            plan: 'business',
+            region: 'us-east',
+            monthlyFeeCents: 16000,
+            hasOpenDispute: true
+          },
+          incident: {
+            id: 'inc_hidden_dispute',
+            status: 'resolved',
+            customerImpacted: true,
+            durationMinutes: 120,
+            region: 'us-east',
+            excludedMaintenance: false
+          },
+          policy: {
+            minOutageMinutes: 60,
+            creditPercent: 25,
+            maxCreditCents: 4000,
+            requireRegionMatch: true,
+            excludedPlans: ['free']
+          },
+          now: '2026-06-27T13:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'open_dispute_review',
+            creditEligible: false,
+            requiresManualReview: true,
+            creditCents: 0
           }
         }
       ])
