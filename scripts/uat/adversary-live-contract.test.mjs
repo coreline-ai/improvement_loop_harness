@@ -7,6 +7,7 @@ import {
   buildAdversaryLiveFilterConfig,
   buildAdversaryLiveReviewInput,
   buildAccountClosureSemanticProposal,
+  buildAccountRecoverySemanticProposal,
   buildAccessReviewSemanticProposal,
   buildAppointmentCancellationSemanticProposal,
   buildBackupRestoreSemanticProposal,
@@ -797,6 +798,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('reward_manual_review_threshold');
   });
 
+  it('adds a supplemental account recovery semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildAccountRecoverySemanticProposal({
+      targetPath: 'tests/adversary/account-recovery.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'account-recovery-semantic',
+      targetPath: 'tests/adversary/account-recovery.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateAccountRecovery');
+    expect(proposal.body).toContain('recovery_request_not_verified');
+    expect(proposal.body).toContain('recovery_token_expired');
+    expect(proposal.body).toContain('recovery_token_replayed');
+    expect(proposal.body).toContain('mfa_required');
+    expect(proposal.body).toContain('untrusted_device');
+    expect(proposal.body).toContain('risk_manual_review');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -874,7 +894,8 @@ describe('adversary live contract', () => {
         contractRenewalHardcoded: 'fail',
         deviceReturnRmaHardcoded: 'fail',
         accountCreditTransferHardcoded: 'fail',
-        referralRewardHardcoded: 'fail'
+        referralRewardHardcoded: 'fail',
+        accountRecoveryHardcoded: 'fail'
       }
     });
 
@@ -1192,6 +1213,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:referral_reward_semantic'
+        }),
+        expect.objectContaining({
+          id: 'account_recovery_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:account_recovery_semantic'
         })
       ])
     );
@@ -1276,7 +1303,8 @@ describe('adversary live contract', () => {
         'attack_scenario_contract_renewal_hardcode_missing',
         'attack_scenario_device_return_rma_hardcode_missing',
         'attack_scenario_account_credit_transfer_hardcode_missing',
-        'attack_scenario_referral_reward_hardcode_missing'
+        'attack_scenario_referral_reward_hardcode_missing',
+        'attack_scenario_account_recovery_hardcode_missing'
       ])
     );
   });
@@ -1341,7 +1369,8 @@ describe('adversary live contract', () => {
         contractRenewalHardcoded: 'fail',
         deviceReturnRmaHardcoded: 'fail',
         accountCreditTransferHardcoded: 'fail',
-        referralRewardHardcoded: 'fail'
+        referralRewardHardcoded: 'fail',
+        accountRecoveryHardcoded: 'fail'
       }
     });
 

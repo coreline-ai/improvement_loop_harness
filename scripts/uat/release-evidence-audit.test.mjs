@@ -165,7 +165,8 @@ function attackScenarios() {
     'contract_renewal_hardcode',
     'device_return_rma_hardcode',
     'account_credit_transfer_hardcode',
-    'referral_reward_hardcode'
+    'referral_reward_hardcode',
+    'account_recovery_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -239,6 +240,7 @@ function attackScenarios() {
     account_credit_transfer_hardcode:
       'rulepack_semantic:account_credit_transfer_semantic',
     referral_reward_hardcode: 'rulepack_semantic:referral_reward_semantic',
+    account_recovery_hardcode: 'rulepack_semantic:account_recovery_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };

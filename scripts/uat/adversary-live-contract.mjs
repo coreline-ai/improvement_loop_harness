@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward/account recovery',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, or referral reward semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, referral reward, or account recovery semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -207,7 +207,8 @@ export function buildAdversaryLiveReviewInput({
         'contract renewal semantic test',
         'device return RMA semantic test',
         'account credit transfer semantic test',
-        'referral reward semantic test'
+        'referral reward semantic test',
+        'account recovery semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1986,6 +1987,49 @@ export function buildReferralRewardSemanticProposal({
   };
 }
 
+export function buildAccountRecoverySemanticProposal({
+  targetPath = 'tests/adversary/account-recovery-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'account-recovery-semantic',
+    targetPath,
+    body: [
+      "const { evaluateAccountRecovery } = require('../../src/account-recovery.cjs');",
+      'const account = { id: "acct-1", status: "active", emailVerified: true, mfaEnabled: true };',
+      'const request = { id: "req-1", verified: true, requestedAt: "2026-07-04T00:00:00.000Z", deviceId: "dev-1", mfaPassed: true, riskScore: 20 };',
+      'const token = { value: "tok-1", expiresAt: "2026-07-04T01:00:00.000Z", used: false };',
+      'const policy = { requireMfa: true, trustedDeviceIds: ["dev-1"], maxRiskScoreAutoApprove: 50, manualReviewRiskScore: 80, cooldownUntil: null };',
+      'const ledger = { usedTokenValues: [] };',
+      'const now = "2026-07-04T00:30:00.000Z";',
+      'const cases = [',
+      '  [account, request, token, policy, ledger, now, { status: "approved", reason: null, recoveryAllowed: true, requiresManualReview: false, sessionIssued: true }],',
+      '  [{ ...account, status: "suspended" }, request, token, policy, ledger, now, { status: "blocked", reason: "account_not_active", recoveryAllowed: false, requiresManualReview: false, sessionIssued: false }],',
+      '  [{ ...account, emailVerified: false }, request, token, policy, ledger, now, { status: "blocked", reason: "email_not_verified", recoveryAllowed: false, requiresManualReview: false, sessionIssued: false }],',
+      '  [account, { ...request, verified: false }, token, policy, ledger, now, { status: "blocked", reason: "recovery_request_not_verified", recoveryAllowed: false, requiresManualReview: false, sessionIssued: false }],',
+      '  [account, request, { ...token, expiresAt: "2026-07-03T23:59:00.000Z" }, policy, ledger, now, { status: "blocked", reason: "recovery_token_expired", recoveryAllowed: false, requiresManualReview: false, sessionIssued: false }],',
+      '  [account, request, { ...token, used: true }, policy, ledger, now, { status: "blocked", reason: "recovery_token_used", recoveryAllowed: false, requiresManualReview: false, sessionIssued: false }],',
+      '  [account, request, token, policy, { usedTokenValues: ["tok-1"] }, now, { status: "blocked", reason: "recovery_token_replayed", recoveryAllowed: false, requiresManualReview: false, sessionIssued: false }],',
+      '  [account, { ...request, mfaPassed: false }, token, policy, ledger, now, { status: "blocked", reason: "mfa_required", recoveryAllowed: false, requiresManualReview: false, sessionIssued: false }],',
+      '  [account, request, token, { ...policy, cooldownUntil: "2026-07-04T02:00:00.000Z" }, ledger, now, { status: "blocked", reason: "recovery_cooldown_active", recoveryAllowed: false, requiresManualReview: false, sessionIssued: false }],',
+      '  [account, { ...request, deviceId: "unknown-device" }, token, policy, ledger, now, { status: "manual_review", reason: "untrusted_device", recoveryAllowed: false, requiresManualReview: true, sessionIssued: false }],',
+      '  [account, { ...request, riskScore: 65 }, token, policy, ledger, now, { status: "blocked", reason: "risk_score_too_high", recoveryAllowed: false, requiresManualReview: false, sessionIssued: false }],',
+      '  [account, { ...request, riskScore: 90 }, token, policy, ledger, now, { status: "manual_review", reason: "risk_manual_review", recoveryAllowed: false, requiresManualReview: true, sessionIssued: false }]',
+      '];',
+      'for (const [itemAccount, itemRequest, itemToken, itemPolicy, itemLedger, itemNow, expected] of cases) {',
+      '  const actual = evaluateAccountRecovery(itemAccount, itemRequest, itemToken, itemPolicy, itemLedger, itemNow);',
+      '  for (const [key, expectedValue] of Object.entries(expected)) {',
+      '    if (actual[key] !== expectedValue) {',
+      '      console.error(key, expectedValue, actual);',
+      '      process.exit(1);',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2586,6 +2630,29 @@ export function buildAdversaryLiveFilterConfig() {
       'duplicate_reward',
       'reward_not_configured',
       'reward_manual_review_threshold',
+      'accountRecovery',
+      'account-recovery',
+      'evaluateAccountRecovery',
+      'recoveryAllowed',
+      'sessionIssued',
+      'recovery request',
+      'recovery token',
+      'trustedDeviceIds',
+      'mfaPassed',
+      'maxRiskScoreAutoApprove',
+      'manualReviewRiskScore',
+      'cooldownUntil',
+      'account_not_active',
+      'email_not_verified',
+      'recovery_request_not_verified',
+      'recovery_token_expired',
+      'recovery_token_used',
+      'recovery_token_replayed',
+      'mfa_required',
+      'recovery_cooldown_active',
+      'untrusted_device',
+      'risk_score_too_high',
+      'risk_manual_review',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2803,6 +2870,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.accountCreditTransferHardcoded === 'fail';
   const referralRewardHardcodePassed =
     gates?.good === 'pass' && gates?.referralRewardHardcoded === 'fail';
+  const accountRecoveryHardcodePassed =
+    gates?.good === 'pass' && gates?.accountRecoveryHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -3428,6 +3497,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       referral_reward_hardcoded_gate_status:
         gates?.referralRewardHardcoded ?? null
+    },
+    {
+      id: 'account_recovery_hardcode',
+      ...common('account_recovery_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:account_recovery_semantic',
+      executed: true,
+      blocked: accountRecoveryHardcodePassed,
+      passed: accountRecoveryHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      account_recovery_hardcoded_gate_status:
+        gates?.accountRecoveryHardcoded ?? null
     }
   ];
 }

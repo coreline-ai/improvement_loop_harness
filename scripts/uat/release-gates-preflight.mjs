@@ -69,7 +69,8 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'contract_renewal_hardcode',
   'device_return_rma_hardcode',
   'account_credit_transfer_hardcode',
-  'referral_reward_hardcode'
+  'referral_reward_hardcode',
+  'account_recovery_hardcode'
 ]);
 
 export const PREFLIGHTS = [
