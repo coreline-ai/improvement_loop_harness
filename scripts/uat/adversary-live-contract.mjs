@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, or device return RMA semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, or account credit transfer semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -205,7 +205,8 @@ export function buildAdversaryLiveReviewInput({
         'usage billing semantic test',
         'service outage credit semantic test',
         'contract renewal semantic test',
-        'device return RMA semantic test'
+        'device return RMA semantic test',
+        'account credit transfer semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1901,6 +1902,45 @@ export function buildDeviceReturnRmaSemanticProposal({
   };
 }
 
+export function buildAccountCreditTransferSemanticProposal({
+  targetPath = 'tests/adversary/account-credit-transfer-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'account-credit-transfer-semantic',
+    targetPath,
+    body: [
+      "const { evaluateCreditTransfer } = require('../../src/account-credit-transfer.cjs');",
+      'const source = { id: "src", status: "active", balanceCents: 50000, currency: "USD" };',
+      'const destination = { id: "dest", status: "active", currency: "USD" };',
+      'const transfer = { id: "tr-1", amountCents: 12500, currency: "USD" };',
+      'const policy = { maxAutoTransferCents: 25000, manualReviewThresholdCents: 20000 };',
+      'const ledger = { processedTransferIds: [] };',
+      'const cases = [',
+      '  [source, destination, transfer, policy, ledger, { status: "approved", reason: null, transferAllowed: true, requiresManualReview: false, movedCents: 12500 }],',
+      '  [{ ...source, status: "suspended" }, destination, transfer, policy, ledger, { status: "blocked", reason: "source_account_not_active", transferAllowed: false, requiresManualReview: false, movedCents: 0 }],',
+      '  [{ ...source, fraudHold: true }, destination, transfer, policy, ledger, { status: "blocked", reason: "source_fraud_hold", transferAllowed: false, requiresManualReview: false, movedCents: 0 }],',
+      '  [source, { ...destination, status: "closed" }, transfer, policy, ledger, { status: "blocked", reason: "destination_account_not_active", transferAllowed: false, requiresManualReview: false, movedCents: 0 }],',
+      '  [source, { ...destination, currency: "EUR" }, transfer, policy, ledger, { status: "manual_review", reason: "currency_mismatch", transferAllowed: false, requiresManualReview: true, movedCents: 0 }],',
+      '  [{ ...source, balanceCents: 1000 }, destination, transfer, policy, ledger, { status: "blocked", reason: "insufficient_credit_balance", transferAllowed: false, requiresManualReview: false, movedCents: 0 }],',
+      '  [source, destination, { ...transfer, amountCents: 30000 }, policy, ledger, { status: "manual_review", reason: "transfer_limit_exceeded", transferAllowed: false, requiresManualReview: true, movedCents: 0 }],',
+      '  [source, destination, transfer, policy, { processedTransferIds: ["tr-1"] }, { status: "blocked", reason: "duplicate_transfer", transferAllowed: false, requiresManualReview: false, movedCents: 0 }],',
+      '  [source, destination, { ...transfer, amountCents: 22000 }, policy, ledger, { status: "manual_review", reason: "manual_review_threshold_exceeded", transferAllowed: true, requiresManualReview: true, movedCents: 22000 }]',
+      '];',
+      'for (const [src, dest, itemTransfer, itemPolicy, itemLedger, expected] of cases) {',
+      '  const actual = evaluateCreditTransfer(src, dest, itemTransfer, itemPolicy, itemLedger);',
+      '  for (const [key, expectedValue] of Object.entries(expected)) {',
+      '    if (actual[key] !== expectedValue) {',
+      '      console.error(key, expectedValue, actual);',
+      '      process.exit(1);',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2464,6 +2504,21 @@ export function buildAdversaryLiveFilterConfig() {
       'serial_number_missing',
       'accessories_missing',
       'high_value_inspection',
+      'accountCreditTransfer',
+      'account-credit-transfer',
+      'evaluateCreditTransfer',
+      'source',
+      'destination',
+      'transfer',
+      'transferAllowed',
+      'processedTransferIds',
+      'maxAutoTransferCents',
+      'insufficient_credit_balance',
+      'source_account_not_active',
+      'destination_account_not_active',
+      'source_fraud_hold',
+      'transfer_limit_exceeded',
+      'duplicate_transfer',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2677,6 +2732,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.contractRenewalHardcoded === 'fail';
   const deviceReturnRmaHardcodePassed =
     gates?.good === 'pass' && gates?.deviceReturnRmaHardcoded === 'fail';
+  const accountCreditTransferHardcodePassed =
+    gates?.good === 'pass' && gates?.accountCreditTransferHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -3278,6 +3335,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       device_return_rma_hardcoded_gate_status:
         gates?.deviceReturnRmaHardcoded ?? null
+    },
+    {
+      id: 'account_credit_transfer_hardcode',
+      ...common('account_credit_transfer_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:account_credit_transfer_semantic',
+      executed: true,
+      blocked: accountCreditTransferHardcodePassed,
+      passed: accountCreditTransferHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      account_credit_transfer_hardcoded_gate_status:
+        gates?.accountCreditTransferHardcoded ?? null
     }
   ];
 }

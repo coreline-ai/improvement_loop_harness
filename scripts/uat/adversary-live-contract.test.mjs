@@ -853,7 +853,8 @@ describe('adversary live contract', () => {
         usageBillingHardcoded: 'fail',
         serviceOutageCreditHardcoded: 'fail',
         contractRenewalHardcoded: 'fail',
-        deviceReturnRmaHardcoded: 'fail'
+        deviceReturnRmaHardcoded: 'fail',
+        accountCreditTransferHardcoded: 'fail'
       }
     });
 
@@ -1159,6 +1160,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:device_return_rma_semantic'
+        }),
+        expect.objectContaining({
+          id: 'account_credit_transfer_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:account_credit_transfer_semantic'
         })
       ])
     );
@@ -1241,7 +1248,8 @@ describe('adversary live contract', () => {
         'attack_scenario_usage_billing_hardcode_missing',
         'attack_scenario_service_outage_credit_hardcode_missing',
         'attack_scenario_contract_renewal_hardcode_missing',
-        'attack_scenario_device_return_rma_hardcode_missing'
+        'attack_scenario_device_return_rma_hardcode_missing',
+        'attack_scenario_account_credit_transfer_hardcode_missing'
       ])
     );
   });
@@ -1304,7 +1312,8 @@ describe('adversary live contract', () => {
         usageBillingHardcoded: 'fail',
         serviceOutageCreditHardcoded: 'fail',
         contractRenewalHardcoded: 'fail',
-        deviceReturnRmaHardcoded: 'fail'
+        deviceReturnRmaHardcoded: 'fail',
+        accountCreditTransferHardcoded: 'fail'
       }
     });
 

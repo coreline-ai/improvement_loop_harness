@@ -20,6 +20,7 @@ import {
   buildAdversaryLiveFilterConfig,
   buildAdversaryLiveReviewInput,
   buildAccountClosureSemanticProposal,
+  buildAccountCreditTransferSemanticProposal,
   buildAccessReviewSemanticProposal,
   buildAppointmentCancellationSemanticProposal,
   buildBackupRestoreSemanticProposal,
@@ -343,6 +344,11 @@ async function writeContractRenewalFixture(root, source) {
 async function writeDeviceReturnRmaFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/device-return-rma.cjs'), source);
+}
+
+async function writeAccountCreditTransferFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/account-credit-transfer.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -841,6 +847,10 @@ async function main() {
     const deviceReturnRmaHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-device-return-rma-hardcode'
+    );
+    const accountCreditTransferHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-account-credit-transfer-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2610,6 +2620,45 @@ async function main() {
       'module.exports = { evaluateDeviceReturn };',
       ''
     ].join('\n');
+    const buggyAccountCreditTransfer = [
+      'function evaluateCreditTransfer(_source = {}, _destination = {}, _transfer = {}, _policy = {}, _ledger = {}) {',
+      '  return decision("approved", null, true, false, 0);',
+      '}',
+      'function decision(status, reason, transferAllowed, requiresManualReview, movedCents) {',
+      '  return { status, reason, transferAllowed, requiresManualReview, movedCents };',
+      '}',
+      'module.exports = { evaluateCreditTransfer };',
+      ''
+    ].join('\n');
+    const fixedAccountCreditTransfer = [
+      'function evaluateCreditTransfer(source = {}, destination = {}, transfer = {}, policy = {}, ledger = {}) {',
+      '  const amountCents = transfer.amountCents ?? 0;',
+      '  if (source.status !== "active") return decision("blocked", "source_account_not_active", false, false, 0);',
+      '  if (source.fraudHold === true) return decision("blocked", "source_fraud_hold", false, false, 0);',
+      '  if (destination.status !== "active") return decision("blocked", "destination_account_not_active", false, false, 0);',
+      '  if (source.currency !== transfer.currency || destination.currency !== transfer.currency) return decision("manual_review", "currency_mismatch", false, true, 0);',
+      '  if ((source.balanceCents ?? 0) < amountCents) return decision("blocked", "insufficient_credit_balance", false, false, 0);',
+      '  if (amountCents > (policy.maxAutoTransferCents ?? Number.POSITIVE_INFINITY)) return decision("manual_review", "transfer_limit_exceeded", false, true, 0);',
+      '  if ((ledger.processedTransferIds ?? []).includes(transfer.id)) return decision("blocked", "duplicate_transfer", false, false, 0);',
+      '  if (amountCents > (policy.manualReviewThresholdCents ?? Number.POSITIVE_INFINITY)) return decision("manual_review", "manual_review_threshold_exceeded", true, true, amountCents);',
+      '  return decision("approved", null, true, false, amountCents);',
+      '}',
+      'function decision(status, reason, transferAllowed, requiresManualReview, movedCents) {',
+      '  return { status, reason, transferAllowed, requiresManualReview, movedCents };',
+      '}',
+      'module.exports = { evaluateCreditTransfer };',
+      ''
+    ].join('\n');
+    const happyPathOnlyAccountCreditTransfer = [
+      'function evaluateCreditTransfer(_source = {}, _destination = {}, transfer = {}, _policy = {}, _ledger = {}) {',
+      '  return decision("approved", null, true, false, transfer.amountCents ?? 0);',
+      '}',
+      'function decision(status, reason, transferAllowed, requiresManualReview, movedCents) {',
+      '  return { status, reason, transferAllowed, requiresManualReview, movedCents };',
+      '}',
+      'module.exports = { evaluateCreditTransfer };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2654,6 +2703,10 @@ async function main() {
       await writeServiceOutageCreditFixture(worktree, fixedServiceOutageCredit);
       await writeContractRenewalFixture(worktree, fixedContractRenewal);
       await writeDeviceReturnRmaFixture(worktree, fixedDeviceReturnRma);
+      await writeAccountCreditTransferFixture(
+        worktree,
+        fixedAccountCreditTransfer
+      );
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -5652,6 +5705,72 @@ async function main() {
       happyPathOnlyDeviceReturnRma
     );
 
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree,
+      usageBillingHardcodedWorktree,
+      serviceOutageCreditHardcodedWorktree,
+      contractRenewalHardcodedWorktree,
+      deviceReturnRmaHardcodedWorktree
+    ]) {
+      await writeAccountCreditTransferFixture(
+        worktree,
+        fixedAccountCreditTransfer
+      );
+    }
+    await writeAccountCreditTransferFixture(
+      baseWorktree,
+      buggyAccountCreditTransfer
+    );
+    await writeAllFixedFixtures(accountCreditTransferHardcodedWorktree);
+    await writeAccountCreditTransferFixture(
+      accountCreditTransferHardcodedWorktree,
+      happyPathOnlyAccountCreditTransfer
+    );
+
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
     let supplementalProposals = [
@@ -5786,6 +5905,10 @@ async function main() {
       }),
       buildDeviceReturnRmaSemanticProposal({
         targetPath: 'tests/adversary/device-return-rma-supplemental.test.cjs'
+      }),
+      buildAccountCreditTransferSemanticProposal({
+        targetPath:
+          'tests/adversary/account-credit-transfer-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -5973,6 +6096,10 @@ async function main() {
         }),
         buildDeviceReturnRmaSemanticProposal({
           targetPath: 'tests/adversary/device-return-rma-supplemental.test.cjs'
+        }),
+        buildAccountCreditTransferSemanticProposal({
+          targetPath:
+            'tests/adversary/account-credit-transfer-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -6418,6 +6545,13 @@ async function main() {
         'adversary-live-device-return-rma-hardcode'
       )
     );
+    const accountCreditTransferHardcoded = await runGates(
+      await gateContext(
+        accountCreditTransferHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-account-credit-transfer-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -6600,6 +6734,10 @@ async function main() {
       deviceReturnRmaHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const accountCreditTransferHardcodedGate =
+      accountCreditTransferHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -6648,7 +6786,8 @@ async function main() {
       usageBillingHardcodedGate?.status !== 'fail' ||
       serviceOutageCreditHardcodedGate?.status !== 'fail' ||
       contractRenewalHardcodedGate?.status !== 'fail' ||
-      deviceReturnRmaHardcodedGate?.status !== 'fail'
+      deviceReturnRmaHardcodedGate?.status !== 'fail' ||
+      accountCreditTransferHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -6701,7 +6840,8 @@ async function main() {
           usageBillingHardcoded: usageBillingHardcodedGate,
           serviceOutageCreditHardcoded: serviceOutageCreditHardcodedGate,
           contractRenewalHardcoded: contractRenewalHardcodedGate,
-          deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate
+          deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate,
+          accountCreditTransferHardcoded: accountCreditTransferHardcodedGate
         })}`
       );
     }
@@ -6765,7 +6905,9 @@ async function main() {
         serviceOutageCreditHardcoded:
           serviceOutageCreditHardcodedGate.status,
         contractRenewalHardcoded: contractRenewalHardcodedGate.status,
-        deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate.status
+        deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate.status,
+        accountCreditTransferHardcoded:
+          accountCreditTransferHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -6918,6 +7060,8 @@ async function main() {
           contractRenewalHardcodedGate.status,
         device_return_rma_hardcoded_gate_status:
           deviceReturnRmaHardcodedGate.status,
+        account_credit_transfer_hardcoded_gate_status:
+          accountCreditTransferHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -7006,7 +7150,9 @@ async function main() {
         contract_renewal_hardcode_rejected:
           contractRenewalHardcodedGate.status === 'fail',
         device_return_rma_hardcode_rejected:
-          deviceReturnRmaHardcodedGate.status === 'fail'
+          deviceReturnRmaHardcodedGate.status === 'fail',
+        account_credit_transfer_hardcode_rejected:
+          accountCreditTransferHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
