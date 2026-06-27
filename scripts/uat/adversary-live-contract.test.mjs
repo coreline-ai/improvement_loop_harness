@@ -38,6 +38,7 @@ import {
   buildCartRoundingSemanticProposal,
   buildCartSemanticProposal,
   buildCartTaxSemanticProposal,
+  buildServiceOutageCreditSemanticProposal,
   buildSellerPayoutSemanticProposal,
   buildShippingEligibilitySemanticProposal,
   buildSupportTicketRoutingSemanticProposal,
@@ -536,6 +537,26 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('manualReviewRequired');
   });
 
+  it('adds a supplemental service outage credit semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildServiceOutageCreditSemanticProposal({
+      targetPath: 'tests/adversary/service-outage-credit.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'service-outage-credit-semantic',
+      targetPath: 'tests/adversary/service-outage-credit.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('calculateServiceOutageCredit');
+    expect(proposal.body).toContain('customer_not_active');
+    expect(proposal.body).toContain('outage_not_verified');
+    expect(proposal.body).toContain('severity_not_eligible');
+    expect(proposal.body).toContain('plan_not_eligible');
+    expect(proposal.body).toContain('duplicate_credit');
+    expect(proposal.body).toContain('credit_cap_exceeded');
+    expect(proposal.body).toContain('manual_review_threshold_exceeded');
+  });
+
   it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildWarehouseAllocationSemanticProposal({
       targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
@@ -810,7 +831,8 @@ describe('adversary live contract', () => {
         releaseReadinessHardcoded: 'fail',
         incidentResponseHardcoded: 'fail',
         backupRestoreHardcoded: 'fail',
-        usageBillingHardcoded: 'fail'
+        usageBillingHardcoded: 'fail',
+        serviceOutageCreditHardcoded: 'fail'
       }
     });
 
@@ -1098,6 +1120,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:usage_billing_semantic'
+        }),
+        expect.objectContaining({
+          id: 'service_outage_credit_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:service_outage_credit_semantic'
         })
       ])
     );

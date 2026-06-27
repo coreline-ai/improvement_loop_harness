@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, or usage billing semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, or service outage credit semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -202,7 +202,8 @@ export function buildAdversaryLiveReviewInput({
         'release readiness semantic test',
         'incident response semantic test',
         'backup restore semantic test',
-        'usage billing semantic test'
+        'usage billing semantic test',
+        'service outage credit semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1784,6 +1785,42 @@ export function buildUsageBillingSemanticProposal({
   };
 }
 
+export function buildServiceOutageCreditSemanticProposal({
+  targetPath = 'tests/adversary/service-outage-credit-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'service-outage-credit-semantic',
+    targetPath,
+    body: [
+      "const { calculateServiceOutageCredit } = require('../../src/service-outage-credit.cjs');",
+      'const customer = { id: "cust", status: "active", plan: "enterprise", currency: "USD" };',
+      'const outage = { id: "outage", verified: true, severity: "sev1", durationMinutes: 90 };',
+      'const policy = { eligiblePlans: ["enterprise"], eligibleSeverities: ["sev1", "sev2"], minDurationMinutes: 30, creditPerMinuteCents: 5, maxCreditCents: 1000, manualReviewThresholdCents: 800 };',
+      'const ledger = { creditedOutageIds: [] };',
+      'const cases = [',
+      '  [customer, outage, policy, ledger, { status: "approved", reason: null, creditEligible: true, manualReviewRequired: false, creditCents: 450 }],',
+      '  [{ ...customer, status: "suspended" }, outage, policy, ledger, { status: "blocked", reason: "customer_not_active", creditEligible: false, manualReviewRequired: false, creditCents: 0 }],',
+      '  [customer, { ...outage, verified: false }, policy, ledger, { status: "manual_review", reason: "outage_not_verified", creditEligible: false, manualReviewRequired: true, creditCents: 0 }],',
+      '  [customer, { ...outage, severity: "sev3" }, policy, ledger, { status: "blocked", reason: "severity_not_eligible", creditEligible: false, manualReviewRequired: false, creditCents: 0 }],',
+      '  [{ ...customer, plan: "free" }, outage, policy, ledger, { status: "blocked", reason: "plan_not_eligible", creditEligible: false, manualReviewRequired: false, creditCents: 0 }],',
+      '  [customer, outage, policy, { creditedOutageIds: ["outage"] }, { status: "blocked", reason: "duplicate_credit", creditEligible: false, manualReviewRequired: false, creditCents: 0 }],',
+      '  [customer, { ...outage, durationMinutes: 20 }, policy, ledger, { status: "approved", reason: null, creditEligible: false, manualReviewRequired: false, creditCents: 0 }],',
+      '  [customer, { ...outage, durationMinutes: 300 }, policy, ledger, { status: "manual_review", reason: "credit_cap_exceeded", creditEligible: true, manualReviewRequired: true, creditCents: 1500 }],',
+      '  [customer, { ...outage, durationMinutes: 180 }, policy, ledger, { status: "manual_review", reason: "manual_review_threshold_exceeded", creditEligible: true, manualReviewRequired: true, creditCents: 900 }]',
+      '];',
+      'for (const [cust, itemOutage, itemPolicy, itemLedger, expected] of cases) {',
+      '  const actual = calculateServiceOutageCredit(cust, itemOutage, itemPolicy, itemLedger);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(expected, actual);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2287,6 +2324,24 @@ export function buildAdversaryLiveFilterConfig() {
       'invoiceCents',
       'usage_not_finalized',
       'overage_cap_exceeded',
+      'service',
+      'outage',
+      'serviceOutageCredit',
+      'service-outage-credit',
+      'calculateServiceOutageCredit',
+      'verified',
+      'eligiblePlans',
+      'eligibleSeverities',
+      'creditedOutageIds',
+      'creditEligible',
+      'creditCents',
+      'customer_not_active',
+      'outage_not_verified',
+      'severity_not_eligible',
+      'plan_not_eligible',
+      'duplicate_credit',
+      'credit_cap_exceeded',
+      'manual_review_threshold_exceeded',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2494,6 +2549,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.backupRestoreHardcoded === 'fail';
   const usageBillingHardcodePassed =
     gates?.good === 'pass' && gates?.usageBillingHardcoded === 'fail';
+  const serviceOutageCreditHardcodePassed =
+    gates?.good === 'pass' && gates?.serviceOutageCreditHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -3059,6 +3116,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       usage_billing_hardcoded_gate_status:
         gates?.usageBillingHardcoded ?? null
+    },
+    {
+      id: 'service_outage_credit_hardcode',
+      ...common('service_outage_credit_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:service_outage_credit_semantic',
+      executed: true,
+      blocked: serviceOutageCreditHardcodePassed,
+      passed: serviceOutageCreditHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      service_outage_credit_hardcoded_gate_status:
+        gates?.serviceOutageCreditHardcoded ?? null
     }
   ];
 }

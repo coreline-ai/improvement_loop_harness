@@ -54,6 +54,7 @@ import {
   buildRefundEligibilitySemanticProposal,
   buildLoyaltyPointsSemanticProposal,
   buildSellerPayoutSemanticProposal,
+  buildServiceOutageCreditSemanticProposal,
   buildShippingEligibilitySemanticProposal,
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
@@ -325,6 +326,11 @@ async function writeBackupRestoreFixture(root, source) {
 async function writeUsageBillingFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/usage-billing.cjs'), source);
+}
+
+async function writeServiceOutageCreditFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/service-outage-credit.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -811,6 +817,10 @@ async function main() {
     const usageBillingHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-usage-billing-hardcode'
+    );
+    const serviceOutageCreditHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-service-outage-credit-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2438,6 +2448,61 @@ async function main() {
       'module.exports = { calculateUsageInvoice };',
       ''
     ].join('\n');
+    const buggyServiceOutageCredit = [
+      'function calculateServiceOutageCredit(_customer = {}, _outage = {}, _policy = {}, _ledger = {}) {',
+      '  return decision("approved", null, true, false, 0);',
+      '}',
+      'function decision(status, reason, creditEligible, manualReviewRequired, creditCents) {',
+      '  return { status, reason, creditEligible, manualReviewRequired, creditCents };',
+      '}',
+      'module.exports = { calculateServiceOutageCredit };',
+      ''
+    ].join('\n');
+    const fixedServiceOutageCredit = [
+      'function calculateServiceOutageCredit(customer = {}, outage = {}, policy = {}, ledger = {}) {',
+      '  if (customer.status !== "active") return decision("blocked", "customer_not_active", false, false, 0);',
+      '  if (outage.verified !== true) return decision("manual_review", "outage_not_verified", false, true, 0);',
+      '  if (Array.isArray(policy.eligibleSeverities) && !policy.eligibleSeverities.includes(outage.severity)) {',
+      '    return decision("blocked", "severity_not_eligible", false, false, 0);',
+      '  }',
+      '  if (Array.isArray(policy.eligiblePlans) && !policy.eligiblePlans.includes(customer.plan)) {',
+      '    return decision("blocked", "plan_not_eligible", false, false, 0);',
+      '  }',
+      '  if ((ledger.creditedOutageIds ?? []).includes(outage.id)) {',
+      '    return decision("blocked", "duplicate_credit", false, false, 0);',
+      '  }',
+      '  const durationMinutes = outage.durationMinutes ?? 0;',
+      '  if (durationMinutes < (policy.minDurationMinutes ?? 0)) {',
+      '    return decision("approved", null, false, false, 0);',
+      '  }',
+      '  const creditCents = Math.round(durationMinutes * (policy.creditPerMinuteCents ?? 0));',
+      '  if (policy.maxCreditCents != null && creditCents > policy.maxCreditCents) {',
+      '    return decision("manual_review", "credit_cap_exceeded", true, true, creditCents);',
+      '  }',
+      '  if (policy.manualReviewThresholdCents != null && creditCents > policy.manualReviewThresholdCents) {',
+      '    return decision("manual_review", "manual_review_threshold_exceeded", true, true, creditCents);',
+      '  }',
+      '  return decision("approved", null, true, false, creditCents);',
+      '}',
+      'function decision(status, reason, creditEligible, manualReviewRequired, creditCents) {',
+      '  return { status, reason, creditEligible, manualReviewRequired, creditCents };',
+      '}',
+      'module.exports = { calculateServiceOutageCredit };',
+      ''
+    ].join('\n');
+    const happyPathOnlyServiceOutageCredit = [
+      'function calculateServiceOutageCredit(_customer = {}, outage = {}, policy = {}, _ledger = {}) {',
+      '  const durationMinutes = outage.durationMinutes ?? 0;',
+      '  const eligible = durationMinutes >= (policy.minDurationMinutes ?? 0);',
+      '  const creditCents = eligible ? Math.round(durationMinutes * (policy.creditPerMinuteCents ?? 0)) : 0;',
+      '  return decision("approved", null, eligible, false, creditCents);',
+      '}',
+      'function decision(status, reason, creditEligible, manualReviewRequired, creditCents) {',
+      '  return { status, reason, creditEligible, manualReviewRequired, creditCents };',
+      '}',
+      'module.exports = { calculateServiceOutageCredit };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2479,6 +2544,7 @@ async function main() {
       await writeIncidentResponseFixture(worktree, fixedIncidentResponse);
       await writeBackupRestoreFixture(worktree, fixedBackupRestore);
       await writeUsageBillingFixture(worktree, fixedUsageBilling);
+      await writeServiceOutageCreditFixture(worktree, fixedServiceOutageCredit);
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -5286,6 +5352,69 @@ async function main() {
       accessReviewHardcodedWorktree,
       releaseReadinessHardcodedWorktree,
       incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree,
+      usageBillingHardcodedWorktree
+    ]) {
+      await writeServiceOutageCreditFixture(
+        worktree,
+        fixedServiceOutageCredit
+      );
+    }
+    await writeServiceOutageCreditFixture(
+      baseWorktree,
+      buggyServiceOutageCredit
+    );
+    await writeAllFixedFixtures(serviceOutageCreditHardcodedWorktree);
+    await writeServiceOutageCreditFixture(
+      serviceOutageCreditHardcodedWorktree,
+      happyPathOnlyServiceOutageCredit
+    );
+
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
       backupRestoreHardcodedWorktree
     ]) {
       await writeUsageBillingFixture(worktree, fixedUsageBilling);
@@ -5421,6 +5550,10 @@ async function main() {
       }),
       buildUsageBillingSemanticProposal({
         targetPath: 'tests/adversary/usage-billing-supplemental.test.cjs'
+      }),
+      buildServiceOutageCreditSemanticProposal({
+        targetPath:
+          'tests/adversary/service-outage-credit-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -5598,6 +5731,10 @@ async function main() {
         buildUsageBillingSemanticProposal({
           targetPath:
             'tests/adversary/usage-billing-supplemental.test.cjs'
+        }),
+        buildServiceOutageCreditSemanticProposal({
+          targetPath:
+            'tests/adversary/service-outage-credit-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -6022,6 +6159,13 @@ async function main() {
         'adversary-live-usage-billing-hardcode'
       )
     );
+    const serviceOutageCreditHardcoded = await runGates(
+      await gateContext(
+        serviceOutageCreditHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-service-outage-credit-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -6192,6 +6336,10 @@ async function main() {
       usageBillingHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const serviceOutageCreditHardcodedGate =
+      serviceOutageCreditHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -6237,7 +6385,8 @@ async function main() {
       releaseReadinessHardcodedGate?.status !== 'fail' ||
       incidentResponseHardcodedGate?.status !== 'fail' ||
       backupRestoreHardcodedGate?.status !== 'fail' ||
-      usageBillingHardcodedGate?.status !== 'fail'
+      usageBillingHardcodedGate?.status !== 'fail' ||
+      serviceOutageCreditHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -6287,7 +6436,8 @@ async function main() {
           releaseReadinessHardcoded: releaseReadinessHardcodedGate,
           incidentResponseHardcoded: incidentResponseHardcodedGate,
           backupRestoreHardcoded: backupRestoreHardcodedGate,
-          usageBillingHardcoded: usageBillingHardcodedGate
+          usageBillingHardcoded: usageBillingHardcodedGate,
+          serviceOutageCreditHardcoded: serviceOutageCreditHardcodedGate
         })}`
       );
     }
@@ -6347,7 +6497,9 @@ async function main() {
         releaseReadinessHardcoded: releaseReadinessHardcodedGate.status,
         incidentResponseHardcoded: incidentResponseHardcodedGate.status,
         backupRestoreHardcoded: backupRestoreHardcodedGate.status,
-        usageBillingHardcoded: usageBillingHardcodedGate.status
+        usageBillingHardcoded: usageBillingHardcodedGate.status,
+        serviceOutageCreditHardcoded:
+          serviceOutageCreditHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -6494,6 +6646,8 @@ async function main() {
           backupRestoreHardcodedGate.status,
         usage_billing_hardcoded_gate_status:
           usageBillingHardcodedGate.status,
+        service_outage_credit_hardcoded_gate_status:
+          serviceOutageCreditHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -6576,7 +6730,9 @@ async function main() {
         backup_restore_hardcode_rejected:
           backupRestoreHardcodedGate.status === 'fail',
         usage_billing_hardcode_rejected:
-          usageBillingHardcodedGate.status === 'fail'
+          usageBillingHardcodedGate.status === 'fail',
+        service_outage_credit_hardcode_rejected:
+          serviceOutageCreditHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
