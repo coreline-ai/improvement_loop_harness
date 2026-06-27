@@ -190,6 +190,38 @@ const cases = [
     critical: true
   },
   {
+    id: 'ko-founder-checkout-audit-one-bug',
+    prompt:
+      '창업자가 맡긴 서비스라고 보고 프로젝트를 훑어서 결제 흐름의 재현 가능한 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-qa-pass-one-cart-bug',
+    prompt:
+      'Do a QA pass on this repo, identify one reproducible cart or checkout bug, fix it, verify it, and leave a PR-ready candidate.',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-nondev-project-health-one-fix',
+    prompt:
+      '개발자가 아닌 사용자 요청처럼 프로젝트 상태를 살펴보고 재현 가능한 문제 하나만 찾아 고치고 검증 결과까지 정리해줘',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-ops-triage-one-revenue-bug',
+    prompt:
+      'Triage this repo like an ops handoff, find one reproducible revenue-impacting bug, fix it, verify it, and prepare the candidate.',
+    expectedMode: 'auto_discovery',
+    singleIssue: true,
+    critical: true
+  },
+  {
     id: 'ko-specific-cart-bug',
     prompt: 'src/cart.cjs quantity 버그 고쳐줘. 테스트도 추가해.',
     expectedMode: 'user_issue',
@@ -328,6 +360,38 @@ const cases = [
     id: 'en-marketplace-cart-quantity-undercharge',
     prompt:
       'Marketplace cart checkout undercharges quantity 6 as one unit. Fix the quantity-aware cart total and add regression coverage.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-support-ticket-multi-cart-total',
+    prompt:
+      '고객센터 티켓처럼 말하면, 같은 상품을 여러 개 담은 주문 금액이 너무 낮게 나와. 장바구니 합계가 수량을 반영하도록 고치고 검증 결과를 남겨줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-small-business-cart-line-total',
+    prompt:
+      'A small business user says checkout is underbilling repeat items in the cart. Fix the cart line total so quantity is counted and leave the result verified.',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'ko-owner-checkout-underbilling',
+    prompt:
+      '쇼핑몰 운영자 입장에서 결제 합계가 이상해. 여러 개 주문한 상품도 한 개 가격만 잡히는 문제를 고치고 PR 후보로 정리해줘',
+    expectedMode: 'user_issue',
+    singleIssue: true,
+    critical: true
+  },
+  {
+    id: 'en-nontechnical-checkout-total-low',
+    prompt:
+      'I am not sure which file is wrong, but checkout totals are too low when customers buy multiple units. Fix the issue and verify the candidate.',
     expectedMode: 'user_issue',
     singleIssue: true,
     critical: true

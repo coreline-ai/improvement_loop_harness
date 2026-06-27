@@ -308,6 +308,30 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Marketplace cart checkout undercharges quantity 6 as one unit. Fix the quantity-aware cart total and add regression coverage.'
+    },
+    {
+      id: 'ko-support-ticket-multi-cart-total',
+      language: 'ko',
+      prompt:
+        '고객센터 티켓처럼 말하면, 같은 상품을 여러 개 담은 주문 금액이 너무 낮게 나와. 장바구니 합계가 수량을 반영하도록 고치고 검증 결과를 남겨줘'
+    },
+    {
+      id: 'en-small-business-cart-line-total',
+      language: 'en',
+      prompt:
+        'A small business user says checkout is underbilling repeat items in the cart. Fix the cart line total so quantity is counted and leave the result verified.'
+    },
+    {
+      id: 'ko-owner-checkout-underbilling',
+      language: 'ko',
+      prompt:
+        '쇼핑몰 운영자 입장에서 결제 합계가 이상해. 여러 개 주문한 상품도 한 개 가격만 잡히는 문제를 고치고 PR 후보로 정리해줘'
+    },
+    {
+      id: 'en-nontechnical-checkout-total-low',
+      language: 'en',
+      prompt:
+        'I am not sure which file is wrong, but checkout totals are too low when customers buy multiple units. Fix the issue and verify the candidate.'
     }
   ],
   auto_discovery: [
@@ -451,6 +475,30 @@ const promptVariants = {
       language: 'en',
       prompt:
         'Scan this marketplace repo, discover one reproducible quantity-total regression, fix it, verify it, and prepare a PR-ready result.'
+    },
+    {
+      id: 'auto-ko-founder-checkout-audit-one-bug',
+      language: 'ko',
+      prompt:
+        '창업자가 맡긴 서비스라고 보고 프로젝트를 훑어서 결제 흐름의 재현 가능한 문제 하나를 찾아 고치고 검증 가능한 PR 후보로 정리해줘'
+    },
+    {
+      id: 'auto-en-qa-pass-one-cart-bug',
+      language: 'en',
+      prompt:
+        'Do a QA pass on this repo, identify one reproducible cart or checkout bug, fix it, verify it, and leave a PR-ready candidate.'
+    },
+    {
+      id: 'auto-ko-nondev-project-health-one-fix',
+      language: 'ko',
+      prompt:
+        '개발자가 아닌 사용자 요청처럼 프로젝트 상태를 살펴보고 재현 가능한 문제 하나만 찾아 고치고 검증 결과까지 정리해줘'
+    },
+    {
+      id: 'auto-en-ops-triage-one-revenue-bug',
+      language: 'en',
+      prompt:
+        'Triage this repo like an ops handoff, find one reproducible revenue-impacting bug, fix it, verify it, and prepare the candidate.'
     }
   ]
 };

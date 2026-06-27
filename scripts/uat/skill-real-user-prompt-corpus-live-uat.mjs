@@ -174,6 +174,30 @@ const defaultCorpus = [
     language: 'en'
   },
   {
+    id: 'user-ko-support-ticket-multi-cart-total',
+    mode: 'user_issue',
+    variant: 'ko-support-ticket-multi-cart-total',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-small-business-cart-line-total',
+    mode: 'user_issue',
+    variant: 'en-small-business-cart-line-total',
+    language: 'en'
+  },
+  {
+    id: 'user-ko-owner-checkout-underbilling',
+    mode: 'user_issue',
+    variant: 'ko-owner-checkout-underbilling',
+    language: 'ko'
+  },
+  {
+    id: 'user-en-nontechnical-checkout-total-low',
+    mode: 'user_issue',
+    variant: 'en-nontechnical-checkout-total-low',
+    language: 'en'
+  },
+  {
     id: 'auto-ko-default-auto-pr-candidate',
     mode: 'auto_discovery',
     variant: 'ko-default-auto-pr-candidate',
@@ -315,6 +339,30 @@ const defaultCorpus = [
     id: 'auto-en-marketplace-audit-one-quantity-regression',
     mode: 'auto_discovery',
     variant: 'auto-en-marketplace-audit-one-quantity-regression',
+    language: 'en'
+  },
+  {
+    id: 'auto-ko-founder-checkout-audit-one-bug',
+    mode: 'auto_discovery',
+    variant: 'auto-ko-founder-checkout-audit-one-bug',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-qa-pass-one-cart-bug',
+    mode: 'auto_discovery',
+    variant: 'auto-en-qa-pass-one-cart-bug',
+    language: 'en'
+  },
+  {
+    id: 'auto-ko-nondev-project-health-one-fix',
+    mode: 'auto_discovery',
+    variant: 'auto-ko-nondev-project-health-one-fix',
+    language: 'ko'
+  },
+  {
+    id: 'auto-en-ops-triage-one-revenue-bug',
+    mode: 'auto_discovery',
+    variant: 'auto-en-ops-triage-one-revenue-bug',
     language: 'en'
   }
 ];

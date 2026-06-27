@@ -72,9 +72,12 @@ const patterns = {
   autoDiscovery: [
     [
       'auto_discovery',
-      /자동\s*문제\s*발견|문제(?:점)?(?:\s*\S+){0,3}\s*찾|찾아서\s*문제|원인(?:을)?\s*찾|버그\s*찾|결함\s*찾|오류\s*찾|find\s+one|failing\s+behavior|자율\s*개선|autonomous|discover/i
+      /자동\s*문제\s*발견|문제(?:점)?(?:\s*\S+){0,3}\s*찾|찾아서\s*문제|원인(?:을)?\s*찾|버그\s*찾|결함\s*찾|오류\s*찾|find\s+one|identify\s+one|failing\s+behavior|자율\s*개선|autonomous|discover|qa\s*pass|triage\s+this\s+repo/i
     ],
-    ['scan_repo', /repo\s*scan|프로젝트\s*스캔|전체\s*스캔|분석해서\s*수정/i],
+    [
+      'scan_repo',
+      /repo\s*scan|프로젝트\s*스캔|전체\s*스캔|분석해서\s*수정|프로젝트(?:를|를\s*한번|를\s*전체)?\s*(?:훑|살펴)/i
+    ],
     ['sequential_issue', /하나씩|1개씩|순차|issue\s*queue|다중\s*이슈/i]
   ],
   userIssue: [
