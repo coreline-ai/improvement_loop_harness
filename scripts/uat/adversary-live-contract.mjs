@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, or backup restore semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, or usage billing semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -201,7 +201,8 @@ export function buildAdversaryLiveReviewInput({
         'access review semantic test',
         'release readiness semantic test',
         'incident response semantic test',
-        'backup restore semantic test'
+        'backup restore semantic test',
+        'usage billing semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -1749,6 +1750,40 @@ export function buildBackupRestoreSemanticProposal({
   };
 }
 
+export function buildUsageBillingSemanticProposal({
+  targetPath = 'tests/adversary/usage-billing-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'usage-billing-semantic',
+    targetPath,
+    body: [
+      "const { calculateUsageInvoice } = require('../../src/usage-billing.cjs');",
+      'const account = { id: "acct", status: "active", currency: "USD", includedUnits: 100 };',
+      'const usage = { id: "usage", status: "finalized", billableUnits: 140 };',
+      'const pricing = { currency: "USD", unitPriceCents: 25 };',
+      'const policy = { maxOverageCents: 2000 };',
+      'const cases = [',
+      '  [account, usage, pricing, policy, { status: "approved", reason: null, overageBillable: true, manualReviewRequired: false, invoiceCents: 1000 }],',
+      '  [{ ...account, status: "suspended" }, usage, pricing, policy, { status: "blocked", reason: "account_not_active", overageBillable: false, manualReviewRequired: false, invoiceCents: 0 }],',
+      '  [account, { ...usage, status: "open" }, pricing, policy, { status: "manual_review", reason: "usage_not_finalized", overageBillable: false, manualReviewRequired: true, invoiceCents: 0 }],',
+      '  [account, usage, { ...pricing, currency: "EUR" }, policy, { status: "blocked", reason: "currency_mismatch", overageBillable: false, manualReviewRequired: false, invoiceCents: 0 }],',
+      '  [account, { ...usage, billableUnits: 100 }, pricing, policy, { status: "approved", reason: null, overageBillable: false, manualReviewRequired: false, invoiceCents: 0 }],',
+      '  [account, { ...usage, billableUnits: 90 }, pricing, policy, { status: "approved", reason: null, overageBillable: false, manualReviewRequired: false, invoiceCents: 0 }],',
+      '  [account, { ...usage, billableUnits: 250 }, { ...pricing, unitPriceCents: 30 }, { maxOverageCents: 3000 }, { status: "manual_review", reason: "overage_cap_exceeded", overageBillable: true, manualReviewRequired: true, invoiceCents: 4500 }]',
+      '];',
+      'for (const [acct, itemUsage, price, billingPolicy, expected] of cases) {',
+      '  const actual = calculateUsageInvoice(acct, itemUsage, price, billingPolicy);',
+      '  if (JSON.stringify(actual) !== JSON.stringify(expected)) {',
+      '    console.error(expected, actual);',
+      '    process.exit(1);',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2239,6 +2274,19 @@ export function buildAdversaryLiveFilterConfig() {
       'rpo_breach',
       'dry_run_required',
       'dr_drill_stale',
+      'usage',
+      'billing',
+      'usageBilling',
+      'usage-billing',
+      'calculateUsageInvoice',
+      'billableUnits',
+      'includedUnits',
+      'unitPriceCents',
+      'maxOverageCents',
+      'overageBillable',
+      'invoiceCents',
+      'usage_not_finalized',
+      'overage_cap_exceeded',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2444,6 +2492,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.incidentResponseHardcoded === 'fail';
   const backupRestoreHardcodePassed =
     gates?.good === 'pass' && gates?.backupRestoreHardcoded === 'fail';
+  const usageBillingHardcodePassed =
+    gates?.good === 'pass' && gates?.usageBillingHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -2997,6 +3047,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       backup_restore_hardcoded_gate_status:
         gates?.backupRestoreHardcoded ?? null
+    },
+    {
+      id: 'usage_billing_hardcode',
+      ...common('usage_billing_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:usage_billing_semantic',
+      executed: true,
+      blocked: usageBillingHardcodePassed,
+      passed: usageBillingHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      usage_billing_hardcoded_gate_status:
+        gates?.usageBillingHardcoded ?? null
     }
   ];
 }

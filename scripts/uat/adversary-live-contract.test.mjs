@@ -43,6 +43,7 @@ import {
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
   buildTaxFilingSemanticProposal,
+  buildUsageBillingSemanticProposal,
   buildVendorInvoiceSemanticProposal,
   buildWarrantyClaimSemanticProposal,
   buildWarehouseAllocationSemanticProposal,
@@ -516,6 +517,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('dr_drill_stale');
   });
 
+  it('adds a supplemental usage billing semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildUsageBillingSemanticProposal({
+      targetPath: 'tests/adversary/usage-billing.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'usage-billing-semantic',
+      targetPath: 'tests/adversary/usage-billing.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('calculateUsageInvoice');
+    expect(proposal.body).toContain('account_not_active');
+    expect(proposal.body).toContain('usage_not_finalized');
+    expect(proposal.body).toContain('currency_mismatch');
+    expect(proposal.body).toContain('includedUnits');
+    expect(proposal.body).toContain('overage_cap_exceeded');
+    expect(proposal.body).toContain('manualReviewRequired');
+  });
+
   it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildWarehouseAllocationSemanticProposal({
       targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
@@ -789,7 +809,8 @@ describe('adversary live contract', () => {
         accessReviewHardcoded: 'fail',
         releaseReadinessHardcoded: 'fail',
         incidentResponseHardcoded: 'fail',
-        backupRestoreHardcoded: 'fail'
+        backupRestoreHardcoded: 'fail',
+        usageBillingHardcoded: 'fail'
       }
     });
 
@@ -1071,6 +1092,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:backup_restore_semantic'
+        }),
+        expect.objectContaining({
+          id: 'usage_billing_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:usage_billing_semantic'
         })
       ])
     );

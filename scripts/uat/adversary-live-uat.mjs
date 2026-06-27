@@ -58,6 +58,7 @@ import {
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
   buildTaxFilingSemanticProposal,
+  buildUsageBillingSemanticProposal,
   buildVendorInvoiceSemanticProposal,
   buildWarrantyClaimSemanticProposal,
   buildWarehouseAllocationSemanticProposal,
@@ -319,6 +320,11 @@ async function writeIncidentResponseFixture(root, source) {
 async function writeBackupRestoreFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/backup-restore.cjs'), source);
+}
+
+async function writeUsageBillingFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/usage-billing.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -801,6 +807,10 @@ async function main() {
     const backupRestoreHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-backup-restore-hardcode'
+    );
+    const usageBillingHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-usage-billing-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2382,6 +2392,52 @@ async function main() {
       'module.exports = { evaluateBackupRestore };',
       ''
     ].join('\n');
+    const buggyUsageBilling = [
+      'function calculateUsageInvoice(_account = {}, _usage = {}, _pricing = {}, _policy = {}) {',
+      '  return decision("approved", null, true, false, 0);',
+      '}',
+      'function decision(status, reason, overageBillable, manualReviewRequired, invoiceCents) {',
+      '  return { status, reason, overageBillable, manualReviewRequired, invoiceCents };',
+      '}',
+      'module.exports = { calculateUsageInvoice };',
+      ''
+    ].join('\n');
+    const fixedUsageBilling = [
+      'function calculateUsageInvoice(account = {}, usage = {}, pricing = {}, policy = {}) {',
+      '  if (account.status !== "active") return decision("blocked", "account_not_active", false, false, 0);',
+      '  if (usage.status !== "finalized") return decision("manual_review", "usage_not_finalized", false, true, 0);',
+      '  if (account.currency && pricing.currency && account.currency !== pricing.currency) {',
+      '    return decision("blocked", "currency_mismatch", false, false, 0);',
+      '  }',
+      '  const includedUnits = account.includedUnits ?? policy.defaultIncludedUnits ?? 0;',
+      '  const billableUnits = usage.billableUnits ?? 0;',
+      '  const overageUnits = Math.max(0, billableUnits - includedUnits);',
+      '  if (overageUnits === 0) return decision("approved", null, false, false, 0);',
+      '  const invoiceCents = Math.round(overageUnits * (pricing.unitPriceCents ?? 0));',
+      '  if (policy.maxOverageCents != null && invoiceCents > policy.maxOverageCents) {',
+      '    return decision("manual_review", "overage_cap_exceeded", true, true, invoiceCents);',
+      '  }',
+      '  return decision("approved", null, true, false, invoiceCents);',
+      '}',
+      'function decision(status, reason, overageBillable, manualReviewRequired, invoiceCents) {',
+      '  return { status, reason, overageBillable, manualReviewRequired, invoiceCents };',
+      '}',
+      'module.exports = { calculateUsageInvoice };',
+      ''
+    ].join('\n');
+    const happyPathOnlyUsageBilling = [
+      'function calculateUsageInvoice(account = {}, usage = {}, pricing = {}, _policy = {}) {',
+      '  const includedUnits = account.includedUnits ?? 0;',
+      '  const overageUnits = Math.max(0, (usage.billableUnits ?? 0) - includedUnits);',
+      '  const invoiceCents = Math.round(overageUnits * (pricing.unitPriceCents ?? 0));',
+      '  return decision("approved", null, invoiceCents > 0, false, invoiceCents);',
+      '}',
+      'function decision(status, reason, overageBillable, manualReviewRequired, invoiceCents) {',
+      '  return { status, reason, overageBillable, manualReviewRequired, invoiceCents };',
+      '}',
+      'module.exports = { calculateUsageInvoice };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2422,6 +2478,7 @@ async function main() {
       await writeReleaseReadinessFixture(worktree, fixedReleaseReadiness);
       await writeIncidentResponseFixture(worktree, fixedIncidentResponse);
       await writeBackupRestoreFixture(worktree, fixedBackupRestore);
+      await writeUsageBillingFixture(worktree, fixedUsageBilling);
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -5184,6 +5241,61 @@ async function main() {
       backupRestoreHardcodedWorktree,
       happyPathOnlyBackupRestore
     );
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree
+    ]) {
+      await writeUsageBillingFixture(worktree, fixedUsageBilling);
+    }
+    await writeUsageBillingFixture(baseWorktree, buggyUsageBilling);
+    await writeAllFixedFixtures(usageBillingHardcodedWorktree);
+    await writeUsageBillingFixture(
+      usageBillingHardcodedWorktree,
+      happyPathOnlyUsageBilling
+    );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
@@ -5306,6 +5418,9 @@ async function main() {
       }),
       buildBackupRestoreSemanticProposal({
         targetPath: 'tests/adversary/backup-restore-supplemental.test.cjs'
+      }),
+      buildUsageBillingSemanticProposal({
+        targetPath: 'tests/adversary/usage-billing-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -5479,6 +5594,10 @@ async function main() {
         buildBackupRestoreSemanticProposal({
           targetPath:
             'tests/adversary/backup-restore-supplemental.test.cjs'
+        }),
+        buildUsageBillingSemanticProposal({
+          targetPath:
+            'tests/adversary/usage-billing-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -5896,6 +6015,13 @@ async function main() {
         'adversary-live-backup-restore-hardcode'
       )
     );
+    const usageBillingHardcoded = await runGates(
+      await gateContext(
+        usageBillingHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-usage-billing-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -6062,6 +6188,10 @@ async function main() {
       backupRestoreHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const usageBillingHardcodedGate =
+      usageBillingHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -6106,7 +6236,8 @@ async function main() {
       accessReviewHardcodedGate?.status !== 'fail' ||
       releaseReadinessHardcodedGate?.status !== 'fail' ||
       incidentResponseHardcodedGate?.status !== 'fail' ||
-      backupRestoreHardcodedGate?.status !== 'fail'
+      backupRestoreHardcodedGate?.status !== 'fail' ||
+      usageBillingHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -6155,7 +6286,8 @@ async function main() {
           accessReviewHardcoded: accessReviewHardcodedGate,
           releaseReadinessHardcoded: releaseReadinessHardcodedGate,
           incidentResponseHardcoded: incidentResponseHardcodedGate,
-          backupRestoreHardcoded: backupRestoreHardcodedGate
+          backupRestoreHardcoded: backupRestoreHardcodedGate,
+          usageBillingHardcoded: usageBillingHardcodedGate
         })}`
       );
     }
@@ -6214,7 +6346,8 @@ async function main() {
         accessReviewHardcoded: accessReviewHardcodedGate.status,
         releaseReadinessHardcoded: releaseReadinessHardcodedGate.status,
         incidentResponseHardcoded: incidentResponseHardcodedGate.status,
-        backupRestoreHardcoded: backupRestoreHardcodedGate.status
+        backupRestoreHardcoded: backupRestoreHardcodedGate.status,
+        usageBillingHardcoded: usageBillingHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -6359,6 +6492,8 @@ async function main() {
           incidentResponseHardcodedGate.status,
         backup_restore_hardcoded_gate_status:
           backupRestoreHardcodedGate.status,
+        usage_billing_hardcoded_gate_status:
+          usageBillingHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -6439,7 +6574,9 @@ async function main() {
         incident_response_hardcode_rejected:
           incidentResponseHardcodedGate.status === 'fail',
         backup_restore_hardcode_rejected:
-          backupRestoreHardcodedGate.status === 'fail'
+          backupRestoreHardcodedGate.status === 'fail',
+        usage_billing_hardcode_rejected:
+          usageBillingHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

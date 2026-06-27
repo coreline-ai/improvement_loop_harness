@@ -63,7 +63,8 @@ const SEMANTIC_ATTACK_SCENARIOS = new Set([
   'access_review_hardcode',
   'release_readiness_hardcode',
   'incident_response_hardcode',
-  'backup_restore_hardcode'
+  'backup_restore_hardcode',
+  'usage_billing_hardcode'
 ]);
 
 export const PREFLIGHTS = [
