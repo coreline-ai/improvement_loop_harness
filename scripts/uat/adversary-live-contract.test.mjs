@@ -44,6 +44,7 @@ import {
   buildCartTaxSemanticProposal,
   buildServiceOutageCreditSemanticProposal,
   buildSellerPayoutSemanticProposal,
+  buildShippingAddressUpdateSemanticProposal,
   buildShippingEligibilitySemanticProposal,
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
@@ -837,6 +838,25 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('risk_manual_review');
   });
 
+  it('adds a supplemental shipping address update semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildShippingAddressUpdateSemanticProposal({
+      targetPath: 'tests/adversary/shipping-address-update.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'shipping-address-update-semantic',
+      targetPath: 'tests/adversary/shipping-address-update.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateShippingAddressUpdate');
+    expect(proposal.body).toContain('address_not_verified');
+    expect(proposal.body).toContain('country_not_allowed');
+    expect(proposal.body).toContain('postal_code_required');
+    expect(proposal.body).toContain('po_box_not_allowed');
+    expect(proposal.body).toContain('duplicate_address');
+    expect(proposal.body).toContain('risk_manual_review');
+  });
+
   it('turns the required attack scenarios into ledger-verifiable results', () => {
     const filterConfig = buildAdversaryLiveFilterConfig();
     const rejected = buildRejectedAttackProposals();
@@ -916,7 +936,8 @@ describe('adversary live contract', () => {
         accountCreditTransferHardcoded: 'fail',
         referralRewardHardcoded: 'fail',
         accountRecoveryHardcoded: 'fail',
-        paymentMethodUpdateHardcoded: 'fail'
+        paymentMethodUpdateHardcoded: 'fail',
+        shippingAddressUpdateHardcoded: 'fail'
       }
     });
 
@@ -1246,6 +1267,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:payment_method_update_semantic'
+        }),
+        expect.objectContaining({
+          id: 'shipping_address_update_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:shipping_address_update_semantic'
         })
       ])
     );
@@ -1332,7 +1359,8 @@ describe('adversary live contract', () => {
         'attack_scenario_account_credit_transfer_hardcode_missing',
         'attack_scenario_referral_reward_hardcode_missing',
         'attack_scenario_account_recovery_hardcode_missing',
-        'attack_scenario_payment_method_update_hardcode_missing'
+        'attack_scenario_payment_method_update_hardcode_missing',
+        'attack_scenario_shipping_address_update_hardcode_missing'
       ])
     );
   });
@@ -1399,7 +1427,8 @@ describe('adversary live contract', () => {
         accountCreditTransferHardcoded: 'fail',
         referralRewardHardcoded: 'fail',
         accountRecoveryHardcoded: 'fail',
-        paymentMethodUpdateHardcoded: 'fail'
+        paymentMethodUpdateHardcoded: 'fail',
+        shippingAddressUpdateHardcoded: 'fail'
       }
     });
 

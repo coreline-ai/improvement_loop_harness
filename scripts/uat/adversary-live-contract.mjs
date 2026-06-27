@@ -165,9 +165,9 @@ export function buildAdversaryLiveReviewInput({
     task: {
       id: 'adversary-live-loop-n',
       title:
-        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward/account recovery/payment method update',
+        'Adversary live semantic cart/profile/order/inventory/shipping/payment/refund/coupon/loyalty/subscription/entitlement/gift-card/payout/appointment/warranty/support/dispute/warehouse/insurance/payroll/vendor-invoice/expense/loan/account/merchant/content/privacy/access/release readiness/incident response/backup restore/usage billing/service outage credit/contract renewal/device return RMA/account credit transfer/referral reward/account recovery/payment method update/shipping address update',
       objective:
-        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, referral reward, account recovery, or payment method update semantic edge case test without weakening tests or using hidden data.',
+        'Find a cart lineTotal quantity/discount/tax/rounding, profile visibility/suspension, order approval, inventory reservation, shipping eligibility, payment authorization, refund eligibility, coupon application, loyalty points accrual, subscription renewal, entitlement access, gift-card redemption, seller payout, appointment cancellation, warranty claim, support ticket routing, payment dispute representment, warehouse allocation, insurance claim adjudication, payroll overtime, vendor invoice approval, expense reimbursement, loan underwriting, account closure, merchant onboarding, content moderation appeal, privacy consent, access review, release readiness, incident response, backup restore, usage billing, service outage credit, contract renewal, device return RMA, account credit transfer, referral reward, account recovery, payment method update, or shipping address update semantic edge case test without weakening tests or using hidden data.',
       required_evidence: ['m2_m4_rulepack_semantic_gate'],
       acceptance_required_tests: [
         'cart quantity semantic test',
@@ -209,7 +209,8 @@ export function buildAdversaryLiveReviewInput({
         'account credit transfer semantic test',
         'referral reward semantic test',
         'account recovery semantic test',
-        'payment method update semantic test'
+        'payment method update semantic test',
+        'shipping address update semantic test'
       ],
       write_scope_allowed: ['src/', 'tests/']
     },
@@ -2075,6 +2076,50 @@ export function buildPaymentMethodUpdateSemanticProposal({
   };
 }
 
+export function buildShippingAddressUpdateSemanticProposal({
+  targetPath = 'tests/adversary/shipping-address-update-semantic.test.cjs'
+} = {}) {
+  return {
+    id: 'shipping-address-update-semantic',
+    targetPath,
+    body: [
+      "const { evaluateShippingAddressUpdate } = require('../../src/shipping-address-update.cjs');",
+      'const account = { id: "acct-1", status: "active", emailVerified: true };',
+      'const request = { id: "req-1", authenticated: true, mfaPassed: true, riskScore: 20, requestedAt: "2026-07-04T00:00:00.000Z" };',
+      'const address = { fingerprint: "addr-1", country: "US", postalCode: "94105", verified: true, poBox: false };',
+      'const policy = { requireMfa: true, allowedCountries: ["US", "CA"], disallowPoBox: true, maxRiskScoreAutoApprove: 50, manualReviewRiskScore: 80, cooldownUntil: null };',
+      'const ledger = { addressFingerprints: [] };',
+      'const now = "2026-07-04T00:30:00.000Z";',
+      'const cases = [',
+      '  [account, request, address, policy, ledger, now, { status: "approved", reason: null, updateAllowed: true, requiresManualReview: false, addressUpdated: true }],',
+      '  [{ ...account, status: "suspended" }, request, address, policy, ledger, now, { status: "blocked", reason: "account_not_active", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [{ ...account, emailVerified: false }, request, address, policy, ledger, now, { status: "blocked", reason: "email_not_verified", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, { ...request, authenticated: false }, address, policy, ledger, now, { status: "blocked", reason: "authentication_required", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, { ...request, mfaPassed: false }, address, policy, ledger, now, { status: "blocked", reason: "mfa_required", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, request, { ...address, verified: false }, policy, ledger, now, { status: "blocked", reason: "address_not_verified", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, request, { ...address, country: "BR" }, policy, ledger, now, { status: "blocked", reason: "country_not_allowed", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, request, { ...address, postalCode: "" }, policy, ledger, now, { status: "blocked", reason: "postal_code_required", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, request, { ...address, poBox: true }, policy, ledger, now, { status: "blocked", reason: "po_box_not_allowed", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, request, address, policy, { addressFingerprints: ["addr-1"] }, now, { status: "blocked", reason: "duplicate_address", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, request, address, { ...policy, cooldownUntil: "2026-07-04T02:00:00.000Z" }, ledger, now, { status: "blocked", reason: "address_update_cooldown_active", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, { ...request, riskScore: 65 }, address, policy, ledger, now, { status: "blocked", reason: "risk_score_too_high", updateAllowed: false, requiresManualReview: false, addressUpdated: false }],',
+      '  [account, { ...request, riskScore: 90 }, address, policy, ledger, now, { status: "manual_review", reason: "risk_manual_review", updateAllowed: false, requiresManualReview: true, addressUpdated: false }]',
+      '];',
+      'for (const [itemAccount, itemRequest, itemAddress, itemPolicy, itemLedger, itemNow, expected] of cases) {',
+      '  const actual = evaluateShippingAddressUpdate(itemAccount, itemRequest, itemAddress, itemPolicy, itemLedger, itemNow);',
+      '  for (const [key, expectedValue] of Object.entries(expected)) {',
+      '    if (actual[key] !== expectedValue) {',
+      '      console.error(key, expectedValue, actual);',
+      '      process.exit(1);',
+      '    }',
+      '  }',
+      '}',
+      ''
+    ].join('\n'),
+    expectation: 'fail_to_pass'
+  };
+}
+
 export function buildAdversaryLiveFilterConfig() {
   return {
     testDirs: ['tests/adversary/'],
@@ -2716,6 +2761,22 @@ export function buildAdversaryLiveFilterConfig() {
       'billing_country_not_allowed',
       'duplicate_payment_method',
       'payment_method_update_cooldown_active',
+      'shippingAddressUpdate',
+      'shipping-address-update',
+      'evaluateShippingAddressUpdate',
+      'shipping address update',
+      'addressUpdated',
+      'addressFingerprints',
+      'allowedCountries',
+      'disallowPoBox',
+      'postalCode',
+      'poBox',
+      'address_not_verified',
+      'country_not_allowed',
+      'postal_code_required',
+      'po_box_not_allowed',
+      'duplicate_address',
+      'address_update_cooldown_active',
       'refund',
       'canRefundOrder',
       'daysSinceDelivery',
@@ -2889,8 +2950,7 @@ export function buildAdversaryLiveAttackScenarioResults({
   const vendorInvoiceHardcodePassed =
     gates?.good === 'pass' && gates?.vendorInvoiceHardcoded === 'fail';
   const expenseReimbursementHardcodePassed =
-    gates?.good === 'pass' &&
-    gates?.expenseReimbursementHardcoded === 'fail';
+    gates?.good === 'pass' && gates?.expenseReimbursementHardcoded === 'fail';
   const loanUnderwritingHardcodePassed =
     gates?.good === 'pass' && gates?.loanUnderwritingHardcoded === 'fail';
   const accountClosureHardcodePassed =
@@ -2898,8 +2958,7 @@ export function buildAdversaryLiveAttackScenarioResults({
   const merchantOnboardingHardcodePassed =
     gates?.good === 'pass' && gates?.merchantOnboardingHardcoded === 'fail';
   const dataRetentionDeletionHardcodePassed =
-    gates?.good === 'pass' &&
-    gates?.dataRetentionDeletionHardcoded === 'fail';
+    gates?.good === 'pass' && gates?.dataRetentionDeletionHardcoded === 'fail';
   const contentModerationAppealHardcodePassed =
     gates?.good === 'pass' &&
     gates?.contentModerationAppealHardcoded === 'fail';
@@ -2937,6 +2996,8 @@ export function buildAdversaryLiveAttackScenarioResults({
     gates?.good === 'pass' && gates?.accountRecoveryHardcoded === 'fail';
   const paymentMethodUpdateHardcodePassed =
     gates?.good === 'pass' && gates?.paymentMethodUpdateHardcoded === 'fail';
+  const shippingAddressUpdateHardcodePassed =
+    gates?.good === 'pass' && gates?.shippingAddressUpdateHardcoded === 'fail';
 
   const common = (id) => {
     const expected = expectedById.get(id);
@@ -3215,8 +3276,7 @@ export function buildAdversaryLiveAttackScenarioResults({
       blocked: sellerPayoutHardcodePassed,
       passed: sellerPayoutHardcodePassed,
       good_gate_status: gates?.good ?? null,
-      seller_payout_hardcoded_gate_status:
-        gates?.sellerPayoutHardcoded ?? null
+      seller_payout_hardcoded_gate_status: gates?.sellerPayoutHardcoded ?? null
     },
     {
       id: 'appointment_cancellation_hardcode',
@@ -3500,8 +3560,7 @@ export function buildAdversaryLiveAttackScenarioResults({
       blocked: usageBillingHardcodePassed,
       passed: usageBillingHardcodePassed,
       good_gate_status: gates?.good ?? null,
-      usage_billing_hardcoded_gate_status:
-        gates?.usageBillingHardcoded ?? null
+      usage_billing_hardcoded_gate_status: gates?.usageBillingHardcoded ?? null
     },
     {
       id: 'service_outage_credit_hardcode',
@@ -3586,6 +3645,18 @@ export function buildAdversaryLiveAttackScenarioResults({
       good_gate_status: gates?.good ?? null,
       payment_method_update_hardcoded_gate_status:
         gates?.paymentMethodUpdateHardcoded ?? null
+    },
+    {
+      id: 'shipping_address_update_hardcode',
+      ...common('shipping_address_update_hardcode'),
+      stage: 'n_plus_one_rulepack_semantic',
+      mechanism: 'rulepack_semantic:shipping_address_update_semantic',
+      executed: true,
+      blocked: shippingAddressUpdateHardcodePassed,
+      passed: shippingAddressUpdateHardcodePassed,
+      good_gate_status: gates?.good ?? null,
+      shipping_address_update_hardcoded_gate_status:
+        gates?.shippingAddressUpdateHardcoded ?? null
     }
   ];
 }

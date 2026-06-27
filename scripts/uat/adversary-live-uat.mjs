@@ -61,6 +61,7 @@ import {
   buildLoyaltyPointsSemanticProposal,
   buildSellerPayoutSemanticProposal,
   buildServiceOutageCreditSemanticProposal,
+  buildShippingAddressUpdateSemanticProposal,
   buildShippingEligibilitySemanticProposal,
   buildSupportTicketRoutingSemanticProposal,
   buildSubscriptionRenewalSemanticProposal,
@@ -362,6 +363,11 @@ async function writeAccountRecoveryFixture(root, source) {
 async function writePaymentMethodUpdateFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/payment-method-update.cjs'), source);
+}
+
+async function writeShippingAddressUpdateFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/shipping-address-update.cjs'), source);
 }
 
 async function writeReferralRewardFixture(root, source) {
@@ -881,6 +887,10 @@ async function main() {
     const paymentMethodUpdateHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-payment-method-update-hardcode'
+    );
+    const shippingAddressUpdateHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-shipping-address-update-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2846,6 +2856,57 @@ async function main() {
       'module.exports = { evaluatePaymentMethodUpdate };',
       ''
     ].join('\n');
+    const buggyShippingAddressUpdate = [
+      'function evaluateShippingAddressUpdate(_account = {}, _request = {}, _address = {}, _policy = {}, _ledger = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function decision(status, reason, updateAllowed, requiresManualReview, addressUpdated) {',
+      '  return { status, reason, updateAllowed, requiresManualReview, addressUpdated };',
+      '}',
+      'module.exports = { evaluateShippingAddressUpdate };',
+      ''
+    ].join('\n');
+    const fixedShippingAddressUpdate = [
+      'function evaluateShippingAddressUpdate(account = {}, request = {}, address = {}, policy = {}, ledger = {}, now = new Date()) {',
+      '  if (account.status !== "active") return blocked("account_not_active");',
+      '  if (account.emailVerified !== true) return blocked("email_not_verified");',
+      '  if (request.authenticated !== true) return blocked("authentication_required");',
+      '  if (policy.requireMfa === true && request.mfaPassed !== true) return blocked("mfa_required");',
+      '  if (address.verified !== true) return blocked("address_not_verified");',
+      '  if (Array.isArray(policy.allowedCountries) && !policy.allowedCountries.includes(address.country)) return blocked("country_not_allowed");',
+      '  if (!address.postalCode) return blocked("postal_code_required");',
+      '  if (policy.disallowPoBox === true && address.poBox === true) return blocked("po_box_not_allowed");',
+      '  if ((ledger.addressFingerprints ?? []).includes(address.fingerprint)) return blocked("duplicate_address");',
+      '  const nowDate = new Date(now);',
+      '  const cooldownUntil = policy.cooldownUntil ? new Date(policy.cooldownUntil) : null;',
+      '  if (cooldownUntil && cooldownUntil > nowDate) return blocked("address_update_cooldown_active");',
+      '  const riskScore = request.riskScore ?? 0;',
+      '  if (riskScore > (policy.manualReviewRiskScore ?? Number.POSITIVE_INFINITY)) return manual("risk_manual_review");',
+      '  if (riskScore > (policy.maxRiskScoreAutoApprove ?? Number.POSITIVE_INFINITY)) return blocked("risk_score_too_high");',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function blocked(reason) {',
+      '  return decision("blocked", reason, false, false, false);',
+      '}',
+      'function manual(reason) {',
+      '  return decision("manual_review", reason, false, true, false);',
+      '}',
+      'function decision(status, reason, updateAllowed, requiresManualReview, addressUpdated) {',
+      '  return { status, reason, updateAllowed, requiresManualReview, addressUpdated };',
+      '}',
+      'module.exports = { evaluateShippingAddressUpdate };',
+      ''
+    ].join('\n');
+    const happyPathOnlyShippingAddressUpdate = [
+      'function evaluateShippingAddressUpdate(_account = {}, _request = {}, _address = {}, _policy = {}, _ledger = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, true);',
+      '}',
+      'function decision(status, reason, updateAllowed, requiresManualReview, addressUpdated) {',
+      '  return { status, reason, updateAllowed, requiresManualReview, addressUpdated };',
+      '}',
+      'module.exports = { evaluateShippingAddressUpdate };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2868,7 +2929,10 @@ async function main() {
       await writeInsuranceClaimFixture(worktree, fixedInsuranceClaim);
       await writePayrollFixture(worktree, fixedPayroll);
       await writeVendorInvoiceFixture(worktree, fixedVendorInvoice);
-      await writeExpenseReimbursementFixture(worktree, fixedExpenseReimbursement);
+      await writeExpenseReimbursementFixture(
+        worktree,
+        fixedExpenseReimbursement
+      );
       await writeLoanUnderwritingFixture(worktree, fixedLoanUnderwriting);
       await writeAccountClosureFixture(worktree, fixedAccountClosure);
       await writeMerchantOnboardingFixture(worktree, fixedMerchantOnboarding);
@@ -2896,9 +2960,10 @@ async function main() {
       );
       await writeReferralRewardFixture(worktree, fixedReferralReward);
       await writeAccountRecoveryFixture(worktree, fixedAccountRecovery);
-      await writePaymentMethodUpdateFixture(
+      await writePaymentMethodUpdateFixture(worktree, fixedPaymentMethodUpdate);
+      await writeShippingAddressUpdateFixture(
         worktree,
-        fixedPaymentMethodUpdate
+        fixedShippingAddressUpdate
       );
     }
     await writeCartFixture(baseWorktree, buggyCart);
@@ -3202,10 +3267,7 @@ async function main() {
       happyPathOnlyLoyalty
     );
     await writeCartFixture(entitlementAccessHardcodedWorktree, fixedCart);
-    await writeProfileFixture(
-      entitlementAccessHardcodedWorktree,
-      fixedProfile
-    );
+    await writeProfileFixture(entitlementAccessHardcodedWorktree, fixedProfile);
     await writeOrderFixture(entitlementAccessHardcodedWorktree, fixedOrder);
     await writeInventoryFixture(
       entitlementAccessHardcodedWorktree,
@@ -3215,16 +3277,10 @@ async function main() {
       entitlementAccessHardcodedWorktree,
       fixedShipping
     );
-    await writePaymentFixture(
-      entitlementAccessHardcodedWorktree,
-      fixedPayment
-    );
+    await writePaymentFixture(entitlementAccessHardcodedWorktree, fixedPayment);
     await writeRefundFixture(entitlementAccessHardcodedWorktree, fixedRefund);
     await writeCouponFixture(entitlementAccessHardcodedWorktree, fixedCoupon);
-    await writeLoyaltyFixture(
-      entitlementAccessHardcodedWorktree,
-      fixedLoyalty
-    );
+    await writeLoyaltyFixture(entitlementAccessHardcodedWorktree, fixedLoyalty);
     await writeCartFixture(subscriptionRenewalHardcodedWorktree, fixedCart);
     await writeProfileFixture(
       subscriptionRenewalHardcodedWorktree,
@@ -3446,7 +3502,10 @@ async function main() {
       appointmentCancellationHardcodedWorktree,
       fixedProfile
     );
-    await writeOrderFixture(appointmentCancellationHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(
+      appointmentCancellationHardcodedWorktree,
+      fixedOrder
+    );
     await writeInventoryFixture(
       appointmentCancellationHardcodedWorktree,
       fixedInventory
@@ -3561,8 +3620,14 @@ async function main() {
       supportTicketRoutingHardcodedWorktree,
       fixedPayment
     );
-    await writeRefundFixture(supportTicketRoutingHardcodedWorktree, fixedRefund);
-    await writeCouponFixture(supportTicketRoutingHardcodedWorktree, fixedCoupon);
+    await writeRefundFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedRefund
+    );
+    await writeCouponFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedCoupon
+    );
     await writeLoyaltyFixture(
       supportTicketRoutingHardcodedWorktree,
       fixedLoyalty
@@ -3579,7 +3644,10 @@ async function main() {
       supportTicketRoutingHardcodedWorktree,
       fixedGiftCard
     );
-    await writePayoutFixture(supportTicketRoutingHardcodedWorktree, fixedPayout);
+    await writePayoutFixture(
+      supportTicketRoutingHardcodedWorktree,
+      fixedPayout
+    );
     await writeAppointmentFixture(
       supportTicketRoutingHardcodedWorktree,
       fixedAppointment
@@ -3660,7 +3728,10 @@ async function main() {
     await writeCartFixture(paymentDisputeHardcodedWorktree, fixedCart);
     await writeProfileFixture(paymentDisputeHardcodedWorktree, fixedProfile);
     await writeOrderFixture(paymentDisputeHardcodedWorktree, fixedOrder);
-    await writeInventoryFixture(paymentDisputeHardcodedWorktree, fixedInventory);
+    await writeInventoryFixture(
+      paymentDisputeHardcodedWorktree,
+      fixedInventory
+    );
     await writeShippingFixture(paymentDisputeHardcodedWorktree, fixedShipping);
     await writePaymentFixture(paymentDisputeHardcodedWorktree, fixedPayment);
     await writeRefundFixture(paymentDisputeHardcodedWorktree, fixedRefund);
@@ -3892,7 +3963,10 @@ async function main() {
     await writeCartFixture(payrollOvertimeHardcodedWorktree, fixedCart);
     await writeProfileFixture(payrollOvertimeHardcodedWorktree, fixedProfile);
     await writeOrderFixture(payrollOvertimeHardcodedWorktree, fixedOrder);
-    await writeInventoryFixture(payrollOvertimeHardcodedWorktree, fixedInventory);
+    await writeInventoryFixture(
+      payrollOvertimeHardcodedWorktree,
+      fixedInventory
+    );
     await writeShippingFixture(payrollOvertimeHardcodedWorktree, fixedShipping);
     await writePaymentFixture(payrollOvertimeHardcodedWorktree, fixedPayment);
     await writeRefundFixture(payrollOvertimeHardcodedWorktree, fixedRefund);
@@ -4074,8 +4148,14 @@ async function main() {
       expenseReimbursementHardcodedWorktree,
       fixedPayment
     );
-    await writeRefundFixture(expenseReimbursementHardcodedWorktree, fixedRefund);
-    await writeCouponFixture(expenseReimbursementHardcodedWorktree, fixedCoupon);
+    await writeRefundFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedRefund
+    );
+    await writeCouponFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedCoupon
+    );
     await writeLoyaltyFixture(
       expenseReimbursementHardcodedWorktree,
       fixedLoyalty
@@ -4092,7 +4172,10 @@ async function main() {
       expenseReimbursementHardcodedWorktree,
       fixedGiftCard
     );
-    await writePayoutFixture(expenseReimbursementHardcodedWorktree, fixedPayout);
+    await writePayoutFixture(
+      expenseReimbursementHardcodedWorktree,
+      fixedPayout
+    );
     await writeAppointmentFixture(
       expenseReimbursementHardcodedWorktree,
       fixedAppointment
@@ -4176,7 +4259,10 @@ async function main() {
       loanUnderwritingHardcodedWorktree,
       fixedInventory
     );
-    await writeShippingFixture(loanUnderwritingHardcodedWorktree, fixedShipping);
+    await writeShippingFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedShipping
+    );
     await writePaymentFixture(loanUnderwritingHardcodedWorktree, fixedPayment);
     await writeRefundFixture(loanUnderwritingHardcodedWorktree, fixedRefund);
     await writeCouponFixture(loanUnderwritingHardcodedWorktree, fixedCoupon);
@@ -4198,7 +4284,10 @@ async function main() {
       loanUnderwritingHardcodedWorktree,
       fixedAppointment
     );
-    await writeWarrantyFixture(loanUnderwritingHardcodedWorktree, fixedWarranty);
+    await writeWarrantyFixture(
+      loanUnderwritingHardcodedWorktree,
+      fixedWarranty
+    );
     await writeSupportTicketFixture(
       loanUnderwritingHardcodedWorktree,
       fixedSupportTicket
@@ -4358,10 +4447,7 @@ async function main() {
     ]) {
       await writeMerchantOnboardingFixture(worktree, fixedMerchantOnboarding);
     }
-    await writeMerchantOnboardingFixture(
-      baseWorktree,
-      buggyMerchantOnboarding
-    );
+    await writeMerchantOnboardingFixture(baseWorktree, buggyMerchantOnboarding);
     await writeMerchantOnboardingFixture(
       merchantOnboardingHardcodedWorktree,
       happyPathOnlyMerchantOnboarding
@@ -4485,10 +4571,7 @@ async function main() {
     ]) {
       await writeDataRetentionFixture(worktree, fixedDataRetentionDeletion);
     }
-    await writeDataRetentionFixture(
-      baseWorktree,
-      buggyDataRetentionDeletion
-    );
+    await writeDataRetentionFixture(baseWorktree, buggyDataRetentionDeletion);
     await writeDataRetentionFixture(
       dataRetentionDeletionHardcodedWorktree,
       happyPathOnlyDataRetentionDeletion
@@ -4511,8 +4594,14 @@ async function main() {
       dataRetentionDeletionHardcodedWorktree,
       fixedPayment
     );
-    await writeRefundFixture(dataRetentionDeletionHardcodedWorktree, fixedRefund);
-    await writeCouponFixture(dataRetentionDeletionHardcodedWorktree, fixedCoupon);
+    await writeRefundFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedRefund
+    );
+    await writeCouponFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedCoupon
+    );
     await writeLoyaltyFixture(
       dataRetentionDeletionHardcodedWorktree,
       fixedLoyalty
@@ -4529,7 +4618,10 @@ async function main() {
       dataRetentionDeletionHardcodedWorktree,
       fixedGiftCard
     );
-    await writePayoutFixture(dataRetentionDeletionHardcodedWorktree, fixedPayout);
+    await writePayoutFixture(
+      dataRetentionDeletionHardcodedWorktree,
+      fixedPayout
+    );
     await writeAppointmentFixture(
       dataRetentionDeletionHardcodedWorktree,
       fixedAppointment
@@ -4633,7 +4725,10 @@ async function main() {
       contentModerationAppealHardcodedWorktree,
       fixedProfile
     );
-    await writeOrderFixture(contentModerationAppealHardcodedWorktree, fixedOrder);
+    await writeOrderFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedOrder
+    );
     await writeInventoryFixture(
       contentModerationAppealHardcodedWorktree,
       fixedInventory
@@ -4646,8 +4741,14 @@ async function main() {
       contentModerationAppealHardcodedWorktree,
       fixedPayment
     );
-    await writeRefundFixture(contentModerationAppealHardcodedWorktree, fixedRefund);
-    await writeCouponFixture(contentModerationAppealHardcodedWorktree, fixedCoupon);
+    await writeRefundFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedRefund
+    );
+    await writeCouponFixture(
+      contentModerationAppealHardcodedWorktree,
+      fixedCoupon
+    );
     await writeLoyaltyFixture(
       contentModerationAppealHardcodedWorktree,
       fixedLoyalty
@@ -4762,7 +4863,10 @@ async function main() {
       await writeFraudRiskFixture(worktree, fixedFraudRisk);
     }
     await writeFraudRiskFixture(baseWorktree, buggyFraudRisk);
-    await writeFraudRiskFixture(fraudRiskHardcodedWorktree, happyPathOnlyFraudRisk);
+    await writeFraudRiskFixture(
+      fraudRiskHardcodedWorktree,
+      happyPathOnlyFraudRisk
+    );
     await writeCartFixture(fraudRiskHardcodedWorktree, fixedCart);
     await writeProfileFixture(fraudRiskHardcodedWorktree, fixedProfile);
     await writeOrderFixture(fraudRiskHardcodedWorktree, fixedOrder);
@@ -4772,21 +4876,36 @@ async function main() {
     await writeRefundFixture(fraudRiskHardcodedWorktree, fixedRefund);
     await writeCouponFixture(fraudRiskHardcodedWorktree, fixedCoupon);
     await writeLoyaltyFixture(fraudRiskHardcodedWorktree, fixedLoyalty);
-    await writeSubscriptionFixture(fraudRiskHardcodedWorktree, fixedSubscription);
+    await writeSubscriptionFixture(
+      fraudRiskHardcodedWorktree,
+      fixedSubscription
+    );
     await writeEntitlementFixture(fraudRiskHardcodedWorktree, fixedEntitlement);
     await writeGiftCardFixture(fraudRiskHardcodedWorktree, fixedGiftCard);
     await writePayoutFixture(fraudRiskHardcodedWorktree, fixedPayout);
     await writeAppointmentFixture(fraudRiskHardcodedWorktree, fixedAppointment);
     await writeWarrantyFixture(fraudRiskHardcodedWorktree, fixedWarranty);
-    await writeSupportTicketFixture(fraudRiskHardcodedWorktree, fixedSupportTicket);
-    await writePaymentDisputeFixture(fraudRiskHardcodedWorktree, fixedPaymentDispute);
+    await writeSupportTicketFixture(
+      fraudRiskHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      fraudRiskHardcodedWorktree,
+      fixedPaymentDispute
+    );
     await writeWarehouseAllocationFixture(
       fraudRiskHardcodedWorktree,
       fixedWarehouseAllocation
     );
-    await writeInsuranceClaimFixture(fraudRiskHardcodedWorktree, fixedInsuranceClaim);
+    await writeInsuranceClaimFixture(
+      fraudRiskHardcodedWorktree,
+      fixedInsuranceClaim
+    );
     await writePayrollFixture(fraudRiskHardcodedWorktree, fixedPayroll);
-    await writeVendorInvoiceFixture(fraudRiskHardcodedWorktree, fixedVendorInvoice);
+    await writeVendorInvoiceFixture(
+      fraudRiskHardcodedWorktree,
+      fixedVendorInvoice
+    );
     await writeExpenseReimbursementFixture(
       fraudRiskHardcodedWorktree,
       fixedExpenseReimbursement
@@ -4795,7 +4914,10 @@ async function main() {
       fraudRiskHardcodedWorktree,
       fixedLoanUnderwriting
     );
-    await writeAccountClosureFixture(fraudRiskHardcodedWorktree, fixedAccountClosure);
+    await writeAccountClosureFixture(
+      fraudRiskHardcodedWorktree,
+      fixedAccountClosure
+    );
     await writeMerchantOnboardingFixture(
       fraudRiskHardcodedWorktree,
       fixedMerchantOnboarding
@@ -4855,17 +4977,29 @@ async function main() {
       happyPathOnlyCreditMemo
     );
     await writeCartFixture(creditMemoApprovalHardcodedWorktree, fixedCart);
-    await writeProfileFixture(creditMemoApprovalHardcodedWorktree, fixedProfile);
+    await writeProfileFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedProfile
+    );
     await writeOrderFixture(creditMemoApprovalHardcodedWorktree, fixedOrder);
     await writeInventoryFixture(
       creditMemoApprovalHardcodedWorktree,
       fixedInventory
     );
-    await writeShippingFixture(creditMemoApprovalHardcodedWorktree, fixedShipping);
-    await writePaymentFixture(creditMemoApprovalHardcodedWorktree, fixedPayment);
+    await writeShippingFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedShipping
+    );
+    await writePaymentFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedPayment
+    );
     await writeRefundFixture(creditMemoApprovalHardcodedWorktree, fixedRefund);
     await writeCouponFixture(creditMemoApprovalHardcodedWorktree, fixedCoupon);
-    await writeLoyaltyFixture(creditMemoApprovalHardcodedWorktree, fixedLoyalty);
+    await writeLoyaltyFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedLoyalty
+    );
     await writeSubscriptionFixture(
       creditMemoApprovalHardcodedWorktree,
       fixedSubscription
@@ -4874,13 +5008,19 @@ async function main() {
       creditMemoApprovalHardcodedWorktree,
       fixedEntitlement
     );
-    await writeGiftCardFixture(creditMemoApprovalHardcodedWorktree, fixedGiftCard);
+    await writeGiftCardFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedGiftCard
+    );
     await writePayoutFixture(creditMemoApprovalHardcodedWorktree, fixedPayout);
     await writeAppointmentFixture(
       creditMemoApprovalHardcodedWorktree,
       fixedAppointment
     );
-    await writeWarrantyFixture(creditMemoApprovalHardcodedWorktree, fixedWarranty);
+    await writeWarrantyFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedWarranty
+    );
     await writeSupportTicketFixture(
       creditMemoApprovalHardcodedWorktree,
       fixedSupportTicket
@@ -4897,7 +5037,10 @@ async function main() {
       creditMemoApprovalHardcodedWorktree,
       fixedInsuranceClaim
     );
-    await writePayrollFixture(creditMemoApprovalHardcodedWorktree, fixedPayroll);
+    await writePayrollFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedPayroll
+    );
     await writeVendorInvoiceFixture(
       creditMemoApprovalHardcodedWorktree,
       fixedVendorInvoice
@@ -4926,7 +5069,10 @@ async function main() {
       creditMemoApprovalHardcodedWorktree,
       fixedContentModerationAppeal
     );
-    await writeFraudRiskFixture(creditMemoApprovalHardcodedWorktree, fixedFraudRisk);
+    await writeFraudRiskFixture(
+      creditMemoApprovalHardcodedWorktree,
+      fixedFraudRisk
+    );
     for (const worktree of [
       candidateWorktree,
       goodWorktree,
@@ -4981,7 +5127,10 @@ async function main() {
       paymentSettlementHardcodedWorktree,
       fixedInventory
     );
-    await writeShippingFixture(paymentSettlementHardcodedWorktree, fixedShipping);
+    await writeShippingFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedShipping
+    );
     await writePaymentFixture(paymentSettlementHardcodedWorktree, fixedPayment);
     await writeRefundFixture(paymentSettlementHardcodedWorktree, fixedRefund);
     await writeCouponFixture(paymentSettlementHardcodedWorktree, fixedCoupon);
@@ -4994,13 +5143,19 @@ async function main() {
       paymentSettlementHardcodedWorktree,
       fixedEntitlement
     );
-    await writeGiftCardFixture(paymentSettlementHardcodedWorktree, fixedGiftCard);
+    await writeGiftCardFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedGiftCard
+    );
     await writePayoutFixture(paymentSettlementHardcodedWorktree, fixedPayout);
     await writeAppointmentFixture(
       paymentSettlementHardcodedWorktree,
       fixedAppointment
     );
-    await writeWarrantyFixture(paymentSettlementHardcodedWorktree, fixedWarranty);
+    await writeWarrantyFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedWarranty
+    );
     await writeSupportTicketFixture(
       paymentSettlementHardcodedWorktree,
       fixedSupportTicket
@@ -5046,7 +5201,10 @@ async function main() {
       paymentSettlementHardcodedWorktree,
       fixedContentModerationAppeal
     );
-    await writeFraudRiskFixture(paymentSettlementHardcodedWorktree, fixedFraudRisk);
+    await writeFraudRiskFixture(
+      paymentSettlementHardcodedWorktree,
+      fixedFraudRisk
+    );
     await writeCreditMemoFixture(
       paymentSettlementHardcodedWorktree,
       fixedCreditMemo
@@ -5104,21 +5262,36 @@ async function main() {
     await writeRefundFixture(taxFilingHardcodedWorktree, fixedRefund);
     await writeCouponFixture(taxFilingHardcodedWorktree, fixedCoupon);
     await writeLoyaltyFixture(taxFilingHardcodedWorktree, fixedLoyalty);
-    await writeSubscriptionFixture(taxFilingHardcodedWorktree, fixedSubscription);
+    await writeSubscriptionFixture(
+      taxFilingHardcodedWorktree,
+      fixedSubscription
+    );
     await writeEntitlementFixture(taxFilingHardcodedWorktree, fixedEntitlement);
     await writeGiftCardFixture(taxFilingHardcodedWorktree, fixedGiftCard);
     await writePayoutFixture(taxFilingHardcodedWorktree, fixedPayout);
     await writeAppointmentFixture(taxFilingHardcodedWorktree, fixedAppointment);
     await writeWarrantyFixture(taxFilingHardcodedWorktree, fixedWarranty);
-    await writeSupportTicketFixture(taxFilingHardcodedWorktree, fixedSupportTicket);
-    await writePaymentDisputeFixture(taxFilingHardcodedWorktree, fixedPaymentDispute);
+    await writeSupportTicketFixture(
+      taxFilingHardcodedWorktree,
+      fixedSupportTicket
+    );
+    await writePaymentDisputeFixture(
+      taxFilingHardcodedWorktree,
+      fixedPaymentDispute
+    );
     await writeWarehouseAllocationFixture(
       taxFilingHardcodedWorktree,
       fixedWarehouseAllocation
     );
-    await writeInsuranceClaimFixture(taxFilingHardcodedWorktree, fixedInsuranceClaim);
+    await writeInsuranceClaimFixture(
+      taxFilingHardcodedWorktree,
+      fixedInsuranceClaim
+    );
     await writePayrollFixture(taxFilingHardcodedWorktree, fixedPayroll);
-    await writeVendorInvoiceFixture(taxFilingHardcodedWorktree, fixedVendorInvoice);
+    await writeVendorInvoiceFixture(
+      taxFilingHardcodedWorktree,
+      fixedVendorInvoice
+    );
     await writeExpenseReimbursementFixture(
       taxFilingHardcodedWorktree,
       fixedExpenseReimbursement
@@ -5127,7 +5300,10 @@ async function main() {
       taxFilingHardcodedWorktree,
       fixedLoanUnderwriting
     );
-    await writeAccountClosureFixture(taxFilingHardcodedWorktree, fixedAccountClosure);
+    await writeAccountClosureFixture(
+      taxFilingHardcodedWorktree,
+      fixedAccountClosure
+    );
     await writeMerchantOnboardingFixture(
       taxFilingHardcodedWorktree,
       fixedMerchantOnboarding
@@ -5146,7 +5322,10 @@ async function main() {
       taxFilingHardcodedWorktree,
       fixedPaymentSettlement
     );
-    await writeTaxFilingFixture(taxFilingHardcodedWorktree, happyPathOnlyTaxFiling);
+    await writeTaxFilingFixture(
+      taxFilingHardcodedWorktree,
+      happyPathOnlyTaxFiling
+    );
     for (const worktree of [
       candidateWorktree,
       goodWorktree,
@@ -5195,7 +5374,10 @@ async function main() {
     await writeCartFixture(privacyConsentHardcodedWorktree, fixedCart);
     await writeProfileFixture(privacyConsentHardcodedWorktree, fixedProfile);
     await writeOrderFixture(privacyConsentHardcodedWorktree, fixedOrder);
-    await writeInventoryFixture(privacyConsentHardcodedWorktree, fixedInventory);
+    await writeInventoryFixture(
+      privacyConsentHardcodedWorktree,
+      fixedInventory
+    );
     await writeShippingFixture(privacyConsentHardcodedWorktree, fixedShipping);
     await writePaymentFixture(privacyConsentHardcodedWorktree, fixedPayment);
     await writeRefundFixture(privacyConsentHardcodedWorktree, fixedRefund);
@@ -5209,10 +5391,7 @@ async function main() {
       privacyConsentHardcodedWorktree,
       fixedEntitlement
     );
-    await writeGiftCardFixture(
-      privacyConsentHardcodedWorktree,
-      fixedGiftCard
-    );
+    await writeGiftCardFixture(privacyConsentHardcodedWorktree, fixedGiftCard);
     await writePayoutFixture(privacyConsentHardcodedWorktree, fixedPayout);
     await writeAppointmentFixture(
       privacyConsentHardcodedWorktree,
@@ -5264,13 +5443,22 @@ async function main() {
       privacyConsentHardcodedWorktree,
       fixedContentModerationAppeal
     );
-    await writeFraudRiskFixture(privacyConsentHardcodedWorktree, fixedFraudRisk);
-    await writeCreditMemoFixture(privacyConsentHardcodedWorktree, fixedCreditMemo);
+    await writeFraudRiskFixture(
+      privacyConsentHardcodedWorktree,
+      fixedFraudRisk
+    );
+    await writeCreditMemoFixture(
+      privacyConsentHardcodedWorktree,
+      fixedCreditMemo
+    );
     await writePaymentSettlementFixture(
       privacyConsentHardcodedWorktree,
       fixedPaymentSettlement
     );
-    await writeTaxFilingFixture(privacyConsentHardcodedWorktree, fixedTaxFiling);
+    await writeTaxFilingFixture(
+      privacyConsentHardcodedWorktree,
+      fixedTaxFiling
+    );
     await writePrivacyConsentFixture(
       privacyConsentHardcodedWorktree,
       happyPathOnlyPrivacyConsent
@@ -5330,11 +5518,20 @@ async function main() {
     await writeRefundFixture(accessReviewHardcodedWorktree, fixedRefund);
     await writeCouponFixture(accessReviewHardcodedWorktree, fixedCoupon);
     await writeLoyaltyFixture(accessReviewHardcodedWorktree, fixedLoyalty);
-    await writeSubscriptionFixture(accessReviewHardcodedWorktree, fixedSubscription);
-    await writeEntitlementFixture(accessReviewHardcodedWorktree, fixedEntitlement);
+    await writeSubscriptionFixture(
+      accessReviewHardcodedWorktree,
+      fixedSubscription
+    );
+    await writeEntitlementFixture(
+      accessReviewHardcodedWorktree,
+      fixedEntitlement
+    );
     await writeGiftCardFixture(accessReviewHardcodedWorktree, fixedGiftCard);
     await writePayoutFixture(accessReviewHardcodedWorktree, fixedPayout);
-    await writeAppointmentFixture(accessReviewHardcodedWorktree, fixedAppointment);
+    await writeAppointmentFixture(
+      accessReviewHardcodedWorktree,
+      fixedAppointment
+    );
     await writeWarrantyFixture(accessReviewHardcodedWorktree, fixedWarranty);
     await writeSupportTicketFixture(
       accessReviewHardcodedWorktree,
@@ -5382,7 +5579,10 @@ async function main() {
       fixedContentModerationAppeal
     );
     await writeFraudRiskFixture(accessReviewHardcodedWorktree, fixedFraudRisk);
-    await writeCreditMemoFixture(accessReviewHardcodedWorktree, fixedCreditMemo);
+    await writeCreditMemoFixture(
+      accessReviewHardcodedWorktree,
+      fixedCreditMemo
+    );
     await writePaymentSettlementFixture(
       accessReviewHardcodedWorktree,
       fixedPaymentSettlement
@@ -5442,10 +5642,7 @@ async function main() {
     ]) {
       await writeReleaseReadinessFixture(worktree, fixedReleaseReadiness);
     }
-    await writeReleaseReadinessFixture(
-      baseWorktree,
-      buggyReleaseReadiness
-    );
+    await writeReleaseReadinessFixture(baseWorktree, buggyReleaseReadiness);
     await writeCartFixture(releaseReadinessHardcodedWorktree, fixedCart);
     await writeProfileFixture(releaseReadinessHardcodedWorktree, fixedProfile);
     await writeOrderFixture(releaseReadinessHardcodedWorktree, fixedOrder);
@@ -5710,10 +5907,7 @@ async function main() {
       backupRestoreHardcodedWorktree,
       usageBillingHardcodedWorktree
     ]) {
-      await writeServiceOutageCreditFixture(
-        worktree,
-        fixedServiceOutageCredit
-      );
+      await writeServiceOutageCreditFixture(worktree, fixedServiceOutageCredit);
     }
     await writeServiceOutageCreditFixture(
       baseWorktree,
@@ -6145,10 +6339,7 @@ async function main() {
       referralRewardHardcodedWorktree,
       accountRecoveryHardcodedWorktree
     ]) {
-      await writePaymentMethodUpdateFixture(
-        worktree,
-        fixedPaymentMethodUpdate
-      );
+      await writePaymentMethodUpdateFixture(worktree, fixedPaymentMethodUpdate);
     }
     await writePaymentMethodUpdateFixture(
       baseWorktree,
@@ -6158,6 +6349,76 @@ async function main() {
     await writePaymentMethodUpdateFixture(
       paymentMethodUpdateHardcodedWorktree,
       happyPathOnlyPaymentMethodUpdate
+    );
+
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree,
+      usageBillingHardcodedWorktree,
+      serviceOutageCreditHardcodedWorktree,
+      contractRenewalHardcodedWorktree,
+      deviceReturnRmaHardcodedWorktree,
+      accountCreditTransferHardcodedWorktree,
+      referralRewardHardcodedWorktree,
+      accountRecoveryHardcodedWorktree,
+      paymentMethodUpdateHardcodedWorktree
+    ]) {
+      await writeShippingAddressUpdateFixture(
+        worktree,
+        fixedShippingAddressUpdate
+      );
+    }
+    await writeShippingAddressUpdateFixture(
+      baseWorktree,
+      buggyShippingAddressUpdate
+    );
+    await writeAllFixedFixtures(shippingAddressUpdateHardcodedWorktree);
+    await writeShippingAddressUpdateFixture(
+      shippingAddressUpdateHardcodedWorktree,
+      happyPathOnlyShippingAddressUpdate
     );
 
     const filterConfig = buildAdversaryLiveFilterConfig();
@@ -6222,8 +6483,7 @@ async function main() {
         targetPath: 'tests/adversary/payment-dispute-supplemental.test.cjs'
       }),
       buildWarehouseAllocationSemanticProposal({
-        targetPath:
-          'tests/adversary/warehouse-allocation-supplemental.test.cjs'
+        targetPath: 'tests/adversary/warehouse-allocation-supplemental.test.cjs'
       }),
       buildInsuranceClaimSemanticProposal({
         targetPath: 'tests/adversary/insurance-claim-supplemental.test.cjs'
@@ -6308,6 +6568,10 @@ async function main() {
       buildPaymentMethodUpdateSemanticProposal({
         targetPath:
           'tests/adversary/payment-method-update-supplemental.test.cjs'
+      }),
+      buildShippingAddressUpdateSemanticProposal({
+        targetPath:
+          'tests/adversary/shipping-address-update-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -6391,8 +6655,7 @@ async function main() {
             'tests/adversary/subscription-renewal-supplemental.test.cjs'
         }),
         buildEntitlementAccessSemanticProposal({
-          targetPath:
-            'tests/adversary/entitlement-access-supplemental.test.cjs'
+          targetPath: 'tests/adversary/entitlement-access-supplemental.test.cjs'
         }),
         buildGiftCardRedemptionSemanticProposal({
           targetPath:
@@ -6458,8 +6721,7 @@ async function main() {
             'tests/adversary/credit-memo-approval-supplemental.test.cjs'
         }),
         buildPaymentSettlementSemanticProposal({
-          targetPath:
-            'tests/adversary/payment-settlement-supplemental.test.cjs'
+          targetPath: 'tests/adversary/payment-settlement-supplemental.test.cjs'
         }),
         buildTaxFilingSemanticProposal({
           targetPath: 'tests/adversary/tax-filing-supplemental.test.cjs'
@@ -6471,20 +6733,16 @@ async function main() {
           targetPath: 'tests/adversary/access-review-supplemental.test.cjs'
         }),
         buildReleaseReadinessSemanticProposal({
-          targetPath:
-            'tests/adversary/release-readiness-supplemental.test.cjs'
+          targetPath: 'tests/adversary/release-readiness-supplemental.test.cjs'
         }),
         buildIncidentResponseSemanticProposal({
-          targetPath:
-            'tests/adversary/incident-response-supplemental.test.cjs'
+          targetPath: 'tests/adversary/incident-response-supplemental.test.cjs'
         }),
         buildBackupRestoreSemanticProposal({
-          targetPath:
-            'tests/adversary/backup-restore-supplemental.test.cjs'
+          targetPath: 'tests/adversary/backup-restore-supplemental.test.cjs'
         }),
         buildUsageBillingSemanticProposal({
-          targetPath:
-            'tests/adversary/usage-billing-supplemental.test.cjs'
+          targetPath: 'tests/adversary/usage-billing-supplemental.test.cjs'
         }),
         buildServiceOutageCreditSemanticProposal({
           targetPath:
@@ -6509,6 +6767,10 @@ async function main() {
         buildPaymentMethodUpdateSemanticProposal({
           targetPath:
             'tests/adversary/payment-method-update-supplemental.test.cjs'
+        }),
+        buildShippingAddressUpdateSemanticProposal({
+          targetPath:
+            'tests/adversary/shipping-address-update-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -6982,6 +7244,13 @@ async function main() {
         'adversary-live-payment-method-update-hardcode'
       )
     );
+    const shippingAddressUpdateHardcoded = await runGates(
+      await gateContext(
+        shippingAddressUpdateHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-shipping-address-update-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -7054,18 +7323,16 @@ async function main() {
       giftCardRedemptionHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
-    const sellerPayoutHardcodedGate =
-      sellerPayoutHardcoded.report.gates.find(
-        (gate) => gate.name === 'rulepack_semantic'
-      );
+    const sellerPayoutHardcodedGate = sellerPayoutHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
     const appointmentCancellationHardcodedGate =
       appointmentCancellationHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
-    const warrantyClaimHardcodedGate =
-      warrantyClaimHardcoded.report.gates.find(
-        (gate) => gate.name === 'rulepack_semantic'
-      );
+    const warrantyClaimHardcodedGate = warrantyClaimHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
     const supportTicketRoutingHardcodedGate =
       supportTicketRoutingHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
@@ -7086,10 +7353,9 @@ async function main() {
       payrollOvertimeHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
-    const vendorInvoiceHardcodedGate =
-      vendorInvoiceHardcoded.report.gates.find(
-        (gate) => gate.name === 'rulepack_semantic'
-      );
+    const vendorInvoiceHardcodedGate = vendorInvoiceHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
     const expenseReimbursementHardcodedGate =
       expenseReimbursementHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
@@ -7132,10 +7398,9 @@ async function main() {
       privacyConsentHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
-    const accessReviewHardcodedGate =
-      accessReviewHardcoded.report.gates.find(
-        (gate) => gate.name === 'rulepack_semantic'
-      );
+    const accessReviewHardcodedGate = accessReviewHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
     const releaseReadinessHardcodedGate =
       releaseReadinessHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
@@ -7144,14 +7409,12 @@ async function main() {
       incidentResponseHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
-    const backupRestoreHardcodedGate =
-      backupRestoreHardcoded.report.gates.find(
-        (gate) => gate.name === 'rulepack_semantic'
-      );
-    const usageBillingHardcodedGate =
-      usageBillingHardcoded.report.gates.find(
-        (gate) => gate.name === 'rulepack_semantic'
-      );
+    const backupRestoreHardcodedGate = backupRestoreHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
+    const usageBillingHardcodedGate = usageBillingHardcoded.report.gates.find(
+      (gate) => gate.name === 'rulepack_semantic'
+    );
     const serviceOutageCreditHardcodedGate =
       serviceOutageCreditHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
@@ -7178,6 +7441,10 @@ async function main() {
       );
     const paymentMethodUpdateHardcodedGate =
       paymentMethodUpdateHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
+    const shippingAddressUpdateHardcodedGate =
+      shippingAddressUpdateHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
     if (
@@ -7232,7 +7499,8 @@ async function main() {
       accountCreditTransferHardcodedGate?.status !== 'fail' ||
       referralRewardHardcodedGate?.status !== 'fail' ||
       accountRecoveryHardcodedGate?.status !== 'fail' ||
-      paymentMethodUpdateHardcodedGate?.status !== 'fail'
+      paymentMethodUpdateHardcodedGate?.status !== 'fail' ||
+      shippingAddressUpdateHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -7289,7 +7557,8 @@ async function main() {
           accountCreditTransferHardcoded: accountCreditTransferHardcodedGate,
           referralRewardHardcoded: referralRewardHardcodedGate,
           accountRecoveryHardcoded: accountRecoveryHardcodedGate,
-          paymentMethodUpdateHardcoded: paymentMethodUpdateHardcodedGate
+          paymentMethodUpdateHardcoded: paymentMethodUpdateHardcodedGate,
+          shippingAddressUpdateHardcoded: shippingAddressUpdateHardcodedGate
         })}`
       );
     }
@@ -7324,15 +7593,13 @@ async function main() {
         appointmentCancellationHardcoded:
           appointmentCancellationHardcodedGate.status,
         warrantyClaimHardcoded: warrantyClaimHardcodedGate.status,
-        supportTicketRoutingHardcoded:
-          supportTicketRoutingHardcodedGate.status,
+        supportTicketRoutingHardcoded: supportTicketRoutingHardcodedGate.status,
         paymentDisputeHardcoded: paymentDisputeHardcodedGate.status,
         warehouseAllocationHardcoded: warehouseAllocationHardcodedGate.status,
         insuranceClaimHardcoded: insuranceClaimHardcodedGate.status,
         payrollOvertimeHardcoded: payrollOvertimeHardcodedGate.status,
         vendorInvoiceHardcoded: vendorInvoiceHardcodedGate.status,
-        expenseReimbursementHardcoded:
-          expenseReimbursementHardcodedGate.status,
+        expenseReimbursementHardcoded: expenseReimbursementHardcodedGate.status,
         loanUnderwritingHardcoded: loanUnderwritingHardcodedGate.status,
         accountClosureHardcoded: accountClosureHardcodedGate.status,
         merchantOnboardingHardcoded: merchantOnboardingHardcodedGate.status,
@@ -7350,16 +7617,16 @@ async function main() {
         incidentResponseHardcoded: incidentResponseHardcodedGate.status,
         backupRestoreHardcoded: backupRestoreHardcodedGate.status,
         usageBillingHardcoded: usageBillingHardcodedGate.status,
-        serviceOutageCreditHardcoded:
-          serviceOutageCreditHardcodedGate.status,
+        serviceOutageCreditHardcoded: serviceOutageCreditHardcodedGate.status,
         contractRenewalHardcoded: contractRenewalHardcodedGate.status,
         deviceReturnRmaHardcoded: deviceReturnRmaHardcodedGate.status,
         accountCreditTransferHardcoded:
           accountCreditTransferHardcodedGate.status,
         referralRewardHardcoded: referralRewardHardcodedGate.status,
         accountRecoveryHardcoded: accountRecoveryHardcodedGate.status,
-        paymentMethodUpdateHardcoded:
-          paymentMethodUpdateHardcodedGate.status
+        paymentMethodUpdateHardcoded: paymentMethodUpdateHardcodedGate.status,
+        shippingAddressUpdateHardcoded:
+          shippingAddressUpdateHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -7458,12 +7725,10 @@ async function main() {
           entitlementAccessHardcodedGate.status,
         gift_card_redemption_hardcoded_gate_status:
           giftCardRedemptionHardcodedGate.status,
-        seller_payout_hardcoded_gate_status:
-          sellerPayoutHardcodedGate.status,
+        seller_payout_hardcoded_gate_status: sellerPayoutHardcodedGate.status,
         appointment_cancellation_hardcoded_gate_status:
           appointmentCancellationHardcodedGate.status,
-        warranty_claim_hardcoded_gate_status:
-          warrantyClaimHardcodedGate.status,
+        warranty_claim_hardcoded_gate_status: warrantyClaimHardcodedGate.status,
         support_ticket_routing_hardcoded_gate_status:
           supportTicketRoutingHardcodedGate.status,
         payment_dispute_hardcoded_gate_status:
@@ -7474,8 +7739,7 @@ async function main() {
           insuranceClaimHardcodedGate.status,
         payroll_overtime_hardcoded_gate_status:
           payrollOvertimeHardcodedGate.status,
-        vendor_invoice_hardcoded_gate_status:
-          vendorInvoiceHardcodedGate.status,
+        vendor_invoice_hardcoded_gate_status: vendorInvoiceHardcodedGate.status,
         expense_reimbursement_hardcoded_gate_status:
           expenseReimbursementHardcodedGate.status,
         loan_underwriting_hardcoded_gate_status:
@@ -7496,16 +7760,13 @@ async function main() {
         tax_filing_hardcoded_gate_status: taxFilingHardcodedGate.status,
         privacy_consent_hardcoded_gate_status:
           privacyConsentHardcodedGate.status,
-        access_review_hardcoded_gate_status:
-          accessReviewHardcodedGate.status,
+        access_review_hardcoded_gate_status: accessReviewHardcodedGate.status,
         release_readiness_hardcoded_gate_status:
           releaseReadinessHardcodedGate.status,
         incident_response_hardcoded_gate_status:
           incidentResponseHardcodedGate.status,
-        backup_restore_hardcoded_gate_status:
-          backupRestoreHardcodedGate.status,
-        usage_billing_hardcoded_gate_status:
-          usageBillingHardcodedGate.status,
+        backup_restore_hardcoded_gate_status: backupRestoreHardcodedGate.status,
+        usage_billing_hardcoded_gate_status: usageBillingHardcodedGate.status,
         service_outage_credit_hardcoded_gate_status:
           serviceOutageCreditHardcodedGate.status,
         contract_renewal_hardcoded_gate_status:
@@ -7520,6 +7781,8 @@ async function main() {
           accountRecoveryHardcodedGate.status,
         payment_method_update_hardcoded_gate_status:
           paymentMethodUpdateHardcodedGate.status,
+        shipping_address_update_hardcoded_gate_status:
+          shippingAddressUpdateHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -7583,14 +7846,12 @@ async function main() {
           dataRetentionDeletionHardcodedGate.status === 'fail',
         content_moderation_appeal_hardcode_rejected:
           contentModerationAppealHardcodedGate.status === 'fail',
-        fraud_risk_hardcode_rejected:
-          fraudRiskHardcodedGate.status === 'fail',
+        fraud_risk_hardcode_rejected: fraudRiskHardcodedGate.status === 'fail',
         credit_memo_approval_hardcode_rejected:
           creditMemoApprovalHardcodedGate.status === 'fail',
         payment_settlement_hardcode_rejected:
           paymentSettlementHardcodedGate.status === 'fail',
-        tax_filing_hardcode_rejected:
-          taxFilingHardcodedGate.status === 'fail',
+        tax_filing_hardcode_rejected: taxFilingHardcodedGate.status === 'fail',
         privacy_consent_hardcode_rejected:
           privacyConsentHardcodedGate.status === 'fail',
         access_review_hardcode_rejected:
@@ -7616,7 +7877,9 @@ async function main() {
         account_recovery_hardcode_rejected:
           accountRecoveryHardcodedGate.status === 'fail',
         payment_method_update_hardcode_rejected:
-          paymentMethodUpdateHardcodedGate.status === 'fail'
+          paymentMethodUpdateHardcodedGate.status === 'fail',
+        shipping_address_update_hardcode_rejected:
+          shippingAddressUpdateHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,

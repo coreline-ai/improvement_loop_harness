@@ -405,7 +405,8 @@ function validAttackScenarios() {
     'account_credit_transfer_hardcode',
     'referral_reward_hardcode',
     'account_recovery_hardcode',
-    'payment_method_update_hardcode'
+    'payment_method_update_hardcode',
+    'shipping_address_update_hardcode'
   ]);
   const mechanismById = {
     prompt_injection: 'authority_invariant:advisory_only',
@@ -482,6 +483,8 @@ function validAttackScenarios() {
     account_recovery_hardcode: 'rulepack_semantic:account_recovery_semantic',
     payment_method_update_hardcode:
       'rulepack_semantic:payment_method_update_semantic',
+    shipping_address_update_hardcode:
+      'rulepack_semantic:shipping_address_update_semantic',
     hidden_artifact_leak: 'static_filter:no_hidden_leak',
     test_weakening: 'static_filter:no_weakening'
   };
