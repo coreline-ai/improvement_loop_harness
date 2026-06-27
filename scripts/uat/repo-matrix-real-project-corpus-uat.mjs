@@ -1427,6 +1427,26 @@ function buildAccountCreditTransferVerifier(cases) {
   ].join('\n');
 }
 
+function buildReferralRewardPayoutVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateReferralReward } = require(process.cwd() + '/examples/business-source/referral-reward-payout.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateReferralReward(item.referrer, item.referee, item.order, item.campaign, item.ledger, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -7347,6 +7367,331 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             transferAllowed: true,
             requiresManualReview: true,
             movedCents: 22000
+          }
+        }
+      ])
+  },
+  {
+    id: 'referral-reward-minimum-order',
+    semantic_domain: 'referral_reward_minimum_order_gate',
+    business_source_repair: true,
+    business_domain: 'referral_reward_payout',
+    relativePath: 'examples/business-source/referral-reward-payout.cjs',
+    language: 'javascript',
+    originalNeedle: '  if ((order.totalCents ?? 0) < minEligibleOrderCents) {',
+    regressionText: '  if ((order.totalCents ?? 0) > minEligibleOrderCents) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildReferralRewardPayoutVerifier([
+        {
+          name: 'eligible completed referral order is approved',
+          referrer: {
+            id: 'ref_visible_active',
+            status: 'active'
+          },
+          referee: {
+            id: 'new_visible_customer',
+            status: 'active'
+          },
+          order: {
+            id: 'order_visible_approved',
+            status: 'completed',
+            totalCents: 12000,
+            currency: 'USD',
+            completedAt: '2026-07-03T00:00:00.000Z'
+          },
+          campaign: {
+            status: 'active',
+            currency: 'USD',
+            startsAt: '2026-07-01T00:00:00.000Z',
+            endsAt: '2026-07-31T23:59:59.000Z',
+            minEligibleOrderCents: 10000,
+            rewardCents: 1500,
+            maxRewardCents: 2000
+          },
+          ledger: {
+            rewardedOrderIds: []
+          },
+          now: '2026-07-04T00:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            payoutAllowed: true,
+            requiresManualReview: false,
+            rewardCents: 1500
+          }
+        },
+        {
+          name: 'order below minimum is blocked',
+          referrer: {
+            id: 'ref_visible_below_minimum',
+            status: 'active'
+          },
+          referee: {
+            id: 'new_visible_below_minimum',
+            status: 'active'
+          },
+          order: {
+            id: 'order_visible_below_minimum',
+            status: 'completed',
+            totalCents: 9000,
+            currency: 'USD',
+            completedAt: '2026-07-03T00:00:00.000Z'
+          },
+          campaign: {
+            status: 'active',
+            currency: 'USD',
+            startsAt: '2026-07-01T00:00:00.000Z',
+            endsAt: '2026-07-31T23:59:59.000Z',
+            minEligibleOrderCents: 10000,
+            rewardCents: 1500,
+            maxRewardCents: 2000
+          },
+          ledger: {
+            rewardedOrderIds: []
+          },
+          now: '2026-07-04T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'minimum_order_not_met',
+            payoutAllowed: false,
+            requiresManualReview: false,
+            rewardCents: 0
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildReferralRewardPayoutVerifier([
+        {
+          name: 'hidden boundary order at minimum is approved',
+          referrer: {
+            id: 'ref_hidden_boundary',
+            status: 'active'
+          },
+          referee: {
+            id: 'new_hidden_boundary',
+            status: 'active'
+          },
+          order: {
+            id: 'order_hidden_boundary',
+            status: 'completed',
+            totalCents: 10000,
+            currency: 'USD',
+            completedAt: '2026-07-05T00:00:00.000Z'
+          },
+          campaign: {
+            status: 'active',
+            currency: 'USD',
+            startsAt: '2026-07-01T00:00:00.000Z',
+            endsAt: '2026-07-31T23:59:59.000Z',
+            minEligibleOrderCents: 10000,
+            rewardCents: 1500,
+            maxRewardCents: 2000
+          },
+          ledger: {
+            rewardedOrderIds: []
+          },
+          now: '2026-07-06T00:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            payoutAllowed: true,
+            requiresManualReview: false,
+            rewardCents: 1500
+          }
+        },
+        {
+          name: 'hidden one cent below minimum is blocked',
+          referrer: {
+            id: 'ref_hidden_one_cent_below',
+            status: 'active'
+          },
+          referee: {
+            id: 'new_hidden_one_cent_below',
+            status: 'active'
+          },
+          order: {
+            id: 'order_hidden_one_cent_below',
+            status: 'completed',
+            totalCents: 9999,
+            currency: 'USD',
+            completedAt: '2026-07-05T00:00:00.000Z'
+          },
+          campaign: {
+            status: 'active',
+            currency: 'USD',
+            startsAt: '2026-07-01T00:00:00.000Z',
+            endsAt: '2026-07-31T23:59:59.000Z',
+            minEligibleOrderCents: 10000,
+            rewardCents: 1500,
+            maxRewardCents: 2000
+          },
+          ledger: {
+            rewardedOrderIds: []
+          },
+          now: '2026-07-06T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'minimum_order_not_met',
+            payoutAllowed: false,
+            requiresManualReview: false,
+            rewardCents: 0
+          }
+        },
+        {
+          name: 'hidden refunded order is blocked',
+          referrer: {
+            id: 'ref_hidden_refund',
+            status: 'active'
+          },
+          referee: {
+            id: 'new_hidden_refund',
+            status: 'active'
+          },
+          order: {
+            id: 'order_hidden_refund',
+            status: 'completed',
+            refunded: true,
+            totalCents: 15000,
+            currency: 'USD',
+            completedAt: '2026-07-05T00:00:00.000Z'
+          },
+          campaign: {
+            status: 'active',
+            currency: 'USD',
+            startsAt: '2026-07-01T00:00:00.000Z',
+            endsAt: '2026-07-31T23:59:59.000Z',
+            minEligibleOrderCents: 10000,
+            rewardCents: 1500,
+            maxRewardCents: 2000
+          },
+          ledger: {
+            rewardedOrderIds: []
+          },
+          now: '2026-07-06T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'order_refunded',
+            payoutAllowed: false,
+            requiresManualReview: false,
+            rewardCents: 0
+          }
+        },
+        {
+          name: 'hidden duplicate reward is blocked',
+          referrer: {
+            id: 'ref_hidden_duplicate',
+            status: 'active'
+          },
+          referee: {
+            id: 'new_hidden_duplicate',
+            status: 'active'
+          },
+          order: {
+            id: 'order_hidden_duplicate',
+            status: 'completed',
+            totalCents: 15000,
+            currency: 'USD',
+            completedAt: '2026-07-05T00:00:00.000Z'
+          },
+          campaign: {
+            status: 'active',
+            currency: 'USD',
+            startsAt: '2026-07-01T00:00:00.000Z',
+            endsAt: '2026-07-31T23:59:59.000Z',
+            minEligibleOrderCents: 10000,
+            rewardCents: 1500,
+            maxRewardCents: 2000
+          },
+          ledger: {
+            rewardedOrderIds: ['order_hidden_duplicate']
+          },
+          now: '2026-07-06T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'duplicate_reward',
+            payoutAllowed: false,
+            requiresManualReview: false,
+            rewardCents: 0
+          }
+        },
+        {
+          name: 'hidden self referral is blocked',
+          referrer: {
+            id: 'same_hidden_customer',
+            status: 'active'
+          },
+          referee: {
+            id: 'same_hidden_customer',
+            status: 'active'
+          },
+          order: {
+            id: 'order_hidden_self_referral',
+            status: 'completed',
+            totalCents: 15000,
+            currency: 'USD',
+            completedAt: '2026-07-05T00:00:00.000Z'
+          },
+          campaign: {
+            status: 'active',
+            currency: 'USD',
+            startsAt: '2026-07-01T00:00:00.000Z',
+            endsAt: '2026-07-31T23:59:59.000Z',
+            minEligibleOrderCents: 10000,
+            rewardCents: 1500,
+            maxRewardCents: 2000
+          },
+          ledger: {
+            rewardedOrderIds: []
+          },
+          now: '2026-07-06T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'self_referral',
+            payoutAllowed: false,
+            requiresManualReview: false,
+            rewardCents: 0
+          }
+        },
+        {
+          name: 'hidden capped reward is approved with cap',
+          referrer: {
+            id: 'ref_hidden_cap',
+            status: 'active'
+          },
+          referee: {
+            id: 'new_hidden_cap',
+            status: 'active'
+          },
+          order: {
+            id: 'order_hidden_cap',
+            status: 'completed',
+            totalCents: 40000,
+            currency: 'USD',
+            completedAt: '2026-07-05T00:00:00.000Z'
+          },
+          campaign: {
+            status: 'active',
+            currency: 'USD',
+            startsAt: '2026-07-01T00:00:00.000Z',
+            endsAt: '2026-07-31T23:59:59.000Z',
+            minEligibleOrderCents: 10000,
+            rewardCents: 5000,
+            maxRewardCents: 2500
+          },
+          ledger: {
+            rewardedOrderIds: []
+          },
+          now: '2026-07-06T00:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            payoutAllowed: true,
+            requiresManualReview: false,
+            rewardCents: 2500
           }
         }
       ])
