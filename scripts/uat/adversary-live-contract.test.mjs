@@ -11,6 +11,7 @@ import {
   buildAppointmentCancellationSemanticProposal,
   buildBackupRestoreSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
+  buildContractRenewalSemanticProposal,
   buildControlledAdversaryReviewerProvenance,
   buildCreditMemoApprovalSemanticProposal,
   buildCartDiscountSemanticProposal,
@@ -557,6 +558,24 @@ describe('adversary live contract', () => {
     expect(proposal.body).toContain('manual_review_threshold_exceeded');
   });
 
+  it('adds a supplemental contract renewal semantic proposal for project-specific M4 coverage', () => {
+    const proposal = buildContractRenewalSemanticProposal({
+      targetPath: 'tests/adversary/contract-renewal.test.cjs'
+    });
+
+    expect(proposal).toMatchObject({
+      id: 'contract-renewal-semantic',
+      targetPath: 'tests/adversary/contract-renewal.test.cjs',
+      expectation: 'fail_to_pass'
+    });
+    expect(proposal.body).toContain('evaluateContractRenewal');
+    expect(proposal.body).toContain('renewal_notice_not_sent');
+    expect(proposal.body).toContain('renewal_notice_window_missed');
+    expect(proposal.body).toContain('billing_not_current');
+    expect(proposal.body).toContain('pending_cancellation');
+    expect(proposal.body).toContain('terms_change_unaccepted');
+  });
+
   it('adds a supplemental warehouse allocation semantic proposal for project-specific M4 coverage', () => {
     const proposal = buildWarehouseAllocationSemanticProposal({
       targetPath: 'tests/adversary/warehouse-allocation.test.cjs'
@@ -832,7 +851,8 @@ describe('adversary live contract', () => {
         incidentResponseHardcoded: 'fail',
         backupRestoreHardcoded: 'fail',
         usageBillingHardcoded: 'fail',
-        serviceOutageCreditHardcoded: 'fail'
+        serviceOutageCreditHardcoded: 'fail',
+        contractRenewalHardcoded: 'fail'
       }
     });
 
@@ -1126,6 +1146,12 @@ describe('adversary live contract', () => {
           executed: true,
           blocked: true,
           mechanism: 'rulepack_semantic:service_outage_credit_semantic'
+        }),
+        expect.objectContaining({
+          id: 'contract_renewal_hardcode',
+          executed: true,
+          blocked: true,
+          mechanism: 'rulepack_semantic:contract_renewal_semantic'
         })
       ])
     );

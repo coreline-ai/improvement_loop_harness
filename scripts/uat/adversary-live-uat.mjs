@@ -24,6 +24,7 @@ import {
   buildAppointmentCancellationSemanticProposal,
   buildBackupRestoreSemanticProposal,
   buildCommandAdversaryReviewerProvenance,
+  buildContractRenewalSemanticProposal,
   buildContentModerationAppealSemanticProposal,
   buildControlledAdversaryReviewerProvenance,
   buildCreditMemoApprovalSemanticProposal,
@@ -331,6 +332,11 @@ async function writeUsageBillingFixture(root, source) {
 async function writeServiceOutageCreditFixture(root, source) {
   await mkdir(path.join(root, 'src'), { recursive: true });
   await writeFile(path.join(root, 'src/service-outage-credit.cjs'), source);
+}
+
+async function writeContractRenewalFixture(root, source) {
+  await mkdir(path.join(root, 'src'), { recursive: true });
+  await writeFile(path.join(root, 'src/contract-renewal.cjs'), source);
 }
 
 function semanticEvalConfig(rulepackFile) {
@@ -821,6 +827,10 @@ async function main() {
     const serviceOutageCreditHardcodedWorktree = path.join(
       workRoot,
       'loop-n-plus-one-service-outage-credit-hardcode'
+    );
+    const contractRenewalHardcodedWorktree = path.join(
+      workRoot,
+      'loop-n-plus-one-contract-renewal-hardcode'
     );
     const buggyCart = [
       'function lineTotal(item) {',
@@ -2503,6 +2513,48 @@ async function main() {
       'module.exports = { calculateServiceOutageCredit };',
       ''
     ].join('\n');
+    const buggyContractRenewal = [
+      'function evaluateContractRenewal(_account = {}, _contract = {}, _notice = {}, _policy = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, 0);',
+      '}',
+      'function decision(status, reason, renewalApproved, requiresManualReview, renewalAmountCents) {',
+      '  return { status, reason, renewalApproved, requiresManualReview, renewalAmountCents };',
+      '}',
+      'module.exports = { evaluateContractRenewal };',
+      ''
+    ].join('\n');
+    const fixedContractRenewal = [
+      'function evaluateContractRenewal(account = {}, contract = {}, notice = {}, policy = {}, now = new Date()) {',
+      '  const renewalAt = new Date(contract.renewalAt ?? contract.endsAt ?? now);',
+      '  const nowDate = new Date(now);',
+      '  const daysUntilRenewal = Math.ceil((renewalAt.getTime() - nowDate.getTime()) / 86400000);',
+      '  const minNoticeDays = policy.minNoticeDays ?? 30;',
+      '  if (account.status !== "active") return decision("blocked", "account_not_active", false, false, 0);',
+      '  if (contract.status !== "active") return decision("blocked", "contract_not_active", false, false, 0);',
+      '  if (contract.autoRenew !== true) return decision("blocked", "auto_renew_disabled", false, false, 0);',
+      '  if (notice.sent !== true) return decision("manual_review", "renewal_notice_not_sent", false, true, 0);',
+      '  if (daysUntilRenewal < minNoticeDays) return decision("manual_review", "renewal_notice_window_missed", false, true, 0);',
+      '  if (policy.requireBillingCurrent === true && account.billingCurrent !== true) return decision("manual_review", "billing_not_current", false, true, 0);',
+      '  if (contract.pendingCancellation === true) return decision("blocked", "pending_cancellation", false, false, 0);',
+      '  if (contract.termsChanged === true && notice.termsAccepted !== true) return decision("manual_review", "terms_change_unaccepted", false, true, 0);',
+      '  return decision("approved", null, true, false, contract.renewalAmountCents ?? contract.amountCents ?? 0);',
+      '}',
+      'function decision(status, reason, renewalApproved, requiresManualReview, renewalAmountCents) {',
+      '  return { status, reason, renewalApproved, requiresManualReview, renewalAmountCents };',
+      '}',
+      'module.exports = { evaluateContractRenewal };',
+      ''
+    ].join('\n');
+    const happyPathOnlyContractRenewal = [
+      'function evaluateContractRenewal(_account = {}, contract = {}, _notice = {}, _policy = {}, _now = new Date()) {',
+      '  return decision("approved", null, true, false, contract.renewalAmountCents ?? contract.amountCents ?? 0);',
+      '}',
+      'function decision(status, reason, renewalApproved, requiresManualReview, renewalAmountCents) {',
+      '  return { status, reason, renewalApproved, requiresManualReview, renewalAmountCents };',
+      '}',
+      'module.exports = { evaluateContractRenewal };',
+      ''
+    ].join('\n');
     async function writeAllFixedFixtures(worktree) {
       await writeCartFixture(worktree, fixedCart);
       await writeProfileFixture(worktree, fixedProfile);
@@ -2545,6 +2597,7 @@ async function main() {
       await writeBackupRestoreFixture(worktree, fixedBackupRestore);
       await writeUsageBillingFixture(worktree, fixedUsageBilling);
       await writeServiceOutageCreditFixture(worktree, fixedServiceOutageCredit);
+      await writeContractRenewalFixture(worktree, fixedContractRenewal);
     }
     await writeCartFixture(baseWorktree, buggyCart);
     await writeCartFixture(candidateWorktree, fixedCart);
@@ -5426,6 +5479,64 @@ async function main() {
       happyPathOnlyUsageBilling
     );
 
+    for (const worktree of [
+      candidateWorktree,
+      goodWorktree,
+      badWorktree,
+      hardcodedWorktree,
+      defaultQuantityHardcodedWorktree,
+      zeroQuantityTruthinessHardcodedWorktree,
+      discountHardcodedWorktree,
+      taxHardcodedWorktree,
+      roundingHardcodedWorktree,
+      profileVisibilityHardcodedWorktree,
+      profileSuspensionHardcodedWorktree,
+      orderApprovalHardcodedWorktree,
+      inventoryReservationHardcodedWorktree,
+      shippingEligibilityHardcodedWorktree,
+      paymentAuthorizationHardcodedWorktree,
+      refundEligibilityHardcodedWorktree,
+      couponApplicationHardcodedWorktree,
+      loyaltyPointsHardcodedWorktree,
+      subscriptionRenewalHardcodedWorktree,
+      entitlementAccessHardcodedWorktree,
+      giftCardRedemptionHardcodedWorktree,
+      sellerPayoutHardcodedWorktree,
+      appointmentCancellationHardcodedWorktree,
+      warrantyClaimHardcodedWorktree,
+      supportTicketRoutingHardcodedWorktree,
+      paymentDisputeHardcodedWorktree,
+      warehouseAllocationHardcodedWorktree,
+      insuranceClaimHardcodedWorktree,
+      payrollOvertimeHardcodedWorktree,
+      vendorInvoiceHardcodedWorktree,
+      expenseReimbursementHardcodedWorktree,
+      loanUnderwritingHardcodedWorktree,
+      accountClosureHardcodedWorktree,
+      merchantOnboardingHardcodedWorktree,
+      dataRetentionDeletionHardcodedWorktree,
+      contentModerationAppealHardcodedWorktree,
+      fraudRiskHardcodedWorktree,
+      creditMemoApprovalHardcodedWorktree,
+      paymentSettlementHardcodedWorktree,
+      taxFilingHardcodedWorktree,
+      privacyConsentHardcodedWorktree,
+      accessReviewHardcodedWorktree,
+      releaseReadinessHardcodedWorktree,
+      incidentResponseHardcodedWorktree,
+      backupRestoreHardcodedWorktree,
+      usageBillingHardcodedWorktree,
+      serviceOutageCreditHardcodedWorktree
+    ]) {
+      await writeContractRenewalFixture(worktree, fixedContractRenewal);
+    }
+    await writeContractRenewalFixture(baseWorktree, buggyContractRenewal);
+    await writeAllFixedFixtures(contractRenewalHardcodedWorktree);
+    await writeContractRenewalFixture(
+      contractRenewalHardcodedWorktree,
+      happyPathOnlyContractRenewal
+    );
+
     const filterConfig = buildAdversaryLiveFilterConfig();
     let proposal = buildCartSemanticProposal();
     let supplementalProposals = [
@@ -5554,6 +5665,9 @@ async function main() {
       buildServiceOutageCreditSemanticProposal({
         targetPath:
           'tests/adversary/service-outage-credit-supplemental.test.cjs'
+      }),
+      buildContractRenewalSemanticProposal({
+        targetPath: 'tests/adversary/contract-renewal-supplemental.test.cjs'
       })
     ];
     let adversaryReview = null;
@@ -5735,6 +5849,9 @@ async function main() {
         buildServiceOutageCreditSemanticProposal({
           targetPath:
             'tests/adversary/service-outage-credit-supplemental.test.cjs'
+        }),
+        buildContractRenewalSemanticProposal({
+          targetPath: 'tests/adversary/contract-renewal-supplemental.test.cjs'
         })
       ];
       adversaryReviewerProvenance = buildCommandAdversaryReviewerProvenance({
@@ -6166,6 +6283,13 @@ async function main() {
         'adversary-live-service-outage-credit-hardcode'
       )
     );
+    const contractRenewalHardcoded = await runGates(
+      await gateContext(
+        contractRenewalHardcodedWorktree,
+        rulepackFile,
+        'adversary-live-contract-renewal-hardcode'
+      )
+    );
     const goodGate = good.report.gates.find(
       (gate) => gate.name === 'rulepack_semantic'
     );
@@ -6340,6 +6464,10 @@ async function main() {
       serviceOutageCreditHardcoded.report.gates.find(
         (gate) => gate.name === 'rulepack_semantic'
       );
+    const contractRenewalHardcodedGate =
+      contractRenewalHardcoded.report.gates.find(
+        (gate) => gate.name === 'rulepack_semantic'
+      );
     if (
       goodGate?.status !== 'pass' ||
       badGate?.status !== 'fail' ||
@@ -6386,7 +6514,8 @@ async function main() {
       incidentResponseHardcodedGate?.status !== 'fail' ||
       backupRestoreHardcodedGate?.status !== 'fail' ||
       usageBillingHardcodedGate?.status !== 'fail' ||
-      serviceOutageCreditHardcodedGate?.status !== 'fail'
+      serviceOutageCreditHardcodedGate?.status !== 'fail' ||
+      contractRenewalHardcodedGate?.status !== 'fail'
     ) {
       throw new Error(
         `unexpected semantic gate results: ${JSON.stringify({
@@ -6437,7 +6566,8 @@ async function main() {
           incidentResponseHardcoded: incidentResponseHardcodedGate,
           backupRestoreHardcoded: backupRestoreHardcodedGate,
           usageBillingHardcoded: usageBillingHardcodedGate,
-          serviceOutageCreditHardcoded: serviceOutageCreditHardcodedGate
+          serviceOutageCreditHardcoded: serviceOutageCreditHardcodedGate,
+          contractRenewalHardcoded: contractRenewalHardcodedGate
         })}`
       );
     }
@@ -6499,7 +6629,8 @@ async function main() {
         backupRestoreHardcoded: backupRestoreHardcodedGate.status,
         usageBillingHardcoded: usageBillingHardcodedGate.status,
         serviceOutageCreditHardcoded:
-          serviceOutageCreditHardcodedGate.status
+          serviceOutageCreditHardcodedGate.status,
+        contractRenewalHardcoded: contractRenewalHardcodedGate.status
       }
     });
     const attackScenarioCheck = validateAdversaryLiveAttackScenarioResults(
@@ -6648,6 +6779,8 @@ async function main() {
           usageBillingHardcodedGate.status,
         service_outage_credit_hardcoded_gate_status:
           serviceOutageCreditHardcodedGate.status,
+        contract_renewal_hardcoded_gate_status:
+          contractRenewalHardcodedGate.status,
         bad_rejected: badGate.status === 'fail',
         visible_only_hardcode_rejected: hardcodedGate.status === 'fail',
         default_quantity_hardcode_rejected:
@@ -6732,7 +6865,9 @@ async function main() {
         usage_billing_hardcode_rejected:
           usageBillingHardcodedGate.status === 'fail',
         service_outage_credit_hardcode_rejected:
-          serviceOutageCreditHardcodedGate.status === 'fail'
+          serviceOutageCreditHardcodedGate.status === 'fail',
+        contract_renewal_hardcode_rejected:
+          contractRenewalHardcodedGate.status === 'fail'
       },
       attack_scenarios: {
         checked_count: attackScenarioResults.length,
