@@ -2690,9 +2690,9 @@ describe('release evidence audit', () => {
         scenario,
         expected_status: 'REAL_PROJECT_BUSINESS_SOURCE_REPAIR_PASS',
         expected_ledger: {
-          min_cell_count: 22,
-          min_pass_count: 22,
-          min_distinct_semantic_target_count: 22,
+          min_cell_count: 23,
+          min_pass_count: 23,
+          min_distinct_semantic_target_count: 23,
           max_fail_count: 0,
           required_codex_repair_smoke: true,
           required_business_source_repair: true,
@@ -2739,8 +2739,8 @@ describe('release evidence audit', () => {
         provider: 'codex',
         model: 'gpt-5.5'
       },
-      cell_count: 22,
-      pass_count: 22,
+      cell_count: 23,
+      pass_count: 23,
       fail_count: 0,
       cells: [
         {
@@ -3231,6 +3231,28 @@ describe('release evidence audit', () => {
             semantic_target_id: 'contract-renewal-notice-window',
             existing_source: true,
             repair_source: 'examples/business-source/contract-renewal.cjs',
+            visible_acceptance: { status: 'pass' },
+            hidden_acceptance: { status: 'pass' },
+            diff_scope: { status: 'pass' },
+            source_changed: true,
+            visible_test_unchanged: true,
+            source_repo_integrity: { status: 'pass' }
+          }
+        },
+        {
+          id: 'device-return-rma-project',
+          status: 'pass',
+          codex_repair: {
+            status: 'pass',
+            business_source_repair: true,
+            business_bug_repair: true,
+            business_domain: 'device_return_rma',
+            semantic_source_repair: true,
+            semantic_bug_repair: true,
+            semantic_domain: 'device_return_rma_window_gate',
+            semantic_target_id: 'device-return-rma-window',
+            existing_source: true,
+            repair_source: 'examples/business-source/device-return-rma.cjs',
             visible_acceptance: { status: 'pass' },
             hidden_acceptance: { status: 'pass' },
             diff_scope: { status: 'pass' },

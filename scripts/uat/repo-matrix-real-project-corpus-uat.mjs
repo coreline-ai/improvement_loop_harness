@@ -1387,6 +1387,26 @@ function buildContractRenewalVerifier(cases) {
   ].join('\n');
 }
 
+function buildDeviceReturnRmaVerifier(cases) {
+  return [
+    "import { createRequire } from 'node:module';",
+    '',
+    'const require = createRequire(import.meta.url);',
+    "const { evaluateDeviceReturn } = require(process.cwd() + '/examples/business-source/device-return-rma.cjs');",
+    '',
+    `const cases = ${JSON.stringify(cases, null, 2)};`,
+    'for (const item of cases) {',
+    '  const actual = evaluateDeviceReturn(item.customer, item.device, item.request, item.policy, item.now);',
+    '  for (const [key, expected] of Object.entries(item.expected)) {',
+    '    if (actual[key] !== expected) {',
+    '      throw new Error((item.name || key) + ": " + key + " expected " + expected + ", got " + actual[key]);',
+    '    }',
+    '  }',
+    '}',
+    ''
+  ].join('\n');
+}
+
 function buildEscapeStringRegexpVerifier(cases) {
   return [
     "import { pathToFileURL } from 'node:url';",
@@ -6729,6 +6749,257 @@ const SEMANTIC_SOURCE_REPAIR_TARGETS = [
             renewalApproved: false,
             requiresManualReview: true,
             renewalAmountCents: 0
+          }
+        }
+      ])
+  },
+  {
+    id: 'device-return-rma-window',
+    semantic_domain: 'device_return_rma_window_gate',
+    business_source_repair: true,
+    business_domain: 'device_return_rma',
+    relativePath: 'examples/business-source/device-return-rma.cjs',
+    language: 'javascript',
+    originalNeedle: '  if (daysSincePurchase > returnWindowDays) {',
+    regressionText: '  if (daysSincePurchase > 3650) {',
+    visibleCommand: (filePath) => ({
+      command: process.execPath,
+      args: [filePath]
+    }),
+    buildVisibleVerifier: () =>
+      buildDeviceReturnRmaVerifier([
+        {
+          name: 'eligible device return inside window is approved',
+          customer: {
+            id: 'cust_visible_approved',
+            status: 'active'
+          },
+          device: {
+            id: 'device_visible_approved',
+            ownerCustomerId: 'cust_visible_approved',
+            serialNumber: 'SN-VISIBLE-APPROVED',
+            purchasedAt: '2026-06-10T00:00:00.000Z',
+            itemValueCents: 60000
+          },
+          request: {
+            type: 'rma_return',
+            condition: 'like_new',
+            accessoriesComplete: true
+          },
+          policy: {
+            returnWindowDays: 30,
+            requireSerialNumber: true,
+            restockingFeeCents: 5000,
+            inspectionRequiredOverValueCents: 100000
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            returnApproved: true,
+            requiresManualReview: false,
+            refundCents: 55000
+          }
+        },
+        {
+          name: 'device return after window is blocked',
+          customer: {
+            id: 'cust_visible_expired',
+            status: 'active'
+          },
+          device: {
+            id: 'device_visible_expired',
+            ownerCustomerId: 'cust_visible_expired',
+            serialNumber: 'SN-VISIBLE-EXPIRED',
+            purchasedAt: '2026-05-15T00:00:00.000Z',
+            itemValueCents: 45000
+          },
+          request: {
+            type: 'rma_return',
+            condition: 'like_new',
+            accessoriesComplete: true
+          },
+          policy: {
+            returnWindowDays: 30,
+            requireSerialNumber: true,
+            restockingFeeCents: 0,
+            inspectionRequiredOverValueCents: 100000
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'return_window_expired',
+            returnApproved: false,
+            requiresManualReview: false,
+            refundCents: 0
+          }
+        }
+      ]),
+    buildHiddenVerifier: () =>
+      buildDeviceReturnRmaVerifier([
+        {
+          name: 'hidden boundary return at exact window is approved',
+          customer: {
+            id: 'cust_hidden_boundary',
+            status: 'active'
+          },
+          device: {
+            id: 'device_hidden_boundary',
+            ownerCustomerId: 'cust_hidden_boundary',
+            serialNumber: 'SN-HIDDEN-BOUNDARY',
+            purchasedAt: '2026-06-01T00:00:00.000Z',
+            itemValueCents: 70000
+          },
+          request: {
+            type: 'rma_return',
+            condition: 'like_new',
+            accessoriesComplete: true
+          },
+          policy: {
+            returnWindowDays: 30,
+            requireSerialNumber: true,
+            restockingFeeCents: 10000,
+            inspectionRequiredOverValueCents: 100000
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'approved',
+            reason: null,
+            returnApproved: true,
+            requiresManualReview: false,
+            refundCents: 60000
+          }
+        },
+        {
+          name: 'hidden one day outside window is blocked',
+          customer: {
+            id: 'cust_hidden_expired',
+            status: 'active'
+          },
+          device: {
+            id: 'device_hidden_expired',
+            ownerCustomerId: 'cust_hidden_expired',
+            serialNumber: 'SN-HIDDEN-EXPIRED',
+            purchasedAt: '2026-05-31T00:00:00.000Z',
+            itemValueCents: 70000
+          },
+          request: {
+            type: 'rma_return',
+            condition: 'like_new',
+            accessoriesComplete: true
+          },
+          policy: {
+            returnWindowDays: 30,
+            requireSerialNumber: true,
+            restockingFeeCents: 0,
+            inspectionRequiredOverValueCents: 100000
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'return_window_expired',
+            returnApproved: false,
+            requiresManualReview: false,
+            refundCents: 0
+          }
+        },
+        {
+          name: 'hidden ownership mismatch blocks return',
+          customer: {
+            id: 'cust_hidden_owner',
+            status: 'active'
+          },
+          device: {
+            id: 'device_hidden_owner',
+            ownerCustomerId: 'different_customer',
+            serialNumber: 'SN-HIDDEN-OWNER',
+            purchasedAt: '2026-06-20T00:00:00.000Z',
+            itemValueCents: 50000
+          },
+          request: {
+            type: 'rma_return',
+            condition: 'like_new',
+            accessoriesComplete: true
+          },
+          policy: {
+            returnWindowDays: 30,
+            requireSerialNumber: true,
+            restockingFeeCents: 0,
+            inspectionRequiredOverValueCents: 100000
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'blocked',
+            reason: 'ownership_mismatch',
+            returnApproved: false,
+            requiresManualReview: false,
+            refundCents: 0
+          }
+        },
+        {
+          name: 'hidden high value device requires inspection',
+          customer: {
+            id: 'cust_hidden_value',
+            status: 'active'
+          },
+          device: {
+            id: 'device_hidden_value',
+            ownerCustomerId: 'cust_hidden_value',
+            serialNumber: 'SN-HIDDEN-VALUE',
+            purchasedAt: '2026-06-25T00:00:00.000Z',
+            itemValueCents: 150000
+          },
+          request: {
+            type: 'rma_return',
+            condition: 'like_new',
+            accessoriesComplete: true
+          },
+          policy: {
+            returnWindowDays: 30,
+            requireSerialNumber: true,
+            restockingFeeCents: 0,
+            inspectionRequiredOverValueCents: 100000
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'high_value_inspection',
+            returnApproved: false,
+            requiresManualReview: true,
+            refundCents: 0
+          }
+        },
+        {
+          name: 'hidden missing accessories require manual review',
+          customer: {
+            id: 'cust_hidden_accessories',
+            status: 'active'
+          },
+          device: {
+            id: 'device_hidden_accessories',
+            ownerCustomerId: 'cust_hidden_accessories',
+            serialNumber: 'SN-HIDDEN-ACCESSORIES',
+            purchasedAt: '2026-06-25T00:00:00.000Z',
+            itemValueCents: 50000
+          },
+          request: {
+            type: 'rma_return',
+            condition: 'like_new',
+            accessoriesComplete: false
+          },
+          policy: {
+            returnWindowDays: 30,
+            requireSerialNumber: true,
+            restockingFeeCents: 0,
+            inspectionRequiredOverValueCents: 100000
+          },
+          now: '2026-07-01T00:00:00.000Z',
+          expected: {
+            status: 'manual_review',
+            reason: 'accessories_missing',
+            returnApproved: false,
+            requiresManualReview: true,
+            refundCents: 0
           }
         }
       ])
