@@ -1664,6 +1664,117 @@ describe('release evidence audit', () => {
     );
   });
 
+  it('fails Skill prompt corpus live audit on routing dry-run evidence', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-routing-corpus-dry-run',
+      skillPromptCorpusLiveLedger({
+        ledger: {
+          status: 'SKILL_PROMPT_ROUTING_CORPUS_DRY_RUN_PASS',
+          proof_scope: 'natural_language_skill_prompt_routing_corpus_dry_run',
+          not_live_codex_or_github_pass: true,
+          builder_executed: false,
+          github_draft_pr: false,
+          github_draft_pr_verified: false,
+          draft_pr: false,
+          local_pr_like: false
+        },
+        prompt_corpus: {
+          proof_scope: 'natural_language_skill_prompt_routing_corpus_dry_run',
+          builder_mode: 'none',
+          github_draft_pr_requested: false
+        },
+        orchestrator: {
+          real_llm: false,
+          codex_cli: false,
+          required_child_skill_file_read: false
+        },
+        builder: {
+          real_llm: false,
+          provider: 'none',
+          via: 'dry-run',
+          model: null
+        }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-routing-corpus-dry-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario]
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0]).toEqual(
+      expect.objectContaining({
+        ok: false,
+        scenario,
+        ledger_failures: expect.arrayContaining([
+          'skill_prompt_corpus.proof_scope',
+          'skill_prompt_corpus.builder_mode',
+          'skill_prompt_corpus.orchestrator',
+          'skill_prompt_corpus.builder'
+        ])
+      })
+    );
+  });
+
+  it('fails Skill prompt corpus GitHub draft PR audit on routing dry-run evidence', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-routing-corpus-dry-run',
+      skillPromptCorpusLiveLedger({
+        ledger: {
+          status: 'SKILL_PROMPT_ROUTING_CORPUS_DRY_RUN_PASS',
+          proof_scope: 'natural_language_skill_prompt_routing_corpus_dry_run',
+          not_live_codex_or_github_pass: true,
+          builder_executed: false,
+          github_draft_pr: false,
+          github_draft_pr_verified: false,
+          draft_pr: false,
+          local_pr_like: false
+        },
+        prompt_corpus: {
+          proof_scope: 'natural_language_skill_prompt_routing_corpus_dry_run',
+          builder_mode: 'none',
+          github_draft_pr_requested: false
+        },
+        orchestrator: {
+          real_llm: false,
+          codex_cli: false,
+          required_child_skill_file_read: false
+        },
+        builder: {
+          real_llm: false,
+          provider: 'none',
+          via: 'dry-run',
+          model: null
+        }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-routing-corpus-dry-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario],
+      requireSkillPromptCorpusGithubPr: true
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0].ledger_failures).toEqual(
+      expect.arrayContaining([
+        'skill_prompt_corpus.github_draft_pr_requested',
+        'skill_prompt_corpus.github_draft_pr_verified'
+      ])
+    );
+  });
+
   it('can require Skill prompt corpus local PR-like evidence explicitly', async () => {
     const root = await tempRoot();
     const scenario = 'skill-real-user-prompt-corpus-live-uat';
@@ -1790,11 +1901,7 @@ describe('release evidence audit', () => {
         scope: 'smoke'
       })
     );
-    await writeManifest(
-      root,
-      scenario,
-      'skill-prompt-corpus-gitea-smoke-run'
-    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-gitea-smoke-run');
 
     const report = await buildReleaseEvidenceAuditReport({
       evidenceRoots: [root],

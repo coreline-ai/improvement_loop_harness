@@ -33,7 +33,7 @@ import {
 } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   DEFAULT_CODEX_OAUTH_UPSTREAM_BASE_URL,
   buildCodexOAuthCommand,
@@ -164,7 +164,7 @@ const activeLimitations = [
     : 'GitHub draft PR publication is not exercised in this local-promotion lane',
   'single issue / bounded fixture scope; not arbitrary-repo full autonomous improvement PASS'
 ];
-const promptVariants = {
+export const promptVariants = {
   user_issue: [
     {
       id: 'ko-default-cart-path',
@@ -354,7 +354,8 @@ const promptVariants = {
     {
       id: 'ko-project-review-fix-one',
       language: 'ko',
-      prompt: '프로젝트 문제점 하나 찾아서 원인 설명하고 고친 뒤 PR 후보까지 만들어줘'
+      prompt:
+        '프로젝트 문제점 하나 찾아서 원인 설명하고 고친 뒤 PR 후보까지 만들어줘'
     },
     {
       id: 'en-user-repo-review-fix-one',
@@ -509,9 +510,11 @@ function selectPromptVariant() {
     process.env.VIBELOOP_SKILL_PROMPT_UAT_PROMPT_VARIANT ?? 'default';
   if (explicitPrompt) {
     return {
-      id: requestedVariant === 'default' ? 'custom-env-prompt' : requestedVariant,
+      id:
+        requestedVariant === 'default' ? 'custom-env-prompt' : requestedVariant,
       source: 'env',
-      language: process.env.VIBELOOP_SKILL_PROMPT_UAT_PROMPT_LANGUAGE ?? 'custom',
+      language:
+        process.env.VIBELOOP_SKILL_PROMPT_UAT_PROMPT_LANGUAGE ?? 'custom',
       prompt: explicitPrompt
     };
   }
@@ -1113,7 +1116,9 @@ async function main() {
       });
     }
     if (githubDraftPrRequested) {
-      if ((await run('gh', ['auth', 'status'], { timeoutMs: 30_000 })).code !== 0) {
+      if (
+        (await run('gh', ['auth', 'status'], { timeoutMs: 30_000 })).code !== 0
+      ) {
         return blocked('GH_NOT_AUTHENTICATED');
       }
       try {
@@ -1486,11 +1491,16 @@ Acceptance authority: deterministic VibeLoop reports only.
   }
 }
 
-main().catch((error) => {
-  console.error(
-    redact(
-      error instanceof Error ? error.stack || error.message : String(error)
-    )
-  );
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch((error) => {
+    console.error(
+      redact(
+        error instanceof Error ? error.stack || error.message : String(error)
+      )
+    );
+    process.exitCode = 1;
+  });
+}

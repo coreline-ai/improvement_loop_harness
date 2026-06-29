@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs';
 import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   shouldPruneUatTmp,
   writeUatEvidenceBundle,
@@ -27,7 +27,7 @@ const passStatus = 'SKILL_PROMPT_MATRIX_UAT_PASS';
 const failStatus = 'SKILL_PROMPT_MATRIX_UAT_FAIL';
 const pruneTmp = shouldPruneUatTmp();
 
-const cases = [
+export const promptMatrixCases = [
   {
     id: 'ko-project-problem-find',
     prompt: '특정 프로젝트 문제점 찾아줘',
@@ -697,7 +697,7 @@ async function main() {
   try {
     const skill = await copySkillInstall(tmpRoot);
     const results = [];
-    for (const testCase of cases) {
+    for (const testCase of promptMatrixCases) {
       results.push(await classifyCase(skill, testCase));
     }
     const failed = results.filter((item) => !item.passed);
@@ -798,11 +798,16 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(
-    redact(
-      error instanceof Error ? error.stack || error.message : String(error)
-    )
-  );
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  main().catch((error) => {
+    console.error(
+      redact(
+        error instanceof Error ? error.stack || error.message : String(error)
+      )
+    );
+    process.exitCode = 1;
+  });
+}

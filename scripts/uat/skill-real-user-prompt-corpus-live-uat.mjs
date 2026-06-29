@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   shouldPruneUatTmp,
   writeUatEvidenceBundle,
@@ -30,7 +30,7 @@ const passStatus = 'SKILL_PROMPT_CORPUS_LIVE_UAT_PASS';
 const failStatus = 'SKILL_PROMPT_CORPUS_LIVE_UAT_FAIL';
 const pruneTmp = shouldPruneUatTmp();
 
-const defaultCorpus = [
+export const defaultCorpus = [
   {
     id: 'user-ko-default-cart-path',
     mode: 'user_issue',
@@ -369,8 +369,7 @@ const defaultCorpus = [
   }
 ];
 
-const builderMode =
-  process.env.VIBELOOP_SKILL_PROMPT_CORPUS_BUILDER ?? 'codex';
+const builderMode = process.env.VIBELOOP_SKILL_PROMPT_CORPUS_BUILDER ?? 'codex';
 const githubDraftPrRequested =
   process.env.VIBELOOP_SKILL_PROMPT_CORPUS_GITHUB_DRAFT_PR === '1';
 const giteaPrLikeRequested = process.env.VIBELOOP_GIT_PROVIDER === 'gitea';
@@ -636,7 +635,10 @@ function childFailures(testCase, ledger, result) {
   }
   if (ledger.false_pass !== 0) failures.push('false_pass');
   if (ledger.leak !== 0) failures.push('leak');
-  if (Array.isArray(ledger.failure_reasons) && ledger.failure_reasons.length > 0) {
+  if (
+    Array.isArray(ledger.failure_reasons) &&
+    ledger.failure_reasons.length > 0
+  ) {
     failures.push('failure_reasons');
   }
   if (
@@ -928,8 +930,12 @@ async function main() {
       builder: {
         real_llm: builderMode === 'codex',
         provider: builderMode === 'codex' ? 'codex' : 'command-agent',
-        via: builderMode === 'codex' ? 'chatgpt-oauth-proxy' : 'command fixture',
-        model: builderMode === 'codex' ? process.env.VIBELOOP_UAT_MODEL || 'gpt-5.5' : null
+        via:
+          builderMode === 'codex' ? 'chatgpt-oauth-proxy' : 'command fixture',
+        model:
+          builderMode === 'codex'
+            ? process.env.VIBELOOP_UAT_MODEL || 'gpt-5.5'
+            : null
       },
       concurrency: corpusConcurrency,
       timing,
@@ -1000,8 +1006,14 @@ async function main() {
       }
     ];
     for (const result of results) {
-      extraFiles.push({ label: `${result.id}_stdout`, path: result.stdout_path });
-      extraFiles.push({ label: `${result.id}_stderr`, path: result.stderr_path });
+      extraFiles.push({
+        label: `${result.id}_stdout`,
+        path: result.stdout_path
+      });
+      extraFiles.push({
+        label: `${result.id}_stderr`,
+        path: result.stderr_path
+      });
       if (result.evidence_ledger) {
         extraFiles.push({
           label: `${result.id}_child_ledger`,
@@ -1061,4 +1073,9 @@ async function main() {
   }
 }
 
-await main();
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  await main();
+}

@@ -277,19 +277,26 @@ corepack pnpm typecheck && corepack pnpm lint && corepack pnpm test && corepack 
 P1 자연어 Skill UX 빠른 반복 검증:
 
 ```bash
+corepack pnpm uat:skill-loop:prompt-matrix          # pre-Codex 자연어 routing/unsafe guard, 실측 약 4초
+corepack pnpm uat:skill-loop:p1-coverage            # live 56 corpus와 prompt-matrix exact ID coverage 감사, Codex/GitHub 호출 없음
+corepack pnpm uat:skill-loop:p1-routing-corpus      # live 56 corpus 전체 exact pre-Codex dry-run, Codex/GitHub/Gitea 호출 없음
+corepack pnpm uat:skill-loop:prompt-journey         # positive journey + unsafe blocked JSON 확인
 corepack pnpm uat:skill-loop:p1-fast                # 대표 2-variant, PR 없음
 VIBELOOP_SKILL_PROMPT_CORPUS_VARIANTS='user_issue:ko-default-cart-path,auto_discovery:ko-default-auto-pr-candidate' corepack pnpm uat:skill-loop:p1-targeted
 corepack pnpm uat:gitea:preflight                   # local Gitea repo/branch/PR API preflight
 corepack pnpm uat:skill-loop:p1-gitea-pr            # local Gitea PR-like publication, GitHub draft PR 아님
-corepack pnpm uat:skill-loop:p1-full-local          # 56-variant local/live corpus, PR 없음
+corepack pnpm uat:skill-loop:p1-full-local          # 56-variant local/live corpus, PR 없음, 실측 약 78분
 VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:skill-loop:p1-github-final-smoke
-VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:skill-loop:p1-github-final-full
+VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:skill-loop:p1-github-final-full # release-grade GitHub 56-variant evidence 필요 시만
 ```
 
 P1 fast lane의 증거 범위:
 
 | lane | 증거 주장 | GitHub draft PR 증거 여부 |
 | ---- | --------- | ------------------------- |
+| `prompt-matrix` / `prompt-journey` | 자연어 prompt routing, positive/blocked journey, unsafe guard 확인. Codex builder 실행 없음 | 아님 |
+| `p1-coverage` | live 56 corpus와 prompt-matrix의 exact ID coverage 감사. 현재 기준 32/56 coverage와 24개 gap을 보여주는 정적 감사 | 아님 |
+| `p1-routing-corpus` | live 56 corpus 전체를 기존 built-in prompt registry로 찾아 `run-from-prompt.mjs` non-execute 경로에 통과시키는 exact pre-Codex dry-run. `builder_executed=false`, `github_draft_pr_verified=false`, `local_pr_like=false` | 아님 |
 | `p1-fast` / `p1-targeted` | selected prompt variants가 real Skill orchestrator + builder 경로를 통과 | 아님 |
 | `p1-gitea-pr` | local Gitea에서 branch push + PR-like create/get 확인, `local_pr_like=true` | 아님 |
 | `p1-full-local` | 현재 56-variant bounded corpus local/live 확인 | 아님 |
@@ -297,7 +304,9 @@ P1 fast lane의 증거 범위:
 
 `local_pr_like=true`는 개발 속도 개선용 local evidence다. `github_draft_pr_verified=true`를 대체하지 않으며, 임의/대형 사용자 repo 전체 PASS나 제품 전체 100% PASS로 승격하지 않는다.
 
-P1 corpus가 실패하면 ledger의 `failed_variant_rerun.command`를 사용해 실패 variant만 targeted lane으로 재실행한다. 이 targeted rerun 결과는 원인 좁히기용이며, 56-variant full PASS나 GitHub draft PR full evidence를 대체하지 않는다.
+P1 corpus가 실패하면 ledger의 `failed_variant_rerun.command` 또는 `p1-routing-corpus` 실패 row를 사용해 실패 variant만 targeted lane으로 재실행한다. 이 targeted rerun 결과는 원인 좁히기용이며, 56-variant full PASS나 GitHub draft PR full evidence를 대체하지 않는다.
+
+운영 원칙: 자연어 prompt의 일상 검증은 pre-Codex routing gate로 먼저 확인한다. `prompt-matrix`는 대표 matrix이고, `p1-routing-corpus`는 live 56 corpus의 56/56 exact pre-Codex dry-run이다. 실제 Codex 56개 full-local이나 GitHub final full은 end-to-end/release evidence 갱신이 필요할 때만 실행한다. 세부 기준은 [P1 validation tiering plan](./dev-plan/implement_20260629_112753.md)을 따른다.
 
 실제 LLM live UAT(실 Codex + 실 GitHub repo + draft PR, auto-merge 없음):
 

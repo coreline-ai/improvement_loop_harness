@@ -59,6 +59,8 @@
     "uat:skill-loop:full": "corepack pnpm bundle:skill && node scripts/uat/skill-real-user-full-uat.mjs",
     "uat:skill-loop:prompt-matrix": "corepack pnpm bundle:skill && node scripts/uat/skill-real-user-prompt-matrix-uat.mjs",
     "uat:skill-loop:prompt-matrix:release-evidence-audit": "corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-prompt-matrix-uat",
+    "uat:skill-loop:p1-coverage": "node scripts/uat/skill-prompt-corpus-coverage.mjs",
+    "uat:skill-loop:p1-routing-corpus": "node scripts/uat/skill-prompt-routing-corpus.mjs",
     "uat:skill-loop:prompt-journey": "corepack pnpm bundle:skill && node scripts/uat/skill-real-user-prompt-journey-uat.mjs",
     "uat:skill-loop:prompt-journey:release-evidence-audit": "corepack pnpm uat:release-evidence-audit -- --scenario skill-real-user-prompt-journey-uat",
     "uat:skill-loop:prompt-corpus-live": "corepack pnpm uat:live-preflight && corepack pnpm build && node scripts/uat/skill-real-user-prompt-corpus-live-uat.mjs",
