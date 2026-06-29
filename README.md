@@ -274,6 +274,29 @@ corepack pnpm exec prisma generate
 corepack pnpm typecheck && corepack pnpm lint && corepack pnpm test && corepack pnpm test:e2e && corepack pnpm build && corepack pnpm build:web
 ```
 
+P1 자연어 Skill UX 빠른 반복 검증:
+
+```bash
+corepack pnpm uat:skill-loop:p1-fast                # 대표 2-variant, PR 없음
+VIBELOOP_SKILL_PROMPT_CORPUS_VARIANTS='user_issue:ko-default-cart-path,auto_discovery:ko-default-auto-pr-candidate' corepack pnpm uat:skill-loop:p1-targeted
+corepack pnpm uat:gitea:preflight                   # local Gitea repo/branch/PR API preflight
+corepack pnpm uat:skill-loop:p1-gitea-pr            # local Gitea PR-like publication, GitHub draft PR 아님
+corepack pnpm uat:skill-loop:p1-full-local          # 56-variant local/live corpus, PR 없음
+VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:skill-loop:p1-github-final-smoke
+VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:skill-loop:p1-github-final-full
+```
+
+P1 fast lane의 증거 범위:
+
+| lane | 증거 주장 | GitHub draft PR 증거 여부 |
+| ---- | --------- | ------------------------- |
+| `p1-fast` / `p1-targeted` | selected prompt variants가 real Skill orchestrator + builder 경로를 통과 | 아님 |
+| `p1-gitea-pr` | local Gitea에서 branch push + PR-like create/get 확인, `local_pr_like=true` | 아님 |
+| `p1-full-local` | 현재 56-variant bounded corpus local/live 확인 | 아님 |
+| `p1-github-final-smoke/full` | GitHub draft PR strict evidence 확인 | 맞음 |
+
+`local_pr_like=true`는 개발 속도 개선용 local evidence다. `github_draft_pr_verified=true`를 대체하지 않으며, 임의/대형 사용자 repo 전체 PASS나 제품 전체 100% PASS로 승격하지 않는다.
+
 실제 LLM live UAT(실 Codex + 실 GitHub repo + draft PR, auto-merge 없음):
 
 ```bash

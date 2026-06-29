@@ -797,6 +797,40 @@ function skillPromptCorpusLiveLedger(overrides = {}) {
   };
 }
 
+function skillPromptCorpusLocalPrLikeLedger(overrides = {}) {
+  const userIssueCount = overrides.userIssueCount ?? 28;
+  const autoDiscoveryCount = overrides.autoDiscoveryCount ?? 28;
+  const variantCount = userIssueCount + autoDiscoveryCount;
+  const scope = overrides.scope ?? 'full';
+  return skillPromptCorpusLiveLedger({
+    ...overrides,
+    userIssueCount,
+    autoDiscoveryCount,
+    prompt_corpus: {
+      git_provider: 'gitea',
+      local_pr_like: true,
+      draft_supported: false,
+      github_draft_pr_requested: false,
+      scope,
+      variant_count: variantCount,
+      required_count: variantCount,
+      ...(overrides.prompt_corpus ?? {})
+    },
+    ledger: {
+      git_provider: 'gitea',
+      local_pr_like: true,
+      draft_supported: false,
+      github_draft_pr: false,
+      github_draft_pr_verified: false,
+      draft_pr: false,
+      scope,
+      variant_count: variantCount,
+      required_count: variantCount,
+      ...(overrides.ledger ?? {})
+    }
+  });
+}
+
 async function writeSkillPromptCorpusGithubPrEvidence(root, options = {}) {
   const scenario = 'skill-real-user-prompt-corpus-live-uat';
   const runId = options.runId ?? 'skill-prompt-corpus-live-github-run';
@@ -1627,6 +1661,166 @@ describe('release evidence audit', () => {
           'skill_prompt_corpus.github_draft_pr_verified'
         ])
       })
+    );
+  });
+
+  it('can require Skill prompt corpus local PR-like evidence explicitly', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-gitea-run',
+      skillPromptCorpusLocalPrLikeLedger()
+    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-gitea-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario],
+      requireSkillPromptCorpusLocalPrLike: true
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.required_scenarios).toEqual([
+      expect.objectContaining({
+        gate: 'P1',
+        scenario,
+        require_local_pr_like: true
+      })
+    ]);
+    expect(report.evidence[0].ledger_summary).toEqual(
+      expect.objectContaining({
+        git_provider: 'gitea',
+        local_pr_like: true,
+        draft_supported: false,
+        github_draft_pr: false,
+        github_draft_pr_verified: false,
+        draft_pr: false,
+        prompt_corpus: expect.objectContaining({
+          git_provider: 'gitea',
+          local_pr_like: true,
+          draft_supported: false,
+          github_draft_pr_requested: false,
+          requested_variant_count: 56,
+          passed_variant_count: 56
+        })
+      })
+    );
+  });
+
+  it('fails local PR-like audit on GitHub draft PR evidence', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-github-run',
+      skillPromptCorpusLiveLedger({
+        githubDraftPr: true,
+        ledger: { git_provider: 'github' },
+        prompt_corpus: { git_provider: 'github' }
+      })
+    );
+    await writeManifest(root, scenario, 'skill-prompt-corpus-github-run');
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario],
+      requireSkillPromptCorpusLocalPrLike: true
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0].ledger_failures).toEqual(
+      expect.arrayContaining([
+        'skill_prompt_corpus.local_pr_like_provider',
+        'skill_prompt_corpus.local_pr_like',
+        'skill_prompt_corpus.local_pr_like_github_claim'
+      ])
+    );
+  });
+
+  it('fails Gitea local PR-like evidence that claims GitHub draft PR verification', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-gitea-bad-claim-run',
+      skillPromptCorpusLocalPrLikeLedger({
+        ledger: {
+          github_draft_pr: true,
+          github_draft_pr_verified: true,
+          draft_pr: true
+        },
+        prompt_corpus: { github_draft_pr_requested: true }
+      })
+    );
+    await writeManifest(
+      root,
+      scenario,
+      'skill-prompt-corpus-gitea-bad-claim-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario],
+      requireSkillPromptCorpusLocalPrLike: true
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0].ledger_failures).toEqual(
+      expect.arrayContaining([
+        'skill_prompt_corpus.github_draft_pr_provider',
+        'skill_prompt_corpus.local_pr_like_github_claim'
+      ])
+    );
+  });
+
+  it('does not let a local PR-like smoke corpus satisfy the full 56-variant requirement', async () => {
+    const root = await tempRoot();
+    const scenario = 'skill-real-user-prompt-corpus-live-uat';
+    await writeLedger(
+      root,
+      scenario,
+      'skill-prompt-corpus-gitea-smoke-run',
+      skillPromptCorpusLocalPrLikeLedger({
+        userIssueCount: 1,
+        autoDiscoveryCount: 1,
+        scope: 'smoke'
+      })
+    );
+    await writeManifest(
+      root,
+      scenario,
+      'skill-prompt-corpus-gitea-smoke-run'
+    );
+
+    const report = await buildReleaseEvidenceAuditReport({
+      evidenceRoots: [root],
+      scenarioNames: [scenario],
+      requireSkillPromptCorpusLocalPrLike: true
+    });
+
+    expect(report.status).toBe('fail');
+    expect(report.evidence[0].ledger_failures).toEqual(
+      expect.arrayContaining([
+        'skill_prompt_corpus.requested_variant_count',
+        'skill_prompt_corpus.user_issue.variant_count',
+        'skill_prompt_corpus.auto_discovery.variant_count'
+      ])
+    );
+  });
+
+  it('rejects mutually exclusive GitHub and local PR-like corpus requirements', async () => {
+    await expect(
+      buildReleaseEvidenceAuditReport({
+        scenarioNames: ['skill-real-user-prompt-corpus-live-uat'],
+        requireSkillPromptCorpusGithubPr: true,
+        requireSkillPromptCorpusLocalPrLike: true
+      })
+    ).rejects.toThrow(
+      '--require-skill-prompt-corpus-github-pr cannot be combined with --require-skill-prompt-corpus-local-pr-like'
     );
   });
 

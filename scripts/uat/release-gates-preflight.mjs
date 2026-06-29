@@ -1340,6 +1340,13 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
     status: ledgerJson.status ?? null,
     scenario: ledgerJson.scenario ?? null,
     run_id: ledgerJson.run_id ?? null,
+    git_provider: ledgerJson.git_provider ?? null,
+    local_pr_like: ledgerJson.local_pr_like ?? null,
+    draft_supported: ledgerJson.draft_supported ?? null,
+    scope: ledgerJson.scope ?? null,
+    variant_count: ledgerJson.variant_count ?? null,
+    required_count: ledgerJson.required_count ?? null,
+    evidence_root: ledgerJson.evidence_root ?? null,
     orchestrator: ledgerJson.orchestrator
       ? {
           real_llm: ledgerJson.orchestrator.real_llm ?? null,
@@ -1478,6 +1485,12 @@ function summarizeSkillPromptCorpus(corpus) {
   return {
     proof_scope: corpus.proof_scope ?? null,
     builder_mode: corpus.builder_mode ?? null,
+    git_provider: corpus.git_provider ?? null,
+    local_pr_like: corpus.local_pr_like ?? null,
+    draft_supported: corpus.draft_supported ?? null,
+    scope: corpus.scope ?? null,
+    variant_count: corpus.variant_count ?? null,
+    required_count: corpus.required_count ?? null,
     github_draft_pr_requested: corpus.github_draft_pr_requested ?? null,
     requested_variant_count: corpus.requested_variant_count ?? null,
     executed_variant_count: corpus.executed_variant_count ?? null,
@@ -1545,6 +1558,9 @@ function summarizeSkillPromptCorpus(corpus) {
                 pushed: variant.promotion.pushed ?? null
               }
             : null,
+          git_provider: variant.git_provider ?? null,
+          local_pr_like: variant.local_pr_like ?? null,
+          draft_supported: variant.draft_supported ?? null,
           github_draft_pr: variant.github_draft_pr ?? null,
           github_draft_pr_verified: variant.github_draft_pr_verified ?? null,
           leak: variant.leak ?? null
@@ -2053,9 +2069,24 @@ function requiredSkillPromptCorpusLiveFailures(
   ) {
     failures.push('skill_prompt_corpus.github_draft_pr_verified');
   }
+  if (
+    ledgerSummary.git_provider === 'gitea' &&
+    (ledgerSummary.draft_pr === true ||
+      ledgerSummary.github_draft_pr === true ||
+      ledgerSummary.github_draft_pr_verified === true ||
+      corpus.github_draft_pr_requested === true)
+  ) {
+    failures.push('skill_prompt_corpus.github_draft_pr_provider');
+  }
   if (expectedLedger.required_skill_prompt_corpus_github_draft_pr) {
     if (corpus.github_draft_pr_requested !== true) {
       failures.push('skill_prompt_corpus.github_draft_pr_requested');
+    }
+    if (
+      ledgerSummary.git_provider != null &&
+      ledgerSummary.git_provider !== 'github'
+    ) {
+      failures.push('skill_prompt_corpus.github_draft_pr_provider');
     }
     if (
       ledgerSummary.github_draft_pr !== true ||
@@ -2063,6 +2094,32 @@ function requiredSkillPromptCorpusLiveFailures(
       ledgerSummary.draft_pr !== true
     ) {
       failures.push('skill_prompt_corpus.github_draft_pr_verified');
+    }
+  }
+  if (expectedLedger.required_skill_prompt_corpus_local_pr_like) {
+    if (ledgerSummary.git_provider !== 'gitea') {
+      failures.push('skill_prompt_corpus.local_pr_like_provider');
+    }
+    if (ledgerSummary.local_pr_like !== true) {
+      failures.push('skill_prompt_corpus.local_pr_like');
+    }
+    if (ledgerSummary.draft_supported !== false) {
+      failures.push('skill_prompt_corpus.draft_supported');
+    }
+    if (
+      corpus.local_pr_like !== true ||
+      corpus.git_provider !== 'gitea' ||
+      corpus.draft_supported !== false
+    ) {
+      failures.push('skill_prompt_corpus.prompt_corpus_local_pr_like');
+    }
+    if (
+      ledgerSummary.draft_pr === true ||
+      ledgerSummary.github_draft_pr === true ||
+      ledgerSummary.github_draft_pr_verified === true ||
+      corpus.github_draft_pr_requested === true
+    ) {
+      failures.push('skill_prompt_corpus.local_pr_like_github_claim');
     }
   }
 
@@ -2444,6 +2501,13 @@ export async function latestEvidenceBundle(
         draft_pr: ledgerJson.draft_pr ?? null,
         github_draft_pr: ledgerJson.github_draft_pr ?? false,
         github_draft_pr_verified: ledgerJson.github_draft_pr_verified ?? false,
+        git_provider: ledgerJson.git_provider ?? null,
+        local_pr_like: ledgerJson.local_pr_like ?? null,
+        draft_supported: ledgerJson.draft_supported ?? null,
+        scope: ledgerJson.scope ?? null,
+        variant_count: ledgerJson.variant_count ?? null,
+        required_count: ledgerJson.required_count ?? null,
+        evidence_root: ledgerJson.evidence_root ?? null,
         github: ledgerJson.github
           ? {
               repo: ledgerJson.github.repo ?? null,

@@ -27,6 +27,18 @@
 
 현재 기본 목적 밖 범위: 새 원격 artifact 재현성 기능, broad corpus 추가 확장, semantic/M4 corpus 신규 domain 확장. 이 항목들은 진행하더라도 내부 루프 목적을 대체하지 않는 보조 증거로만 기록한다.
 
+## 0-0-1. P1 빠른 반복 lane 증거 경계
+
+2026-06-29 이후 P1 자연어 Skill UX 검증은 빠른 반복과 최종 증거를 분리한다.
+
+| lane | 기본 명령 | 증거 필드 | 의미 |
+| ---- | --------- | --------- | ---- |
+| fast/targeted | `corepack pnpm uat:skill-loop:p1-fast`, `corepack pnpm uat:skill-loop:p1-targeted` | `local_pr_like=false`, `github_draft_pr_verified=false`, `scope=smoke|targeted` | 소수 prompt variant가 live Skill 경로를 통과하는지 빠르게 확인 |
+| local Gitea PR-like | `corepack pnpm uat:gitea:preflight`, `corepack pnpm uat:skill-loop:p1-gitea-pr` | `git_provider=gitea`, `local_pr_like=true`, `draft_supported=false`, `github_draft_pr_verified=false` | 외부 GitHub 없이 local branch push + PR-like create/get 확인 |
+| GitHub final | `VIBELOOP_UAT_KEEP_REMOTE=1 corepack pnpm uat:skill-loop:p1-github-final-smoke` 또는 `p1-github-final-full` | `git_provider=github`, `github_draft_pr_verified=true` | GitHub draft PR strict evidence 확인 |
+
+`local_pr_like=true`는 GitHub draft PR PASS가 아니다. Gitea fast lane은 개발 반복 시간을 줄이는 보조 증거이며, 임의/대형 사용자 repo 전체 PASS나 제품 전체 100% PASS를 의미하지 않는다. 감사기는 Gitea evidence가 `draft_pr=true`, `github_draft_pr=true`, `github_draft_pr_verified=true`를 주장하면 fail-closed해야 한다.
+
 ## 0-1. 정직한 미완 항목
 
 | 항목                         | 현재 상태 | 의미                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | 다음 패치 방향                                                                                                                                                                              |

@@ -14,6 +14,18 @@
 - 🚫 **아직 선언 불가**: 제품 전체가 임의 사용자 repo에서 100% 안전 — 운영 안전장치(P1)·trust boundary(P2)·adversary semantic gate(P4)·broad corpus evidence(P5)가 더 필요하다.
 - 표기 규율: fixture PASS ≠ live PASS, controlled PASS ≠ 일반 배포 PASS. PASS는 항상 증거(매트릭스 셀·ledger 행·보존 경로)와 함께만.
 
+## P1 Local Gitea fast lane truth table
+
+2026-06-29 추가 원칙: P1 자연어 Skill UX의 개발 반복 속도를 높이기 위해 local Gitea fast lane을 둘 수 있지만, 이 lane은 GitHub final evidence를 대체하지 않는다.
+
+| Evidence lane | Required fields | 만족하는 주장 | 만족하지 않는 주장 |
+| ------------- | --------------- | ------------- | ------------------ |
+| Local prompt smoke/targeted | `git_provider=null`, `local_pr_like=false`, `github_draft_pr_verified=false`, `scope=smoke|targeted` | 선택된 prompt variant가 bounded live Skill 경로를 통과 | GitHub draft PR PASS, 56-variant full PASS |
+| Local Gitea PR-like | `git_provider=gitea`, `local_pr_like=true`, `draft_supported=false`, `github_draft_pr=false`, `github_draft_pr_verified=false` | local Gitea에서 branch push + PR-like create/get 확인 | GitHub draft PR PASS, GitHub live PR state PASS |
+| GitHub final smoke/full | `git_provider=github`, `github_draft_pr_verified=true`, GitHub live-state freshness | GitHub draft PR strict evidence | 임의/대형 사용자 repo 전체 PASS |
+
+Audit rule: `--require-skill-prompt-corpus-github-pr`는 GitHub evidence만 허용하고, `--require-skill-prompt-corpus-local-pr-like`는 Gitea local PR-like evidence만 허용한다. Gitea ledger에 `draft_pr=true`, `github_draft_pr=true`, `github_draft_pr_verified=true`가 섞이면 fail-closed다. 2-variant smoke/targeted evidence는 56-variant full corpus requirement를 만족하지 못한다.
+
 ## 정직하게 남은 제품급 후속
 
 아래 항목은 현재 코드/문서 패치 완료 여부와 별개로, "제품 전체 100% 실사용자 PASS"를 주장하려면 추가로 닫아야 하는 증거 범위다.

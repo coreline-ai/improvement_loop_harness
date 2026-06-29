@@ -16,6 +16,7 @@ import {
   writeUatEvidenceBundle,
   writeUatEvidenceLedger
 } from './evidence-bundle.mjs';
+import { publishGiteaPrLike } from './gitea-pr-like-publisher.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -371,6 +372,7 @@ const builderMode =
   process.env.VIBELOOP_SKILL_PROMPT_CORPUS_BUILDER ?? 'codex';
 const githubDraftPrRequested =
   process.env.VIBELOOP_SKILL_PROMPT_CORPUS_GITHUB_DRAFT_PR === '1';
+const giteaPrLikeRequested = process.env.VIBELOOP_GIT_PROVIDER === 'gitea';
 const keepRemote = process.env.VIBELOOP_UAT_KEEP_REMOTE === '1';
 const childTimeoutMs = Number(
   process.env.VIBELOOP_SKILL_PROMPT_CORPUS_CHILD_TIMEOUT_MS ??
@@ -581,6 +583,26 @@ function modeStats(results) {
   return stats;
 }
 
+function parseWrapperTiming() {
+  const raw = process.env.VIBELOOP_P1_WRAPPER_TIMING_JSON;
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return { parse_error: true };
+  }
+}
+
+function sumTiming(results, pathParts) {
+  return results.reduce((sum, result) => {
+    let current = result;
+    for (const part of pathParts) {
+      current = current?.[part];
+    }
+    return sum + (Number.isFinite(current) ? current : 0);
+  }, 0);
+}
+
 function childFailures(testCase, ledger, result) {
   const failures = [];
   if (result.timed_out) failures.push('timeout');
@@ -626,9 +648,72 @@ function childFailures(testCase, ledger, result) {
   return failures;
 }
 
+function promotionBranchForResult(result) {
+  return (
+    result.promotion?.branch_name ??
+    (result.mode === 'auto_discovery'
+      ? 'pr-candidate/skill-prompt-auto-uat'
+      : 'pr-candidate/skill-prompt-uat')
+  );
+}
+
+async function publishGiteaPrLikeResults(results) {
+  if (!giteaPrLikeRequested) return results;
+  const published = [];
+  for (const result of results) {
+    if (!result.pass) {
+      published.push({
+        ...result,
+        git_provider: 'gitea',
+        local_pr_like: false,
+        draft_supported: false,
+        gitea: null
+      });
+      continue;
+    }
+    const repoPath = result.target_repo?.path;
+    const headBranch = promotionBranchForResult(result);
+    if (!repoPath || !headBranch) {
+      published.push({
+        ...result,
+        pass: false,
+        failures: [...result.failures, 'gitea_pr_like_missing_promotion'],
+        git_provider: 'gitea',
+        local_pr_like: false,
+        draft_supported: false,
+        gitea: null
+      });
+      continue;
+    }
+    const gitea = await publishGiteaPrLike({
+      repoPath,
+      headBranch,
+      baseBranch: 'main',
+      variantId: `${result.mode}-${result.variant_id}`,
+      title: `VibeLoop local PR-like: ${result.mode}/${result.variant_id}`
+    });
+    published.push({
+      ...result,
+      pass: result.pass && gitea.ok === true,
+      failures:
+        gitea.ok === true
+          ? result.failures
+          : [...result.failures, `gitea_pr_like:${gitea.reason ?? 'failed'}`],
+      git_provider: 'gitea',
+      local_pr_like: gitea.ok === true,
+      draft_supported: false,
+      github_draft_pr: false,
+      github_draft_pr_verified: false,
+      gitea
+    });
+  }
+  return published;
+}
+
 async function runCase(testCase, index, logDir) {
   const stdoutPath = path.join(logDir, `${index}-${testCase.id}.stdout.log`);
   const stderrPath = path.join(logDir, `${index}-${testCase.id}.stderr.log`);
+  const startedAt = Date.now();
   const result = await run(process.execPath, [childScript], {
     cwd: repoRoot,
     timeoutMs: childTimeoutMs,
@@ -643,6 +728,7 @@ async function runCase(testCase, index, logDir) {
         : {})
     }
   });
+  const childElapsedMs = Date.now() - startedAt;
   await writeFile(stdoutPath, result.stdout);
   await writeFile(stderrPath, result.stderr);
   const ledger = parseJsonTail(result.stdout);
@@ -668,7 +754,16 @@ async function runCase(testCase, index, logDir) {
     promotion: ledger?.promotion ?? null,
     github_draft_pr: ledger?.github_draft_pr ?? false,
     github_draft_pr_verified: ledger?.github_draft_pr_verified ?? false,
+    git_provider: giteaPrLikeRequested ? 'gitea' : null,
+    local_pr_like: false,
+    draft_supported: giteaPrLikeRequested ? false : null,
+    timing: {
+      child_total_ms: childElapsedMs,
+      codex_builder_ms: builderMode === 'codex' ? childElapsedMs : null,
+      proxy_wait_ms: null
+    },
     leak: ledger?.leak ?? null,
+    target_repo: ledger?.target_repo ?? null,
     evidence_ledger: ledger?.evidence?.evidence_ledger ?? null,
     evidence_manifest: ledger?.evidence?.evidence_manifest ?? null,
     evidence_bundle: ledger?.evidence?.evidence_bundle ?? null,
@@ -694,6 +789,7 @@ async function runCorpusCases(corpus, logDir) {
 }
 
 async function main() {
+  const mainStartedAt = Date.now();
   if (!existsSync(childScript)) {
     console.log(
       JSON.stringify(
@@ -714,6 +810,23 @@ async function main() {
     throw new Error(
       `unsupported VIBELOOP_SKILL_PROMPT_CORPUS_BUILDER=${builderMode}; expected fixture or codex`
     );
+  }
+  if (giteaPrLikeRequested && githubDraftPrRequested) {
+    console.log(
+      JSON.stringify(
+        {
+          status: 'blocked',
+          scenario,
+          reason: 'GITEA_PROVIDER_CANNOT_USE_GITHUB_DRAFT_PR',
+          git_provider: 'gitea',
+          github_draft_pr_requested: true
+        },
+        null,
+        2
+      )
+    );
+    process.exitCode = 20;
+    return;
   }
   const cleanupBlocker = await githubCleanupBlocker();
   if (cleanupBlocker) {
@@ -740,15 +853,43 @@ async function main() {
   await mkdir(logDir, { recursive: true });
   let pass = false;
   try {
-    const results = await runCorpusCases(corpus, logDir);
+    const corpusStartedAt = Date.now();
+    const rawResults = await runCorpusCases(corpus, logDir);
+    const corpusMs = Date.now() - corpusStartedAt;
+    const prPublishStartedAt = Date.now();
+    const results = await publishGiteaPrLikeResults(rawResults);
+    const prPublishMs = Date.now() - prPublishStartedAt;
     const failed = results.filter((result) => !result.pass);
     const blocked = results.filter((result) => result.exit_code === 20);
     pass = failed.length === 0;
+    const p1WrapperTiming = parseWrapperTiming();
+    const timing = {
+      build_ms: p1WrapperTiming?.build_ms ?? null,
+      bundle_ms: p1WrapperTiming?.bundle_ms ?? null,
+      corpus_ms: corpusMs,
+      codex_builder_ms: sumTiming(results, ['timing', 'codex_builder_ms']),
+      proxy_wait_ms: null,
+      git_push_ms: sumTiming(results, ['gitea', 'timing', 'git_push_ms']),
+      pr_create_ms: sumTiming(results, ['gitea', 'timing', 'pr_create_ms']),
+      pr_publish_ms: giteaPrLikeRequested ? prPublishMs : null,
+      audit_ms: null,
+      total_ms: Date.now() - mainStartedAt,
+      p1_wrapper: p1WrapperTiming
+    };
 
     const corpusSummaryPath = path.join(tmpRoot, 'prompt-corpus-summary.json');
     const promptCorpus = {
       proof_scope: 'natural_language_skill_prompt_live_corpus',
       builder_mode: builderMode,
+      git_provider: giteaPrLikeRequested ? 'gitea' : null,
+      local_pr_like:
+        giteaPrLikeRequested &&
+        results.length > 0 &&
+        results.every((result) => result.local_pr_like === true),
+      draft_supported: giteaPrLikeRequested ? false : null,
+      scope: process.env.VIBELOOP_P1_SCOPE ?? null,
+      variant_count: corpus.length,
+      required_count: corpus.length,
       github_draft_pr_requested: githubDraftPrRequested,
       concurrency: corpusConcurrency,
       requested_variant_count: corpus.length,
@@ -756,6 +897,7 @@ async function main() {
       passed_variant_count: results.length - failed.length,
       failed_variant_count: failed.length,
       blocked_variant_count: blocked.length,
+      timing,
       modes: modeStats(results),
       variants: results
     };
@@ -782,6 +924,19 @@ async function main() {
         model: builderMode === 'codex' ? process.env.VIBELOOP_UAT_MODEL || 'gpt-5.5' : null
       },
       concurrency: corpusConcurrency,
+      timing,
+      ...(giteaPrLikeRequested
+        ? {
+            git_provider: 'gitea',
+            local_pr_like:
+              results.length > 0 &&
+              results.every((result) => result.local_pr_like === true),
+            draft_supported: false,
+            scope: process.env.VIBELOOP_P1_SCOPE ?? null,
+            variant_count: results.length,
+            required_count: results.length
+          }
+        : {}),
       github_draft_pr: githubDraftPrRequested,
       github_draft_pr_verified:
         githubDraftPrRequested &&
@@ -789,6 +944,19 @@ async function main() {
       draft_pr:
         githubDraftPrRequested &&
         results.every((result) => result.github_draft_pr === true),
+      ...(giteaPrLikeRequested
+        ? {
+            gitea: {
+              local_pr_like_count: results.filter(
+                (result) => result.local_pr_like === true
+              ).length,
+              pr_like_verified:
+                results.length > 0 &&
+                results.every((result) => result.local_pr_like === true),
+              pull_requests: results.map((result) => result.gitea)
+            }
+          }
+        : {}),
       total_cases: results.length,
       passed_cases: results.length - failed.length,
       failed_cases: failed.length,
@@ -804,7 +972,9 @@ async function main() {
           : 'does not prove real builder model quality because this run used the fixture builder',
         githubDraftPrRequested
           ? 'proves GitHub draft PR publication for every selected prompt variant in this bounded corpus'
-          : 'does not prove GitHub draft PR publication for every prompt variant because GitHub mode was not requested',
+          : giteaPrLikeRequested
+            ? 'proves local Gitea PR-like publication only; this is not GitHub draft PR evidence'
+            : 'does not prove GitHub draft PR publication for every prompt variant because GitHub mode was not requested',
         'bounded fixture prompt corpus only; not arbitrary-repo full autonomous improvement PASS'
       ],
       evidence: {
@@ -848,7 +1018,17 @@ async function main() {
       output: ledger,
       extraFiles,
       extraJson: {
-        prompt_corpus: promptCorpus
+        prompt_corpus: promptCorpus,
+        ...(giteaPrLikeRequested
+          ? {
+              gitea: {
+                local_pr_like_count: results.filter(
+                  (result) => result.local_pr_like === true
+                ).length,
+                pull_requests: results.map((result) => result.gitea)
+              }
+            }
+          : {})
       }
     });
     ledger.evidence = {

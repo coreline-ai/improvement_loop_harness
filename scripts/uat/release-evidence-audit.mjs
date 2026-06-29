@@ -98,8 +98,17 @@ export function selectReleaseEvidenceAuditScenarios(options = {}) {
 
 function applyAuditRequirementOverrides(evidenceScenarios, options = {}) {
   if (
+    options.requireSkillPromptCorpusGithubPr &&
+    options.requireSkillPromptCorpusLocalPrLike
+  ) {
+    throw new Error(
+      '--require-skill-prompt-corpus-github-pr cannot be combined with --require-skill-prompt-corpus-local-pr-like'
+    );
+  }
+  if (
     !options.requireSkillPromptCorpusGithubPr &&
-    !options.requireSkillPromptCorpusLivePrState
+    !options.requireSkillPromptCorpusLivePrState &&
+    !options.requireSkillPromptCorpusLocalPrLike
   ) {
     return evidenceScenarios;
   }
@@ -109,7 +118,7 @@ function applyAuditRequirementOverrides(evidenceScenarios, options = {}) {
   );
   if (!hasPromptCorpus) {
     throw new Error(
-      '--require-skill-prompt-corpus-github-pr and --require-skill-prompt-corpus-live-pr-state require --scenario skill-real-user-prompt-corpus-live-uat'
+      '--require-skill-prompt-corpus-github-pr, --require-skill-prompt-corpus-live-pr-state, and --require-skill-prompt-corpus-local-pr-like require --scenario skill-real-user-prompt-corpus-live-uat'
     );
   }
 
@@ -122,7 +131,12 @@ function applyAuditRequirementOverrides(evidenceScenarios, options = {}) {
       name: 'Skill natural-language prompt corpus GitHub draft PR evidence',
       expected_ledger: {
         ...(scenario.expected_ledger ?? {}),
-        required_skill_prompt_corpus_github_draft_pr: true
+        ...(options.requireSkillPromptCorpusGithubPr
+          ? { required_skill_prompt_corpus_github_draft_pr: true }
+          : {}),
+        ...(options.requireSkillPromptCorpusLocalPrLike
+          ? { required_skill_prompt_corpus_local_pr_like: true }
+          : {})
       }
     };
   });
@@ -486,6 +500,9 @@ export async function buildReleaseEvidenceAuditReport(options = {}) {
       required_statuses: scenario.required_statuses,
       require_live_pr_state:
         options.requireSkillPromptCorpusLivePrState === true &&
+        scenario.scenario === 'skill-real-user-prompt-corpus-live-uat',
+      require_local_pr_like:
+        options.requireSkillPromptCorpusLocalPrLike === true &&
         scenario.scenario === 'skill-real-user-prompt-corpus-live-uat'
     })),
     audit_summary: {
@@ -520,6 +537,7 @@ function parseArgs(argv) {
   let allReleaseEvidence = false;
   let requireSkillPromptCorpusGithubPr = false;
   let requireSkillPromptCorpusLivePrState = false;
+  let requireSkillPromptCorpusLocalPrLike = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--') {
@@ -552,6 +570,10 @@ function parseArgs(argv) {
       requireSkillPromptCorpusGithubPr = true;
       continue;
     }
+    if (arg === '--require-skill-prompt-corpus-local-pr-like') {
+      requireSkillPromptCorpusLocalPrLike = true;
+      continue;
+    }
     if (arg === '--require-skill-prompt-corpus-live-pr-state') {
       requireSkillPromptCorpusGithubPr = true;
       requireSkillPromptCorpusLivePrState = true;
@@ -564,7 +586,8 @@ function parseArgs(argv) {
     scenarioNames: scenarioNames.length > 0 ? scenarioNames : undefined,
     allReleaseEvidence,
     requireSkillPromptCorpusGithubPr,
-    requireSkillPromptCorpusLivePrState
+    requireSkillPromptCorpusLivePrState,
+    requireSkillPromptCorpusLocalPrLike
   };
 }
 

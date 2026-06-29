@@ -74,7 +74,19 @@ function checkLedger({
   if (ledger.false_pass !== 0) failures.push(`${ledgerRef}:false_pass`);
   if (ledger.leak !== 0) failures.push(`${ledgerRef}:leak`);
   if (ledger.failed_cases !== 0) failures.push(`${ledgerRef}:failed_cases`);
+  if (
+    ledger.git_provider === 'gitea' &&
+    (ledger.github_draft_pr === true ||
+      ledger.github_draft_pr_verified === true ||
+      ledger.draft_pr === true ||
+      ledger.prompt_corpus?.github_draft_pr_requested === true)
+  ) {
+    failures.push(`${ledgerRef}:github_draft_pr_provider`);
+  }
   if (options.requireGithubPr) {
+    if (ledger.git_provider !== undefined && ledger.git_provider !== 'github') {
+      failures.push(`${ledgerRef}:github_draft_pr_provider`);
+    }
     if (ledger.github_draft_pr !== true) {
       failures.push(`${ledgerRef}:github_draft_pr`);
     }
@@ -83,6 +95,32 @@ function checkLedger({
     }
     if (ledger.prompt_corpus?.github_draft_pr_requested !== true) {
       failures.push(`${ledgerRef}:prompt_corpus.github_draft_pr_requested`);
+    }
+  }
+  if (options.requireLocalPrLike) {
+    if (ledger.git_provider !== 'gitea') {
+      failures.push(`${ledgerRef}:local_pr_like_provider`);
+    }
+    if (ledger.local_pr_like !== true) {
+      failures.push(`${ledgerRef}:local_pr_like`);
+    }
+    if (ledger.draft_supported !== false) {
+      failures.push(`${ledgerRef}:draft_supported`);
+    }
+    if (
+      ledger.prompt_corpus?.git_provider !== 'gitea' ||
+      ledger.prompt_corpus?.local_pr_like !== true ||
+      ledger.prompt_corpus?.draft_supported !== false
+    ) {
+      failures.push(`${ledgerRef}:prompt_corpus.local_pr_like`);
+    }
+    if (
+      ledger.github_draft_pr === true ||
+      ledger.github_draft_pr_verified === true ||
+      ledger.draft_pr === true ||
+      ledger.prompt_corpus?.github_draft_pr_requested === true
+    ) {
+      failures.push(`${ledgerRef}:local_pr_like_github_claim`);
     }
   }
   if (options.requireRealBuilder && ledger.builder?.real_llm !== true) {
@@ -136,6 +174,9 @@ function checkLedger({
       );
     }
     if (options.requireGithubPr) {
+      if (variant.git_provider !== undefined && variant.git_provider !== 'github') {
+        failures.push(`${ledgerRef}:${key}:github_draft_pr_provider`);
+      }
       if (variant.github_draft_pr !== true) {
         failures.push(`${ledgerRef}:${key}:github_draft_pr`);
       }
@@ -144,6 +185,23 @@ function checkLedger({
       }
       if (!variant.evidence_ledger) {
         failures.push(`${ledgerRef}:${key}:evidence_ledger`);
+      }
+    }
+    if (options.requireLocalPrLike) {
+      if (variant.git_provider !== 'gitea') {
+        failures.push(`${ledgerRef}:${key}:local_pr_like_provider`);
+      }
+      if (variant.local_pr_like !== true) {
+        failures.push(`${ledgerRef}:${key}:local_pr_like`);
+      }
+      if (variant.draft_supported !== false) {
+        failures.push(`${ledgerRef}:${key}:draft_supported`);
+      }
+      if (
+        variant.github_draft_pr === true ||
+        variant.github_draft_pr_verified === true
+      ) {
+        failures.push(`${ledgerRef}:${key}:local_pr_like_github_claim`);
       }
     }
     if (options.requireRealBuilder) {
@@ -191,6 +249,11 @@ function checkExpectations(aggregate, expected) {
 }
 
 export async function buildSkillPromptCorpusChunkAggregateAudit(options = {}) {
+  if (options.requireGithubPr && options.requireLocalPrLike) {
+    throw new Error(
+      'requireGithubPr cannot be combined with requireLocalPrLike'
+    );
+  }
   const ledgerPaths = options.ledgerPaths ?? [];
   const inlineLedgers = options.ledgers ?? [];
   if (ledgerPaths.length === 0 && inlineLedgers.length === 0) {
@@ -273,6 +336,7 @@ export async function buildSkillPromptCorpusChunkAggregateAudit(options = {}) {
     source_scenario: sourceScenario,
     requirements: {
       require_github_pr: options.requireGithubPr === true,
+      require_local_pr_like: options.requireLocalPrLike === true,
       require_live_pr_state: options.requireLivePrState === true,
       require_real_builder: options.requireRealBuilder === true,
       require_skill_read: options.requireSkillRead === true,
@@ -338,6 +402,7 @@ function parseArgs(argv) {
   const ledgerPaths = [];
   const expected = { modes: {} };
   let requireGithubPr = false;
+  let requireLocalPrLike = false;
   let requireLivePrState = false;
   let requireRealBuilder = false;
   let requireSkillRead = false;
@@ -378,6 +443,10 @@ function parseArgs(argv) {
       requireGithubPr = true;
       continue;
     }
+    if (arg === '--require-local-pr-like') {
+      requireLocalPrLike = true;
+      continue;
+    }
     if (arg === '--require-live-pr-state') {
       requireGithubPr = true;
       requireLivePrState = true;
@@ -416,6 +485,7 @@ function parseArgs(argv) {
     ledgerPaths,
     expected,
     requireGithubPr,
+    requireLocalPrLike,
     requireLivePrState,
     requireRealBuilder,
     requireSkillRead,
