@@ -8,6 +8,8 @@
 
 > 2026-06-23 목적 정정: 이 matrix는 보조 증거/게이트 인덱스이지 현재 작업의 최종 목표가 아니다. 현재 최우선 목표는 [implement_20260623_082118.md](../dev-plan/implement_20260623_082118.md)에 고정한 대로 **내부 개선 루프가 실제 코드 issue 하나를 선택→후보 생성→검증→최종 선택→PR 출판 도구로 내보내는 흐름**을 확인하고 강화하는 것이다. GitHub와 CI는 목적이 아니라 도구다.
 
+> 2026-06-29 P0 truth restore: `coreline-ai/improvement_loop_harness` PR #1은 09:00 real-Codex evidence 기준으로 head branch `pr-candidate/selected-evidence`를 commit `3ffbed81f968d597639447b53fe74f85f4b2a7d9`에 복구하고 draft PR을 재오픈했다. Remote branch triple-dot diff copy와 selected patch는 sha256 `6fe562828e127327d0647cba18e944d4e7831c2bafd330e60f3d0932680ec5de`로 일치한다. 이는 scoped issue의 최종 PR/evidence path 복구이지 제품 전체 100% PASS나 56-variant current-live GitHub evidence가 아니다.
+
 ## 현재 표현 유지 (honest status — 변경 금지선)
 
 - ✅ **확인됨**: 실제 GitHub repo + 실제 Codex 수정 + draft PR 생성 (Run Ledger R3/R5/R14/R15/R16, [SKILL_REAL_USER_SCENARIO.md](./SKILL_REAL_USER_SCENARIO.md)).
