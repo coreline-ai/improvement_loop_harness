@@ -13,3 +13,15 @@ export * from './rulepack-replay.js';
 export * from './promotion.js';
 export * from './pr-candidate.js';
 export * from './types.js';
+export {
+  assertPullRequestProviderOptions,
+  assertPullRequestStateContract,
+  githubDraftPullRequestState,
+  giteaPrLikePullRequestState,
+  type GitHubDraftPullRequestState,
+  type GiteaPrLikePullRequestState,
+  type PullRequestProvider,
+  type PullRequestProviderName,
+  type PullRequestRef,
+  type PullRequestState
+} from '@vibeloop/github-integration';

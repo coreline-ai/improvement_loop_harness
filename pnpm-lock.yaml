@@ -123,6 +123,9 @@ importers:
       '@vibeloop/discovery':
         specifier: workspace:*
         version: link:../discovery
+      '@vibeloop/github-integration':
+        specifier: workspace:*
+        version: link:../github-integration
       '@vibeloop/report-html':
         specifier: workspace:*
         version: link:../report-html

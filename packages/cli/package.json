@@ -22,6 +22,7 @@
   "dependencies": {
     "@vibeloop/artifacts": "workspace:*",
     "@vibeloop/discovery": "workspace:*",
+    "@vibeloop/github-integration": "workspace:*",
     "@vibeloop/report-html": "workspace:*",
     "@vibeloop/sdk": "workspace:*",
     "@vibeloop/shared": "workspace:*",

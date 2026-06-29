@@ -1538,6 +1538,29 @@ it('improve refuses GitHub draft PR creation when final reverify is skipped', as
   ).rejects.toThrow(/requires final re-execution/);
 });
 
+it('improve refuses to combine GitHub draft PR publication with the Gitea provider', async () => {
+  await expect(
+    createProgram().parseAsync([
+      'node',
+      'vibeloop',
+      'improve',
+      '--repo',
+      '.',
+      '--task',
+      'task.yaml',
+      '--eval',
+      'eval.yaml',
+      '--agent',
+      'mock:scenario.json',
+      '--github-draft-pr',
+      '--github-repo',
+      'coreline-ai/improvement_loop_harness',
+      '--git-provider',
+      'gitea'
+    ])
+  ).rejects.toThrow(/cannot be combined with --git-provider gitea/);
+});
+
 it('improve warns to stderr for risky local-only flags', async () => {
   const warnings: string[] = [];
   const spy = vi
@@ -4824,5 +4847,26 @@ describe('orchestrate (auto mode)', () => {
         '--skip-dependency-install'
       ])
     ).rejects.toThrow(/eval\.yaml/i);
+  });
+
+  it('refuses to combine GitHub draft PR publication with the Gitea provider', async () => {
+    await expect(
+      createProgram().parseAsync([
+        'node',
+        'vibeloop',
+        'orchestrate',
+        '--repo',
+        '.',
+        '--agent',
+        'mock:scenario.json',
+        '--promote-branch',
+        'pr-candidate/orchestrate',
+        '--github-draft-pr',
+        '--github-repo',
+        'coreline-ai/improvement_loop_harness',
+        '--git-provider',
+        'gitea'
+      ])
+    ).rejects.toThrow(/cannot be combined with --git-provider gitea/);
   });
 });

@@ -26,6 +26,9 @@
       "path": "../discovery"
     },
     {
+      "path": "../github-integration"
+    },
+    {
       "path": "../sdk"
     }
   ],

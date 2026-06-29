@@ -13,6 +13,12 @@ import {
   parseGitHubRepo
 } from './pull-request.js';
 import {
+  assertPullRequestProviderOptions,
+  assertPullRequestStateContract,
+  githubDraftPullRequestState,
+  giteaPrLikePullRequestState
+} from './providers.js';
+import {
   defaultBranchName,
   deleteRemoteBranch,
   prepareBranchAndPush
@@ -47,6 +53,64 @@ describe('GitHub draft PR integration', () => {
       repo: 'improvement_loop_harness'
     });
     expect(parseGitHubRepo('https://example.com/coreline-ai/repo')).toBeNull();
+  });
+
+  it('keeps provider PR evidence claims as a discriminated union', () => {
+    const github = assertPullRequestStateContract(
+      githubDraftPullRequestState({
+        url: 'https://github.com/coreline-ai/repo/pull/1',
+        number: 1,
+        baseBranch: 'main',
+        headBranch: 'pr-candidate/loop-1',
+        reused: false
+      })
+    );
+    const gitea = assertPullRequestStateContract(
+      giteaPrLikePullRequestState({
+        url: 'http://127.0.0.1:13000/vibeloop/repo/pulls/1',
+        number: 1,
+        baseBranch: 'main',
+        headBranch: 'pr-candidate/loop-1',
+        reused: false
+      })
+    );
+
+    expect(github).toMatchObject({
+      provider: 'github',
+      draft_pr: true,
+      github_draft_pr: true,
+      github_draft_pr_verified: true,
+      local_pr_like: false,
+      auto_merge: null
+    });
+    expect(gitea).toMatchObject({
+      provider: 'gitea',
+      draft_supported: false,
+      draft_pr: false,
+      github_draft_pr: false,
+      github_draft_pr_verified: false,
+      local_pr_like: true
+    });
+  });
+
+  it('fails closed when GitHub draft PR options are mixed with the Gitea provider', () => {
+    expect(() =>
+      assertPullRequestProviderOptions({
+        gitProvider: 'gitea',
+        githubDraftPr: true
+      })
+    ).toThrow(/cannot be combined/);
+    expect(() =>
+      assertPullRequestProviderOptions({
+        gitProvider: 'github',
+        giteaBaseUrl: 'http://127.0.0.1:13000'
+      })
+    ).toThrow(/--gitea-\*/);
+    expect(() =>
+      assertPullRequestProviderOptions({
+        gitProvider: 'gitlab'
+      })
+    ).toThrow(/github,gitea/);
   });
 
   it('creates and pushes a branch from candidate.patch with safe git', async () => {

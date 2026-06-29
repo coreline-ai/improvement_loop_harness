@@ -17,6 +17,7 @@ import {
   writeUatEvidenceLedger
 } from './evidence-bundle.mjs';
 import { publishGiteaPrLike } from './gitea-pr-like-publisher.mjs';
+import { buildFailedVariantRerunPlan } from './skill-prompt-corpus-rerun.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
@@ -862,6 +863,12 @@ async function main() {
     const failed = results.filter((result) => !result.pass);
     const blocked = results.filter((result) => result.exit_code === 20);
     pass = failed.length === 0;
+    const failedVariantRerun = buildFailedVariantRerunPlan(results, {
+      gitProvider: giteaPrLikeRequested ? 'gitea' : null,
+      giteaBaseUrl: process.env.VIBELOOP_GITEA_BASE_URL,
+      githubDraftPrRequested,
+      keepRemote
+    });
     const p1WrapperTiming = parseWrapperTiming();
     const timing = {
       build_ms: p1WrapperTiming?.build_ms ?? null,
@@ -897,6 +904,7 @@ async function main() {
       passed_variant_count: results.length - failed.length,
       failed_variant_count: failed.length,
       blocked_variant_count: blocked.length,
+      failed_variant_rerun: failedVariantRerun,
       timing,
       modes: modeStats(results),
       variants: results
@@ -965,6 +973,7 @@ async function main() {
       failure_reasons: failed.flatMap((result) =>
         result.failures.map((failure) => `${result.id}:${failure}`)
       ),
+      failed_variant_rerun: failedVariantRerun,
       limitations: [
         'proves multiple built-in natural-language Skill prompt variants execute through the live Codex Skill orchestrator',
         builderMode === 'codex'

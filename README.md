@@ -297,6 +297,8 @@ P1 fast lane의 증거 범위:
 
 `local_pr_like=true`는 개발 속도 개선용 local evidence다. `github_draft_pr_verified=true`를 대체하지 않으며, 임의/대형 사용자 repo 전체 PASS나 제품 전체 100% PASS로 승격하지 않는다.
 
+P1 corpus가 실패하면 ledger의 `failed_variant_rerun.command`를 사용해 실패 variant만 targeted lane으로 재실행한다. 이 targeted rerun 결과는 원인 좁히기용이며, 56-variant full PASS나 GitHub draft PR full evidence를 대체하지 않는다.
+
 실제 LLM live UAT(실 Codex + 실 GitHub repo + draft PR, auto-merge 없음):
 
 ```bash

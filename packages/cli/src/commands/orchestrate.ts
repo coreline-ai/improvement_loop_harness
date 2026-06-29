@@ -21,6 +21,7 @@ import {
   publishSelectedPatchDraftPr,
   runImprovementLoop
 } from '@vibeloop/sdk';
+import { assertPullRequestProviderOptions } from '@vibeloop/github-integration';
 import { buildTokenBudgetLoopOptions } from '../token-usage.js';
 
 interface OrchestrateCommandOptions {
@@ -71,6 +72,9 @@ interface OrchestrateCommandOptions {
   githubPushUrl?: string | undefined;
   githubApiBaseUrl?: string | undefined;
   githubTitlePrefix?: string | undefined;
+  gitProvider?: string | undefined;
+  giteaBaseUrl?: string | undefined;
+  giteaTokenEnv?: string | undefined;
 }
 
 function collect(value: string, previous: string[]): string[] {
@@ -764,7 +768,29 @@ export function registerOrchestrateCommand(program: Command): void {
       'draft PR title prefix for --github-draft-pr',
       'VibeLoop'
     )
+    .option(
+      '--git-provider <provider>',
+      'PR provider claim namespace for promotion evidence (github|gitea); --github-draft-pr only supports github'
+    )
+    .option(
+      '--gitea-base-url <url>',
+      'local Gitea base URL for PR-like UAT lanes; not GitHub draft PR evidence'
+    )
+    .option(
+      '--gitea-token-env <name>',
+      'environment variable containing a local Gitea token for PR-like UAT lanes',
+      'VIBELOOP_GITEA_TOKEN'
+    )
     .action(async (options: OrchestrateCommandOptions, command: Command) => {
+      assertPullRequestProviderOptions({
+        gitProvider: options.gitProvider,
+        githubDraftPr: options.githubDraftPr,
+        giteaBaseUrl: options.giteaBaseUrl,
+        giteaTokenEnv:
+          options.giteaTokenEnv === 'VIBELOOP_GITEA_TOKEN'
+            ? undefined
+            : options.giteaTokenEnv
+      });
       warnRiskyFlags(options);
       if (options.agent.length === 0) {
         throw new Error('orchestrate requires at least one --agent <spec>');
