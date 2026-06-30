@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { defaultUatEvidenceDir } from './evidence-bundle.mjs';
 
 export const fastVariants =
   'user_issue:ko-default-cart-path,auto_discovery:ko-default-auto-pr-candidate';
@@ -20,6 +21,13 @@ const supportedModes = new Set([
 
 function freshEvidenceDir(mode, now = Date.now(), pid = process.pid) {
   return path.join(os.tmpdir(), `vibeloop-p1-${mode}-${pid}-${now}`);
+}
+
+function defaultEvidenceDirForMode(mode, env, options = {}) {
+  if (mode === 'gitea-pr') {
+    return defaultUatEvidenceDir(env);
+  }
+  return freshEvidenceDir(mode, options.now, options.pid);
 }
 
 function explicitVariantsOrDefault(raw, fallback) {
@@ -40,7 +48,7 @@ export function buildP1CorpusEnv(mode, env = process.env, options = {}) {
     ...env,
     VIBELOOP_UAT_EVIDENCE_DIR:
       env.VIBELOOP_UAT_EVIDENCE_DIR ??
-      freshEvidenceDir(mode, options.now, options.pid)
+      defaultEvidenceDirForMode(mode, env, options)
   };
   if (!nextEnv.VIBELOOP_SKILL_PROMPT_CORPUS_CONCURRENCY) {
     nextEnv.VIBELOOP_SKILL_PROMPT_CORPUS_CONCURRENCY = '2';
@@ -63,6 +71,8 @@ export function buildP1CorpusEnv(mode, env = process.env, options = {}) {
       env.VIBELOOP_GITEA_BASE_URL ?? 'http://127.0.0.1:13000';
     nextEnv.VIBELOOP_GITEA_KEEP_REPO = env.VIBELOOP_GITEA_KEEP_REPO ?? '1';
     nextEnv.VIBELOOP_UAT_KEEP_TMP = env.VIBELOOP_UAT_KEEP_TMP ?? '1';
+    nextEnv.VIBELOOP_UAT_DURABLE_EVIDENCE =
+      env.VIBELOOP_UAT_DURABLE_EVIDENCE ?? '1';
     nextEnv.VIBELOOP_P1_SCOPE = env.VIBELOOP_P1_SCOPE ?? 'targeted';
     nextEnv.VIBELOOP_SKILL_PROMPT_CORPUS_VARIANTS = explicitVariantsOrDefault(
       env.VIBELOOP_SKILL_PROMPT_CORPUS_VARIANTS,

@@ -538,6 +538,15 @@ function sha256Text(value) {
   return createHash('sha256').update(String(value)).digest('hex');
 }
 
+function normalizeUnifiedDiff(value) {
+  const normalized = String(value ?? '')
+    .replace(/^index [0-9a-f]+\.\.[0-9a-f]+.*$/gm, 'index <normalized>')
+    .replace(/\nindex <normalized>\n--- \/dev\/null/g, '\n--- /dev/null')
+    .replace(/\n{2,}(?=diff --git )/g, '\n')
+    .replace(/\s+$/u, '');
+  return `${normalized}\n`;
+}
+
 const promptVariant = selectPromptVariant();
 const userPrompt = promptVariant.prompt;
 
@@ -731,6 +740,13 @@ function finalVerification(helper) {
   );
 }
 
+function selectedPatchPath(helper) {
+  const parsed = helper?.execution?.parsed;
+  return (
+    parsed?.selected_patch ?? selectedIssue(parsed)?.selected_patch ?? null
+  );
+}
+
 function promotion(helper) {
   const parsed = helper?.execution?.parsed;
   return (
@@ -856,6 +872,83 @@ async function inspectGithubDraftPr(draftPr) {
   };
 }
 
+async function inspectGithubPatchBinding(draftPr, helper) {
+  const repo = draftPr?.github_repo ?? null;
+  const prNumber = prNumberFromDraftPr(draftPr);
+  const patchPath = selectedPatchPath(helper);
+  const expectedPatchHash =
+    finalVerification(helper)?.candidate_patch_hash ?? null;
+  if (!repo || !prNumber || !patchPath) {
+    return {
+      confirmed: false,
+      failures: [
+        !repo ? 'missing_repo' : null,
+        !prNumber ? 'missing_pr_number' : null,
+        !patchPath ? 'missing_selected_patch' : null
+      ].filter(Boolean)
+    };
+  }
+  if (!existsSync(patchPath)) {
+    return {
+      confirmed: false,
+      selected_patch: patchPath,
+      failures: ['selected_patch_missing']
+    };
+  }
+  const selectedPatchText = await readFile(patchPath, 'utf8');
+  const selectedPatchSha256 = sha256Text(selectedPatchText);
+  const selectedPatchNormalizedSha256 = sha256Text(
+    normalizeUnifiedDiff(selectedPatchText)
+  );
+  const diffResult = await run(
+    'gh',
+    ['pr', 'diff', String(prNumber), '--repo', repo],
+    { timeoutMs: 60_000 }
+  );
+  if (diffResult.code !== 0) {
+    return {
+      confirmed: false,
+      selected_patch: patchPath,
+      selected_patch_sha256: selectedPatchSha256,
+      selected_patch_normalized_sha256: selectedPatchNormalizedSha256,
+      failures: ['gh_pr_diff_failed'],
+      exit_code: diffResult.code,
+      stderr: redact(diffResult.stderr).trim().slice(0, 500)
+    };
+  }
+  const prDiff = diffResult.stdout;
+  const prDiffSha256 = sha256Text(prDiff);
+  const prDiffNormalizedSha256 = sha256Text(normalizeUnifiedDiff(prDiff));
+  const checks = {
+    selected_patch_sha256_recorded: /^[a-f0-9]{64}$/.test(selectedPatchSha256),
+    selected_patch_hash_matches_final_verification: expectedPatchHash
+      ? selectedPatchSha256 === expectedPatchHash
+      : true,
+    pr_diff_sha256_recorded: /^[a-f0-9]{64}$/.test(prDiffSha256),
+    normalized_diff_matches:
+      selectedPatchNormalizedSha256 === prDiffNormalizedSha256,
+    head_sha_bound: /^[a-f0-9]{40}$/.test(String(draftPr?.head_sha ?? ''))
+  };
+  const failures = Object.entries(checks)
+    .filter(([, ok]) => ok !== true)
+    .map(([key]) => key);
+  return {
+    confirmed: failures.length === 0,
+    checked_at: new Date().toISOString(),
+    failures,
+    selected_patch: patchPath,
+    selected_patch_sha256: selectedPatchSha256,
+    selected_patch_normalized_sha256: selectedPatchNormalizedSha256,
+    expected_final_verification_patch_sha256: expectedPatchHash,
+    pr_diff_sha256: prDiffSha256,
+    pr_diff_normalized_sha256: prDiffNormalizedSha256,
+    pr_diff_char_count: prDiff.length,
+    head_sha: draftPr?.head_sha ?? null,
+    normalized_diff_matches: checks.normalized_diff_matches,
+    checks
+  };
+}
+
 async function githubDraftPrSummary(helper, expectedRepo) {
   const draftPrsForRun = draftPrs(helper);
   const summaries = [];
@@ -871,6 +964,9 @@ async function githubDraftPrSummary(helper, expectedRepo) {
       base_ref: draftPr.base_ref ?? null,
       live_pr_view: githubDraftPrRequested
         ? await inspectGithubDraftPr(draftPr)
+        : null,
+      patch_binding: githubDraftPrRequested
+        ? await inspectGithubPatchBinding(draftPr, helper)
         : null
     });
   }
@@ -888,12 +984,16 @@ async function githubDraftPrSummary(helper, expectedRepo) {
         draftPr.pr_reused === false &&
         draftPr.base_ref === 'main' &&
         draftPr.live_pr_view?.confirmed === true &&
+        draftPr.patch_binding?.confirmed === true &&
         (expectedRepo ? draftPr.github_repo === expectedRepo : true)
     );
   return {
     requested: githubDraftPrRequested,
     verified,
     count: summaries.length,
+    patch_binding_verified:
+      summaries.length > 0 &&
+      summaries.every((draftPr) => draftPr.patch_binding?.confirmed === true),
     draft_prs: summaries
   };
 }
@@ -1337,6 +1437,18 @@ Acceptance authority: deterministic VibeLoop reports only.
       github_draft_pr_verified:
         githubDraftPrRequested && githubSummary.verified === true,
       draft_pr: githubDraftPrRequested && githubSummary.verified === true,
+      patch_binding: githubDraftPrRequested
+        ? {
+            verified: githubSummary.patch_binding_verified === true,
+            scope:
+              'selected candidate patch artifact vs live GitHub PR diff normalized digest',
+            draft_prs: githubSummary.draft_prs.map((draftPr) => ({
+              pr_url: draftPr.pr_url ?? null,
+              head_sha: draftPr.head_sha ?? null,
+              patch_binding: draftPr.patch_binding ?? null
+            }))
+          }
+        : null,
       orchestrator: {
         real_llm: true,
         codex_cli: true,
@@ -1453,7 +1565,8 @@ Acceptance authority: deterministic VibeLoop reports only.
         prompt_ux: ledger.prompt_ux,
         helper: ledger.helper,
         target_repo: ledger.target_repo,
-        github: ledger.github
+        github: ledger.github,
+        patch_binding: ledger.patch_binding
       }
     });
     ledger.evidence = {

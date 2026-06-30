@@ -3,11 +3,7 @@ import { buildP1CorpusEnv, fastVariants } from './skill-prompt-corpus-p1.mjs';
 
 describe('P1 prompt corpus mode wrapper', () => {
   it('configures a two-variant fast lane with a fresh evidence root', () => {
-    const env = buildP1CorpusEnv(
-      'fast',
-      {},
-      { now: 1782689000000, pid: 1234 }
-    );
+    const env = buildP1CorpusEnv('fast', {}, { now: 1782689000000, pid: 1234 });
 
     expect(env.VIBELOOP_SKILL_PROMPT_CORPUS_VARIANTS).toBe(fastVariants);
     expect(env.VIBELOOP_SKILL_PROMPT_CORPUS_CONCURRENCY).toBe('2');
@@ -49,6 +45,9 @@ describe('P1 prompt corpus mode wrapper', () => {
     expect(env.VIBELOOP_GITEA_BASE_URL).toBe('http://127.0.0.1:13000');
     expect(env.VIBELOOP_GITEA_KEEP_REPO).toBe('1');
     expect(env.VIBELOOP_UAT_KEEP_TMP).toBe('1');
+    expect(env.VIBELOOP_UAT_DURABLE_EVIDENCE).toBe('1');
+    expect(env.VIBELOOP_UAT_EVIDENCE_DIR).toContain('.vibeloop');
+    expect(env.VIBELOOP_UAT_EVIDENCE_DIR).toContain('uat-evidence');
     expect(env.VIBELOOP_P1_SCOPE).toBe('targeted');
     expect(env.VIBELOOP_SKILL_PROMPT_CORPUS_VARIANTS).toBe(fastVariants);
     expect(env.VIBELOOP_SKILL_PROMPT_CORPUS_GITHUB_DRAFT_PR).toBeUndefined();

@@ -101,6 +101,10 @@ function skillPromptLiveLedger({
   builder = {},
   ledger = {}
 } = {}) {
+  const selectedPatchSha =
+    '1111111111111111111111111111111111111111111111111111111111111111';
+  const prDiffSha =
+    '2222222222222222222222222222222222222222222222222222222222222222';
   return {
     status,
     evidence_missing_count: 0,
@@ -143,7 +147,8 @@ function skillPromptLiveLedger({
       provenance_ok: true,
       reverify_attempted: true,
       reverified: true,
-      passed: true
+      passed: true,
+      candidate_patch_hash: selectedPatchSha
     },
     promotion: {
       branch_name: branchName,
@@ -154,6 +159,29 @@ function skillPromptLiveLedger({
           github_draft_pr: true,
           github_draft_pr_verified: true,
           draft_pr: true,
+          patch_binding: {
+            verified: true,
+            scope:
+              'selected candidate patch artifact vs live GitHub PR diff normalized digest',
+            draft_prs: [
+              {
+                pr_url:
+                  'https://github.com/coreline-ai/vibeloop-skill-prompt-test/pull/1',
+                head_sha: '0123456789abcdef0123456789abcdef01234567',
+                patch_binding: {
+                  confirmed: true,
+                  selected_patch_sha256: selectedPatchSha,
+                  selected_patch_normalized_sha256: selectedPatchSha,
+                  expected_final_verification_patch_sha256: selectedPatchSha,
+                  pr_diff_sha256: prDiffSha,
+                  pr_diff_normalized_sha256: selectedPatchSha,
+                  head_sha: '0123456789abcdef0123456789abcdef01234567',
+                  normalized_diff_matches: true,
+                  failures: []
+                }
+              }
+            ]
+          },
           github: {
             repo: 'coreline-ai/vibeloop-skill-prompt-test',
             url: 'https://github.com/coreline-ai/vibeloop-skill-prompt-test',
@@ -182,6 +210,17 @@ function skillPromptLiveLedger({
                   body_sha256:
                     'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
                   body_char_count: 128,
+                  failures: []
+                },
+                patch_binding: {
+                  confirmed: true,
+                  selected_patch_sha256: selectedPatchSha,
+                  selected_patch_normalized_sha256: selectedPatchSha,
+                  expected_final_verification_patch_sha256: selectedPatchSha,
+                  pr_diff_sha256: prDiffSha,
+                  pr_diff_normalized_sha256: selectedPatchSha,
+                  head_sha: '0123456789abcdef0123456789abcdef01234567',
+                  normalized_diff_matches: true,
                   failures: []
                 }
               }

@@ -108,7 +108,8 @@ function applyAuditRequirementOverrides(evidenceScenarios, options = {}) {
   if (
     !options.requireSkillPromptCorpusGithubPr &&
     !options.requireSkillPromptCorpusLivePrState &&
-    !options.requireSkillPromptCorpusLocalPrLike
+    !options.requireSkillPromptCorpusLocalPrLike &&
+    !options.allowSkillPromptCorpusTargeted
   ) {
     return evidenceScenarios;
   }
@@ -118,7 +119,7 @@ function applyAuditRequirementOverrides(evidenceScenarios, options = {}) {
   );
   if (!hasPromptCorpus) {
     throw new Error(
-      '--require-skill-prompt-corpus-github-pr, --require-skill-prompt-corpus-live-pr-state, and --require-skill-prompt-corpus-local-pr-like require --scenario skill-real-user-prompt-corpus-live-uat'
+      '--require-skill-prompt-corpus-github-pr, --require-skill-prompt-corpus-live-pr-state, --require-skill-prompt-corpus-local-pr-like, and --allow-skill-prompt-corpus-targeted require --scenario skill-real-user-prompt-corpus-live-uat'
     );
   }
 
@@ -136,6 +137,14 @@ function applyAuditRequirementOverrides(evidenceScenarios, options = {}) {
           : {}),
         ...(options.requireSkillPromptCorpusLocalPrLike
           ? { required_skill_prompt_corpus_local_pr_like: true }
+          : {}),
+        ...(options.allowSkillPromptCorpusTargeted
+          ? {
+              min_skill_prompt_corpus_variant_count: 2,
+              min_skill_prompt_corpus_user_issue_count: 1,
+              min_skill_prompt_corpus_auto_discovery_count: 1,
+              allow_skill_prompt_corpus_targeted_scope: true
+            }
           : {})
       }
     };
@@ -538,6 +547,7 @@ function parseArgs(argv) {
   let requireSkillPromptCorpusGithubPr = false;
   let requireSkillPromptCorpusLivePrState = false;
   let requireSkillPromptCorpusLocalPrLike = false;
+  let allowSkillPromptCorpusTargeted = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--') {
@@ -574,6 +584,10 @@ function parseArgs(argv) {
       requireSkillPromptCorpusLocalPrLike = true;
       continue;
     }
+    if (arg === '--allow-skill-prompt-corpus-targeted') {
+      allowSkillPromptCorpusTargeted = true;
+      continue;
+    }
     if (arg === '--require-skill-prompt-corpus-live-pr-state') {
       requireSkillPromptCorpusGithubPr = true;
       requireSkillPromptCorpusLivePrState = true;
@@ -587,7 +601,8 @@ function parseArgs(argv) {
     allReleaseEvidence,
     requireSkillPromptCorpusGithubPr,
     requireSkillPromptCorpusLivePrState,
-    requireSkillPromptCorpusLocalPrLike
+    requireSkillPromptCorpusLocalPrLike,
+    allowSkillPromptCorpusTargeted
   };
 }
 

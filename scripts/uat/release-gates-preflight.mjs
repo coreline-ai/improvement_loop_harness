@@ -1415,6 +1415,15 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
     github_draft_pr: ledgerJson.github_draft_pr ?? false,
     github_draft_pr_verified: ledgerJson.github_draft_pr_verified ?? false,
     draft_pr: ledgerJson.draft_pr ?? null,
+    patch_binding: ledgerJson.patch_binding
+      ? {
+          verified: ledgerJson.patch_binding.verified ?? null,
+          scope: ledgerJson.patch_binding.scope ?? null,
+          draft_pr_count: Array.isArray(ledgerJson.patch_binding.draft_prs)
+            ? ledgerJson.patch_binding.draft_prs.length
+            : null
+        }
+      : null,
     github: ledgerJson.github
       ? {
           repo: ledgerJson.github.repo ?? null,
@@ -1451,6 +1460,29 @@ function summarizeSkillPromptRequiredLedger(ledgerJson) {
                         draftPr.live_pr_view.body_char_count ?? null,
                       failures: Array.isArray(draftPr.live_pr_view.failures)
                         ? draftPr.live_pr_view.failures
+                        : []
+                    }
+                  : null,
+                patch_binding: draftPr.patch_binding
+                  ? {
+                      confirmed: draftPr.patch_binding.confirmed ?? null,
+                      selected_patch_sha256:
+                        draftPr.patch_binding.selected_patch_sha256 ?? null,
+                      selected_patch_normalized_sha256:
+                        draftPr.patch_binding
+                          .selected_patch_normalized_sha256 ?? null,
+                      expected_final_verification_patch_sha256:
+                        draftPr.patch_binding
+                          .expected_final_verification_patch_sha256 ?? null,
+                      pr_diff_sha256:
+                        draftPr.patch_binding.pr_diff_sha256 ?? null,
+                      pr_diff_normalized_sha256:
+                        draftPr.patch_binding.pr_diff_normalized_sha256 ?? null,
+                      head_sha: draftPr.patch_binding.head_sha ?? null,
+                      normalized_diff_matches:
+                        draftPr.patch_binding.normalized_diff_matches ?? null,
+                      failures: Array.isArray(draftPr.patch_binding.failures)
+                        ? draftPr.patch_binding.failures
                         : []
                     }
                   : null
@@ -1681,6 +1713,9 @@ function requiredSkillPromptGithubDraftPrFailures(ledgerSummary) {
   if (!(draftPrs.length > 0)) {
     failures.push('skill_prompt.github.draft_prs');
   }
+  if (ledgerSummary.patch_binding?.verified !== true) {
+    failures.push('skill_prompt.patch_binding');
+  }
   if (
     draftPrs.some(
       (draftPr) =>
@@ -1704,6 +1739,12 @@ function requiredSkillPromptGithubDraftPrFailures(ledgerSummary) {
         typeof draftPr.live_pr_view?.body_sha256 !== 'string' ||
         !/^[a-f0-9]{64}$/.test(draftPr.live_pr_view.body_sha256) ||
         !(draftPr.live_pr_view?.body_char_count > 0) ||
+        draftPr.patch_binding?.confirmed !== true ||
+        typeof draftPr.patch_binding?.selected_patch_sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(draftPr.patch_binding.selected_patch_sha256) ||
+        typeof draftPr.patch_binding?.pr_diff_sha256 !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(draftPr.patch_binding.pr_diff_sha256) ||
+        draftPr.patch_binding?.normalized_diff_matches !== true ||
         !draftPr.github_repo
     )
   ) {
@@ -2508,6 +2549,15 @@ export async function latestEvidenceBundle(
         variant_count: ledgerJson.variant_count ?? null,
         required_count: ledgerJson.required_count ?? null,
         evidence_root: ledgerJson.evidence_root ?? null,
+        patch_binding: ledgerJson.patch_binding
+          ? {
+              verified: ledgerJson.patch_binding.verified ?? null,
+              scope: ledgerJson.patch_binding.scope ?? null,
+              draft_pr_count: Array.isArray(ledgerJson.patch_binding.draft_prs)
+                ? ledgerJson.patch_binding.draft_prs.length
+                : null
+            }
+          : null,
         github: ledgerJson.github
           ? {
               repo: ledgerJson.github.repo ?? null,
@@ -2544,6 +2594,33 @@ export async function latestEvidenceBundle(
                             draftPr.live_pr_view.body_char_count ?? null,
                           failures: Array.isArray(draftPr.live_pr_view.failures)
                             ? draftPr.live_pr_view.failures
+                            : []
+                        }
+                      : null,
+                    patch_binding: draftPr.patch_binding
+                      ? {
+                          confirmed: draftPr.patch_binding.confirmed ?? null,
+                          selected_patch_sha256:
+                            draftPr.patch_binding.selected_patch_sha256 ?? null,
+                          selected_patch_normalized_sha256:
+                            draftPr.patch_binding
+                              .selected_patch_normalized_sha256 ?? null,
+                          expected_final_verification_patch_sha256:
+                            draftPr.patch_binding
+                              .expected_final_verification_patch_sha256 ?? null,
+                          pr_diff_sha256:
+                            draftPr.patch_binding.pr_diff_sha256 ?? null,
+                          pr_diff_normalized_sha256:
+                            draftPr.patch_binding.pr_diff_normalized_sha256 ??
+                            null,
+                          head_sha: draftPr.patch_binding.head_sha ?? null,
+                          normalized_diff_matches:
+                            draftPr.patch_binding.normalized_diff_matches ??
+                            null,
+                          failures: Array.isArray(
+                            draftPr.patch_binding.failures
+                          )
+                            ? draftPr.patch_binding.failures
                             : []
                         }
                       : null
