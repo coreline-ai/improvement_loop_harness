@@ -19,7 +19,7 @@ node skills/vibeloop-harness/scripts/classify-intent.mjs \
 The output is routing metadata only. It never decides accept/reject. Important modes:
 
 - `user_issue`: create one task/eval, then run `vibeloop improve`.
-- `auto_discovery`: run `vibeloop orchestrate`; add `--promote-branch` for local cumulative rediscovery, and `--github-draft-pr` for stacked draft PR publishing. Real Codex/GitHub live RU-3 remains unproven until that exact path is run live.
+- `auto_discovery`: run `vibeloop orchestrate`; add `--promote-branch` for local cumulative rediscovery, and `--github-draft-pr` for stacked draft PR publishing. Bounded R11/R163/R164 evidence covers real Codex/GitHub prototype proof for the targeted paths; do not treat it as 56-variant GitHub final full, strict-best/full autonomous improvement, or arbitrary/large-repo product-wide PASS.
 - `verify_only`: verify an existing patch; do not run builder edits.
 - `fixture_full_uat`: fixture baseline only, not live Codex/GitHub proof.
 - `codex_skill_prompt_uat`: verifies a live Codex Skill orchestrator reads `SKILL.md` and invokes `run-from-prompt`; default builder is fixture, while `:real-builder` variants prove real builder local flow only.
@@ -68,7 +68,17 @@ VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-skill-prompt:real-builder
 VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-skill-prompt:auto:real-builder
 ```
 
-Expected status is `SKILL_PROMPT_LIVE_UAT_PASS` for user_issue or `SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS` for auto_discovery. The default underlying builder is a deterministic command fixture. The `:real-builder` variants additionally prove the helper invoked a real Codex builder through the ChatGPT OAuth proxy, but they remain local branch/one-candidate evidence; use a future RU-3 lane for real GitHub draft PR auto-discovery and strict best-fix proof.
+Expected status is `SKILL_PROMPT_LIVE_UAT_PASS` for user_issue or `SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS` for auto_discovery. The default underlying builder is a deterministic command fixture. The `:real-builder` variants additionally prove the helper invoked a real Codex builder through the ChatGPT OAuth proxy, but they remain local branch/one-candidate evidence. Bounded GitHub auto-discovery proof exists in R11/R163/R164; strict best-fix/full autonomous improvement still requires its own qualifying evidence.
+
+Prototype acceptance UAT:
+
+```bash
+corepack pnpm uat:prototype-acceptance
+```
+
+R164 on 2026-06-30 is the latest prototype P0/P1 hardening evidence. `corepack pnpm uat:prototype-acceptance` passed Gitea preflight, 2-variant real Codex Gitea PR-like, retry-loop, and targeted local-pr-like evidence audit checks (4/4 PASS). Durable Gitea evidence is recorded at `/Users/iriver/.vibeloop/uat-evidence/skill-real-user-prompt-corpus-live-uat/skill-prompt-corpus-live-13659-1782777198300/ledger.json`; retry evidence at `/Users/iriver/.vibeloop/uat-evidence/prototype-failure-retry-loop-uat/prototype-retry-loop-16333-1782777198765/ledger.json`; and acceptance evidence at `/Users/iriver/.vibeloop/uat-evidence/prototype-acceptance-uat/prototype-acceptance-12965-1782777025246/ledger.json`.
+
+GitHub auto-discovery single-smoke evidence is a prototype PASS for repo `coreline-ai/vibeloop-skill-prompt-auto-discovery-19396-1782777457900`: PR #1 is OPEN draft, auto-merge is null, and the selected patch hash is bound to the PR diff hash with normalized diff match true. This is prototype-targeted evidence only, not 56-variant GitHub final full, not strict-best/full autonomous improvement, and not arbitrary/large-repo product-wide PASS.
 
 For live RU-3 auto-discovery with real Codex builder and real GitHub stacked draft PRs:
 

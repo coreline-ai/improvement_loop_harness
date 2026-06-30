@@ -2,6 +2,8 @@
 
 이 문서는 `vibeloop-harness` Skill이 실제 사용자 흐름에 가깝게 동작하는지 검증하는 온디맨드 UAT다. 목적은 **임시 git repo를 만들고, 여러 문제를 한 번에 하나씩 Skill wrapper로 수정·검증·PR 후보화한 뒤, 큐가 끝났을 때 정확히 종료되는지** 확인하는 것이다.
 
+현재 상태 메모: 2026-06-30 최신 prototype P0/P1 hardening 증거는 R164 `corepack pnpm uat:prototype-acceptance` PASS다. 해당 run은 Gitea preflight, 2-variant real Codex Gitea PR-like, retry-loop, targeted local-pr-like evidence audit을 4/4 PASS로 묶은 prototype-targeted evidence이며, 이 문서의 deterministic real-user loop UAT와는 별도다. R164도 56-variant GitHub final full, strict-best/full autonomous improvement, 임의/대형 repo product-wide PASS를 의미하지 않는다.
+
 ## 1. UAT 목적
 
 | 검증 항목       | 기준                                                                                                                |

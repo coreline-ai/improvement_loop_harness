@@ -125,6 +125,19 @@ pnpm uat:skill-loop:adversarial
 
 상세 시나리오와 통과 기준은 [SKILL_REAL_USER_LOOP_UAT.md](./SKILL_REAL_USER_LOOP_UAT.md)를 따른다. 적대적 UAT는 bad candidate가 PR 후보로 넘어가지 않는지 확인한다. 제품의 완전 자율 discovery loop와는 다르게, 이 UAT는 deterministic issue queue를 사용해 Skill 제품 경로의 실제 동작을 검증한다.
 
+## 7.6 Prototype acceptance 현황
+
+R164(2026-06-30)는 현재 최신 prototype P0/P1 hardening evidence다. `corepack pnpm uat:prototype-acceptance`는 Gitea preflight, 2-variant real Codex Gitea PR-like, retry-loop, targeted local-pr-like evidence audit에서 4/4 PASS했다.
+
+주요 evidence ledger:
+
+- Durable Gitea evidence: `/Users/iriver/.vibeloop/uat-evidence/skill-real-user-prompt-corpus-live-uat/skill-prompt-corpus-live-13659-1782777198300/ledger.json`
+- Retry evidence: `/Users/iriver/.vibeloop/uat-evidence/prototype-failure-retry-loop-uat/prototype-retry-loop-16333-1782777198765/ledger.json`
+- Acceptance evidence: `/Users/iriver/.vibeloop/uat-evidence/prototype-acceptance-uat/prototype-acceptance-12965-1782777025246/ledger.json`
+- GitHub auto_discovery single smoke: `coreline-ai/vibeloop-skill-prompt-auto-discovery-19396-1782777457900` PR #1 OPEN draft, auto-merge `null`, normalized diff match `true`
+
+이 evidence는 prototype-targeted acceptance 기준이다. 56-variant GitHub final full, strict-best/full autonomous improvement, arbitrary/large repo product-wide PASS를 의미하지 않는다.
+
 ## 8. 고정 검증 게이트
 
 Skill 제품화 변경 후 최소 검증:

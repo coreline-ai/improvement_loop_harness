@@ -7,6 +7,8 @@
 
 이 문서의 목적은 기존 runbook을 참고하는 것이 아니라, **실제 사용자가 Skill을 설치해서 외부 프로젝트에 적용하는 환경과 유사한 외부 설치본 UAT를 실행**하는 것이다. 단, 여기서의 `FULL_UAT_PASS`는 **fixture/command-agent 기반 deterministic baseline**이며, 실 Codex/LLM + 실 GitHub draft PR lane의 PASS가 아니다. 실사용자 live 증거는 [`SKILL_REAL_USER_SCENARIO.md`](./SKILL_REAL_USER_SCENARIO.md)의 RU-1/RU-2 Ledger로 분리한다.
 
+최신 prototype P0/P1 hardening 증거는 2026-06-30 R164의 `corepack pnpm uat:prototype-acceptance` 4/4 PASS다. 이 증거는 Gitea preflight, 2-variant real Codex Gitea PR-like, retry-loop, targeted local-pr-like evidence audit 범위이며, 이 문서의 fixture baseline scope를 대체하지 않는다. 즉 R164는 prototype-targeted acceptance 증거이고, 56-variant GitHub final full, strict-best/full autonomous improvement, 임의/대형 repo product-wide PASS가 아니다.
+
 검증해야 하는 핵심은 다음 4가지다.
 
 1. Skill이 monorepo 내부 경로가 아니라 **복사된 외부 Skill 설치본 + bundled vendor CLI**로 동작한다.

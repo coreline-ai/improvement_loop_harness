@@ -19,6 +19,12 @@ builder candidate accepted
 
 LLM이 자기 결과를 평가하지 않는다. 후보 생성은 agent가 하지만, 통과와 선택은 커널 gate와 고정 Arbiter score로 결정된다.
 
+### 현재 증거 범위 (2026-06-30)
+
+R164는 최신 prototype P0/P1 hardening evidence다. `corepack pnpm uat:prototype-acceptance`는 Gitea preflight, 2-variant real Codex Gitea PR-like flow, retry-loop, targeted local-pr-like evidence audit에서 4/4 PASS했다.
+
+이 결과는 prototype-targeted acceptance evidence이며, 이 문서의 deterministic self-improvement UAT와 별도 범위다. 56-variant GitHub final full, strict-best/full autonomous improvement, arbitrary/large repo product-wide PASS 또는 production-grade completion으로 해석하지 않는다.
+
 ## 고정 적합도(fitness)와 "더 좋은 방향"
 
 "자가 개선이 더 좋은 방향으로 갔다"는 것을 **절대 LLM이 바꾸지 못하는 고정 공식** 위의 점수 증가로 정의한다.

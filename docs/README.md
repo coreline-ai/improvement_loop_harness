@@ -2,6 +2,14 @@
 
 이 폴더는 `autonomous_coding_improvement_loop_harness_FULL.md` 통합 문서를 실제 구현 가능한 명세 단위로 분리한 결과다.
 
+## 현재 증거 읽기
+
+- [../README.md](../README.md) — Run Ledger와 현재 상태 요약. **최신 prototype P0/P1 hardening 증거는 2026-06-30 R164**이며, `uat:prototype-acceptance` 4/4 PASS는 prototype-targeted acceptance 증거다.
+- [SKILL_REAL_USER_SCENARIO.md](./SKILL_REAL_USER_SCENARIO.md) — real-user/Skill 시나리오 ledger와 honest status 출처. bounded prototype·corpus·GitHub smoke 증거를 제품 전체 PASS로 승격하지 않는다.
+- [RELEASE_GATE_MATRIX.md](./RELEASE_GATE_MATRIX.md) — P0~P5 gate/evidence scope 인덱스. 현재 남은 제품급 후속과 claim 금지선을 함께 확인한다.
+- [../skills/vibeloop-harness/SKILL.md](../skills/vibeloop-harness/SKILL.md) — `vibeloop-harness` Skill 운영 계약과 deterministic acceptance 조건.
+- [../dev-plan/implement_20260629_112753.md](../dev-plan/implement_20260629_112753.md) — P1 자연어 Skill UX 검증 계획과 2026-06-30 prototype P0/P1 보강 결과. R164는 GitHub final full이나 임의/대형 repo 제품 전체 PASS가 아니다.
+
 ## 읽는 순서
 
 - [autonomous_coding_improvement_loop_harness.md](./autonomous_coding_improvement_loop_harness.md) — 구현 명세 진입점
@@ -29,11 +37,12 @@
 
 ## 개발 계획
 
-- ⭐ [RELEASE_GATE_MATRIX.md](./RELEASE_GATE_MATRIX.md) — **production/autonomous 단일 실행 순서(P0~P5)** + 중복 owner 확정. 아래 미착수 계획들의 게이트 순서를 묶는 단일 소스(합본 인덱스).
+- ⭐ [RELEASE_GATE_MATRIX.md](./RELEASE_GATE_MATRIX.md) — **P0~P5 gate/evidence scope 인덱스** + 중복 owner 확정. bounded evidence와 제품 전체 PASS 금지선을 함께 묶는 합본 인덱스.
+- [../dev-plan/implement_20260629_112753.md](../dev-plan/implement_20260629_112753.md) — P1 자연어 Skill UX 검증 계획과 2026-06-30 prototype P0/P1 보강 결과(R164 최신 prototype acceptance evidence)
 - [../dev-plan/implement_20260610_223129.md](../dev-plan/implement_20260610_223129.md) — 전체 개발 계획 (Phase 1~17, MVP-0~4) — **완료**
-- [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) — 3차 검토 반영 계획 (Phase 1~5: 서버 조립·Store 계약 테스트·스펙 개정·CI) — 반영 완료, 원격 CI 통과
+- [../dev-plan/implement_20260612_061653.md](../dev-plan/implement_20260612_061653.md) — 3차 검토 반영 계획 (Phase 1~5: 서버 조립·Store 계약 테스트·스펙 개정·검증) — 반영 완료
 - [../dev-plan/implement_20260612_061855.md](../dev-plan/implement_20260612_061855.md) — 신뢰 경계 보강 구현 완료 (Phase 1~7: provenance·hidden test·verifier lane·trust boundary 표시)
-- [../dev-plan/implement_20260612_183255.md](../dev-plan/implement_20260612_183255.md) — 5차 검토 반영 패치 완료 (Phase 1~4: same_model_review 교체·CI actions 인상·체크박스 정합·exec 버퍼 상한)
+- [../dev-plan/implement_20260612_183255.md](../dev-plan/implement_20260612_183255.md) — 5차 검토 반영 패치 완료 (Phase 1~4: same_model_review 교체·workflow timeout 인상·체크박스 정합·exec 버퍼 상한)
 - [../dev-plan/implement_20260613_085309.md](../dev-plan/implement_20260613_085309.md) — 모듈 분리 및 Skill 우선 제품화 개발 계획 (Phase 1~8: SDK/API 경계·OAuth proxy module·Skill skeleton·templates·실사용 루프 UAT)
 - [../dev-plan/implement_20260615_064636.md](../dev-plan/implement_20260615_064636.md) — Frozen Rule Semantic Runner / Adversary Semantic Gate 개발 계획 (Phase 1~5: 자가개선 루프 닫힘 고리, **core runner/gate/provenance 구현·타깃 검증 완료 / live adversary evidence는 091537 Phase 3 잔여**)
 - [../dev-plan/implement_20260615_090058.md](../dev-plan/implement_20260615_090058.md) — 7차 검토 반영: 신뢰 경계 횡단 보강 (Phase 1~7: fail-open 차단·Store 분기·신뢰 바닥 봉인·결정 엔진·컨트롤플레인 보안·discovery/github·문서 드리프트, **Phase 1 구현·타깃 검증 완료 / Phase 2 코드 보강·Postgres contract 증거 잔여 / Phase 3~5 구현·로컬 검증 완료·완료체크 보류 / Phase 6 구현·타깃 검증 완료 / Phase 7 문서 드리프트 정정 완료 / 전체 로컬 검증 green / 커밋 미수행**)
@@ -42,7 +51,8 @@
 
 ## 실제 사용자 시나리오 테스트
 
-- [MODULARIZATION_AND_SKILL_PRODUCTIZATION_STRATEGY.md](./MODULARIZATION_AND_SKILL_PRODUCTIZATION_STRATEGY.md) — VibeLoop을 Skill 우선 제품으로 만들되 CLI/SDK/CI/API/PR Bot으로 확장 가능하게 하는 모듈 분리 전략
+- [SKILL_REAL_USER_SCENARIO.md](./SKILL_REAL_USER_SCENARIO.md) — Run Ledger, PASS 매트릭스, honest status 출처. prototype acceptance 증거는 prototype-targeted 범위로 읽는다.
+- [MODULARIZATION_AND_SKILL_PRODUCTIZATION_STRATEGY.md](./MODULARIZATION_AND_SKILL_PRODUCTIZATION_STRATEGY.md) — VibeLoop을 Skill 우선 제품으로 만들되 CLI/SDK/API/PR Bot으로 확장 가능하게 하는 모듈 분리 전략
 - [SKILL_PRODUCTIZATION_RUNBOOK.md](./SKILL_PRODUCTIZATION_RUNBOOK.md) — Skill wrapper, task/eval 생성, report summarizer, Codex OAuth UAT 운영 runbook
 - [SKILL_REAL_USER_LOOP_UAT.md](./SKILL_REAL_USER_LOOP_UAT.md) — 임시 git repo에서 두 문제를 순차 수정하고 accepted patch를 commit/PR 후보 branch로 남기며 hidden/protected/test/context 실패를 차단하는 Skill 루프 UAT
 - [USER_SCENARIO_TESTING.md](./USER_SCENARIO_TESTING.md) — mock agent가 아닌 실제 CLI + command agent, Codex ChatGPT login, no-API-key OAuth proxy 기반 장바구니 수량 버그 수정 사용자 시나리오/UAT
@@ -51,7 +61,7 @@
 
 - [EXPERT_REVIEW_1_20260610.md](./EXPERT_REVIEW_1_20260610.md) — 1차 전문가 검토: 설계 명세 (2026-06-10, 전 항목 반영 완료)
 - [EXPERT_REVIEW_2_20260610.md](./EXPERT_REVIEW_2_20260610.md) — 2차 전문가 검토: 개발 계획 (2026-06-10, 전 항목 반영 완료)
-- [EXPERT_REVIEW_3_20260612.md](./EXPERT_REVIEW_3_20260612.md) — 3차 전문가 검토: 구현 완료 검증 (2026-06-12, 반영 완료, 원격 CI 통과)
+- [EXPERT_REVIEW_3_20260612.md](./EXPERT_REVIEW_3_20260612.md) — 3차 전문가 검토: 구현 완료 검증 (2026-06-12, 반영 완료)
 - [EXPERT_REVIEW_4_20260612.md](./EXPERT_REVIEW_4_20260612.md) — 4차 전문가 검토: 신뢰 경계 보강 계획(implement_20260612_061855) (2026-06-12, 전 항목 반영 완료)
 - [EXPERT_REVIEW_5_20260612.md](./EXPERT_REVIEW_5_20260612.md) — 5차 전문가 검토: 검토 반영·신뢰 경계 구현 검증 (2026-06-12, 전 항목 반영 완료)
 - [EXPERT_REVIEW_6_20260612.md](./EXPERT_REVIEW_6_20260612.md) — 6차 전문가 검토: 5차 반영 패치 구현 검증 (2026-06-12, 발견 0건 — **검토 사이클 종결**, 경미 관찰 O1만 선택 과제)

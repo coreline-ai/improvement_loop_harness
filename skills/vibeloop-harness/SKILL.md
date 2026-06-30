@@ -49,10 +49,10 @@ node skills/vibeloop-harness/scripts/run-from-prompt.mjs \
 | User intent signal                                                     | Route                                                       | Hard rule                                                                                                                                                                    |
 | ---------------------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Specific bug/path/symptom: "fix this", "src/... fails", "quantity bug" | `user_issue` → create one task/eval then `vibeloop improve` | Exactly one issue per task/eval                                                                                                                                              |
-| "auto-discover", "자율 개선", "문제 찾아서 하나씩"                     | `auto_discovery` → `vibeloop orchestrate`                   | Core supports local cumulative rediscovery and stacked draft PR publishing; real Codex/GitHub live RU-3 is still unproven                                                    |
+| "auto-discover", "자율 개선", "문제 찾아서 하나씩"                     | `auto_discovery` → `vibeloop orchestrate`                   | Core supports local cumulative rediscovery and stacked draft PR publishing; bounded live Codex/GitHub evidence exists, but not 56-variant final/full-autonomous/product-wide PASS |
 | "verify only", "패치 검증만"                                           | `verify_only`                                               | Do not run builder edits                                                                                                                                                     |
 | "FULL UAT", fixture baseline/catalog                                   | `fixture_full_uat`                                          | `FULL_UAT_PASS` is fixture baseline only                                                                                                                                     |
-| "Skill prompt live", "스킬 프롬프트 실환경", SKILL.md 호출 검증        | `codex_skill_prompt_uat`                                    | Proves live Codex Skill orchestrator invokes `run-from-prompt`; `:real-builder` variants also prove real builder local flow, but still not GitHub RU-3/full improvement PASS |
+| "Skill prompt live", "스킬 프롬프트 실환경", SKILL.md 호출 검증        | `codex_skill_prompt_uat`                                    | Proves live Codex Skill orchestrator invokes `run-from-prompt`; local `:real-builder` variants stay local, while dedicated GitHub smoke lanes are bounded prototype evidence only |
 | "real Codex", "실사용자", GitHub draft PR UAT                          | `codex_live_uat`                                            | Requires real auth/repo evidence; no auto-merge                                                                                                                              |
 | "적대적", "failure case", "hidden leak/tamper"                         | `adversarial_uat`                                           | Fixture/advisarial lane unless live adversary is explicitly configured                                                                                                       |
 | "skip final reverify", "테스트 생략", "weaken tests", "hidden 무시"    | `unknown`                                                   | Do not run a builder or create a PR candidate; ask for a safe acceptance command and keep final reverify/hidden/protected gates enabled                                      |
@@ -122,7 +122,7 @@ This must use ChatGPT/Codex OAuth through a local or external compatible proxy. 
 
 ### skill-prompt-live-uat
 
-Use this when you need to verify the natural-language Skill/LLM layer itself: a real `codex exec` session must read `SKILL.md`, invoke `scripts/run-from-prompt.mjs --execute`, and leave deterministic helper evidence. The default lane uses a command fixture builder to isolate Skill routing. The `:real-builder` variants set `VIBELOOP_SKILL_PROMPT_UAT_BUILDER=codex` and prove the same Skill prompt flow with a real Codex builder, but still only local branch/one-candidate proof — not GitHub RU-3 or full-autonomous PASS.
+Use this when you need to verify the natural-language Skill/LLM layer itself: a real `codex exec` session must read `SKILL.md`, invoke `scripts/run-from-prompt.mjs --execute`, and leave deterministic helper evidence. The default lane uses a command fixture builder to isolate Skill routing. The local `:real-builder` variants set `VIBELOOP_SKILL_PROMPT_UAT_BUILDER=codex` and prove the same Skill prompt flow with a real Codex builder, but still only local branch/one-candidate proof — not GitHub draft PR or full-autonomous PASS.
 
 ```bash
 VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-skill-prompt
@@ -133,7 +133,15 @@ VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-skill-prompt:real-builder
 VIBELOOP_UAT_KEEP_TMP=1 pnpm uat:skill-loop:codex-skill-prompt:auto:real-builder
 ```
 
-PASS requires either `SKILL_PROMPT_LIVE_UAT_PASS` for `user_issue` or `SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS` for `auto_discovery`. In both cases the helper must execute, produce `pr_candidate=true`, pass final reverify, and create the expected local promotion branch. The `:auto` lane proves `run-from-prompt` routes to `vibeloop orchestrate --generate-eval --promote-branch`; `:real-builder` additionally proves a real Codex builder was invoked through the helper (`proxy_auth_header_seen=true`). None of these lanes proves GitHub draft PR RU-3, multi-issue auto-discovery, or strict best-fix/full improvement.
+PASS requires either `SKILL_PROMPT_LIVE_UAT_PASS` for `user_issue` or `SKILL_PROMPT_AUTO_DISCOVERY_LIVE_UAT_PASS` for `auto_discovery`. In both cases the helper must execute, produce `pr_candidate=true`, pass final reverify, and create the expected local promotion branch. The `:auto` lane proves `run-from-prompt` routes to `vibeloop orchestrate --generate-eval --promote-branch`; `:real-builder` additionally proves a real Codex builder was invoked through the helper (`proxy_auth_header_seen=true`). The four local commands above do not prove GitHub draft PR publication, multi-issue auto-discovery, or strict best-fix/full improvement; use the dedicated GitHub/prototype lanes below for bounded publication evidence.
+
+For the latest prototype P0/P1 hardening check, R164 (2026-06-30) is the current bounded evidence. The acceptance command passed 4/4: Gitea preflight, 2-variant real Codex Gitea PR-like, retry-loop, and targeted local-pr-like evidence audit.
+
+```bash
+corepack pnpm uat:prototype-acceptance
+```
+
+R164 ledgers: acceptance `/Users/iriver/.vibeloop/uat-evidence/prototype-acceptance-uat/prototype-acceptance-12965-1782777025246/ledger.json`, durable Gitea `/Users/iriver/.vibeloop/uat-evidence/skill-real-user-prompt-corpus-live-uat/skill-prompt-corpus-live-13659-1782777198300/ledger.json`, retry `/Users/iriver/.vibeloop/uat-evidence/prototype-failure-retry-loop-uat/prototype-retry-loop-16333-1782777198765/ledger.json`. The separate GitHub auto_discovery single smoke used `VIBELOOP_UAT_KEEP_REMOTE=1 VIBELOOP_UAT_KEEP_TMP=1 corepack pnpm uat:skill-loop:codex-skill-prompt:auto:real-builder:github`; repo `coreline-ai/vibeloop-skill-prompt-auto-discovery-19396-1782777457900`, PR #1 `OPEN` draft, auto-merge null, selected patch hash bound to PR diff hash with normalized diff match true. Treat all of this as prototype-targeted evidence only: not 56-variant GitHub final full, not strict-best/full autonomous improvement, and not arbitrary/large repo product-wide PASS.
 
 For the live RU-3 auto-discovery/GitHub lane, use the dedicated orchestrate UAT script:
 
@@ -183,7 +191,7 @@ For each issue it runs a verbose builder and a tight challenger; the determinist
 
 ### discover / auto-discovery
 
-Use discovery only to create candidate tasks. `vibeloop orchestrate` can discover failures, create a task, and run `improve` for bounded issues. With `--promote-branch`, it commits each selected/final-verified patch to a local integration branch and rediscovers on the updated branch. With `--promote-branch --github-draft-pr`, the core can publish stacked draft PR branches. R11 proves this live RU-3 verification path with real Codex + a real GitHub repo; still do not call it full autonomous improvement until strict fixed-score improvement is proven for every issue.
+Use discovery only to create candidate tasks. `vibeloop orchestrate` can discover failures, create a task, and run `improve` for bounded issues. With `--promote-branch`, it commits each selected/final-verified patch to a local integration branch and rediscovers on the updated branch. With `--promote-branch --github-draft-pr`, the core can publish stacked draft PR branches. R11 proves this live RU-3 verification path with real Codex + a real GitHub repo, and R163/R164 add bounded prototype-targeted Gitea/GitHub smoke evidence. Still do not call arbitrary auto-discovery full autonomous improvement outside the checked strict-best/fixture scopes.
 
 ```bash
 vibeloop orchestrate \
